@@ -44,8 +44,8 @@ export class GhostPlayer {
     return this.session.truck;
   }
 
-  get cargo() {
-    return this.session.cargo;
+  get cargoBoxes() {
+    return this.session.cargoBoxes;
   }
 
   update(dt: number): void {

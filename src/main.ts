@@ -68,7 +68,6 @@ const resultsStability = document.getElementById("results-stability")!;
 const hudTimer = document.getElementById("hud-timer")!;
 const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
-const hudStabilityBar = document.getElementById("hud-stability-bar")!;
 const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
@@ -246,12 +245,6 @@ const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 }
 const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
 const COUNTDOWN_STEP_DURATION = 0.8;
 
-function stabilityColor(stability: number): string {
-  if (stability > 50) return "#3ecf6b";
-  if (stability > 25) return "#e0a83e";
-  return "#e0453e";
-}
-
 function beginRun(playable: Playable): void {
   active = playable;
   session = new GameSession(playable.level);
@@ -278,13 +271,13 @@ function endRun(): void {
   if (session.status === "success") {
     resultsTitle.textContent = "Delivered!";
     resultsTime.textContent = `Time: ${session.elapsed.toFixed(2)}s`;
-    resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.cargo.stability)}%`;
+    resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.stability)}%`;
 
     const previousBest = active.personalBest;
     const recording: GhostRecording = {
       seed: active.seed,
       time: session.elapsed,
-      stability: session.cargo.stability,
+      stability: session.stability,
       inputLog: session.inputLog.slice(),
     };
     const isNewBest = savePersonalBestIfBetter(recording);
@@ -363,15 +356,19 @@ let accumulator = 0;
 function renderScene(activeSession: GameSession, frameDt: number): void {
   updateCamera(camera, activeSession.truck, frameDt);
   const ghostViews: GhostView[] = [];
-  if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargo: pbGhost.cargo, label: "pb" });
+  if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargoBoxes: pbGhost.cargoBoxes, label: "pb" });
   if (leaderboardGhost) {
-    ghostViews.push({ truck: leaderboardGhost.truck, cargo: leaderboardGhost.cargo, label: selectedGhostEntry?.nickname ?? "ghost" });
+    ghostViews.push({
+      truck: leaderboardGhost.truck,
+      cargoBoxes: leaderboardGhost.cargoBoxes,
+      label: selectedGhostEntry?.nickname ?? "ghost",
+    });
   }
   renderWorld(
     ctx,
     active.level,
     activeSession.truck,
-    activeSession.cargo,
+    activeSession.cargoBoxes,
     activeSession.visited,
     ghostViews,
     camera,
@@ -400,8 +397,6 @@ function frame(now: number): void {
       renderScene(session, frameDt);
       hudTimer.textContent = "0.0s";
       hudObjective.textContent = `Pick up cargo (0/${session.pickups.length})`;
-      hudStabilityBar.style.width = "100%";
-      hudStabilityBar.style.backgroundColor = stabilityColor(100);
     }
   } else if (appState === "playing" && session) {
     accumulator += frameDt;
@@ -419,9 +414,6 @@ function frame(now: number): void {
     hudObjective.textContent = session.allPickedUp
       ? "Deliver to destination"
       : `Pick up cargo (${session.visited.size}/${session.pickups.length})`;
-    const stability = Math.round(session.cargo.stability);
-    hudStabilityBar.style.width = `${stability}%`;
-    hudStabilityBar.style.backgroundColor = stabilityColor(stability);
 
     if (session.status !== "playing") endRun();
   } else {

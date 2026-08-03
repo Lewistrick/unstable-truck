@@ -14,15 +14,11 @@
 
     <div id="hud" class="hidden">
       <div id="hud-left">
-        <div id="hud-timer">0.0s</div>
         <div id="hud-pb"></div>
       </div>
       <div id="hud-objective">Pick up cargo</div>
-      <div id="hud-stability-wrap">
-        <div id="hud-stability-label">CARGO</div>
-        <div id="hud-stability-track">
-          <div id="hud-stability-bar"></div>
-        </div>
+      <div id="hud-timer-wrap">
+        <div id="hud-timer">0.0s</div>
       </div>
     </div>
 
@@ -60,6 +56,7 @@
           <label for="nickname-input">Nickname</label>
           <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />
         </div>
+        <p class="hint">Click any player in the leaderboard to race against their ghost.</p>
         <div id="leaderboard">
           <div class="leaderboard-header" id="leaderboard-header">Today's Leaderboard</div>
           <ol id="leaderboard-list"></ol>

@@ -1,5 +1,5 @@
 import { distance } from "../util/vec2.js";
-import { applyImpactStabilityHit, createCargo, updateCargo, type CargoState } from "../physics/cargo.js";
+import { applyImpactStabilityHit, createCargo, updateCargo, type CargoLeader, type CargoState } from "../physics/cargo.js";
 import { createTruck, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
 import { sampleTerrain } from "../level/terrain.js";
 import type { Level, Warehouse } from "../level/types.js";
@@ -20,10 +20,14 @@ function findWarehouse(level: Level, kind: Warehouse["kind"]): Warehouse {
 export class GameSession {
   readonly level: Level;
   readonly truck: TruckState;
-  readonly cargo: CargoState;
   readonly base: Warehouse;
   readonly pickups: Warehouse[];
   readonly destination: Warehouse;
+
+  /** One trailing box per pickup visited so far, in visit order: the first
+   * box hitches directly behind the truck, and each later box hitches
+   * behind the one before it. */
+  readonly cargoBoxes: CargoState[] = [];
 
   visited = new Set<Warehouse>();
   status: GameStatus = "playing";
@@ -52,17 +56,22 @@ export class GameSession {
     }
     const heading = Math.atan2(firstTarget.pos.y - this.base.pos.y, firstTarget.pos.x - this.base.pos.x);
     this.truck = createTruck(this.base.pos, heading);
-    this.cargo = createCargo(this.truck);
   }
 
-  /** True once at least one pickup has been visited and the cargo box is loaded/trailing. */
+  /** True once at least one pickup has been visited and a cargo box is loaded/trailing. */
   get hasCargo(): boolean {
-    return this.visited.size > 0;
+    return this.cargoBoxes.length > 0;
   }
 
   /** True once every pickup warehouse has been visited, unlocking delivery. */
   get allPickedUp(): boolean {
     return this.visited.size >= this.pickups.length;
+  }
+
+  /** Stability of the shakiest box in the chain - the one at risk of falling
+   * off first. 100 while no cargo has been picked up yet. */
+  get stability(): number {
+    return this.cargoBoxes.length === 0 ? 100 : Math.min(...this.cargoBoxes.map((box) => box.stability));
   }
 
   /** The current tick index (0 at run start, +1 per update() call). */
@@ -84,26 +93,26 @@ export class GameSession {
 
     for (const rock of this.level.rocks) {
       const hit = resolveRockCollision(this.truck, rock.pos, rock.radius);
-      if (hit && this.hasCargo) applyImpactStabilityHit(this.cargo, ROCK_IMPACT_STABILITY_HIT);
+      if (hit) {
+        for (const box of this.cargoBoxes) applyImpactStabilityHit(box, ROCK_IMPACT_STABILITY_HIT);
+      }
     }
 
     for (const wh of this.pickups) {
       if (!this.visited.has(wh) && distance(this.truck.pos, wh.pos) < PICKUP_DELIVER_RADIUS) {
         this.visited.add(wh);
+        const hitchPoint: CargoLeader = this.cargoBoxes[this.cargoBoxes.length - 1] ?? this.truck;
+        this.cargoBoxes.push(createCargo(hitchPoint));
       }
     }
 
-    if (!this.hasCargo) {
-      // Cargo box isn't loaded yet, so it doesn't trail or destabilize; it
-      // just rides along with the truck until the first pickup.
-      this.cargo.pos.x = this.truck.pos.x;
-      this.cargo.pos.y = this.truck.pos.y;
-      this.cargo.angle = this.truck.heading;
-      return;
+    let leader: CargoLeader = this.truck;
+    for (const box of this.cargoBoxes) {
+      updateCargo(box, leader, dt, terrain);
+      leader = box;
     }
 
-    updateCargo(this.cargo, this.truck, dt, terrain);
-    if (this.cargo.stability <= 0) {
+    if (this.cargoBoxes.some((box) => box.stability <= 0)) {
       this.status = "fail";
       return;
     }

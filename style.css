@@ -348,12 +348,6 @@ button:active {
   gap: 2px;
 }
 
-#hud-timer {
-  font-size: 1.4rem;
-  font-weight: 700;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-}
-
 #hud-pb {
   font-size: 0.8rem;
   color: #c3cad4;
@@ -371,32 +365,18 @@ button:active {
   border-radius: 6px;
 }
 
-#hud-stability-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: flex-end;
-  min-width: 130px;
+#hud-timer-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
 }
 
-#hud-stability-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  color: #c3cad4;
-}
-
-#hud-stability-track {
-  width: 130px;
-  height: 12px;
-  background: rgba(0, 0, 0, 0.4);
+#hud-timer {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #000;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 4px 14px;
   border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-#hud-stability-bar {
-  height: 100%;
-  width: 100%;
-  background: #3ecf6b;
-  transition: width 0.1s linear, background-color 0.2s linear;
 }

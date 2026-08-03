@@ -95,7 +95,7 @@ function drawWarehouses(
 function drawCargo(ctx: CanvasRenderingContext2D, cargo: CargoState): void {
   ctx.save();
   ctx.translate(cargo.pos.x, cargo.pos.y);
-  ctx.rotate(cargo.angle);
+  ctx.rotate(cargo.heading);
   const w = 26;
   const h = 20;
   const stabilityColor = cargo.stability > 50 ? "#8a5a34" : cargo.stability > 25 ? "#b0632f" : "#c23b2a";
@@ -105,6 +105,13 @@ function drawCargo(ctx: CanvasRenderingContext2D, cargo: CargoState): void {
   ctx.lineWidth = 2;
   ctx.strokeRect(-w / 2, -h / 2, w, h);
   ctx.restore();
+}
+
+/** Draws a chain of trailing cargo boxes back-to-front (the box farthest
+ * from the truck first) so nearer boxes correctly overlap farther ones
+ * during tight turns. */
+function drawCargoChain(ctx: CanvasRenderingContext2D, cargoBoxes: readonly CargoState[]): void {
+  for (let i = cargoBoxes.length - 1; i >= 0; i--) drawCargo(ctx, cargoBoxes[i]!);
 }
 
 function drawTruck(ctx: CanvasRenderingContext2D, truck: TruckState): void {
@@ -143,7 +150,7 @@ export function updateCamera(camera: Camera, truck: TruckState, dt: number): voi
 
 export interface GhostView {
   truck: TruckState;
-  cargo: CargoState;
+  cargoBoxes: readonly CargoState[];
   /** Small muted label drawn above the ghost - e.g. "pb" or a nickname. */
   label: string;
 }
@@ -154,7 +161,7 @@ export function renderWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
   truck: TruckState,
-  cargo: CargoState,
+  cargoBoxes: readonly CargoState[],
   visited: ReadonlySet<Warehouse>,
   ghosts: readonly GhostView[],
   camera: Camera,
@@ -179,13 +186,13 @@ export function renderWorld(
   for (const ghost of ghosts) {
     ctx.save();
     ctx.globalAlpha = GHOST_ALPHA;
-    drawCargo(ctx, ghost.cargo);
+    drawCargoChain(ctx, ghost.cargoBoxes);
     drawTruck(ctx, ghost.truck);
     ctx.restore();
     drawNameLabel(ctx, ghost.truck.pos, ghost.label);
   }
 
-  drawCargo(ctx, cargo);
+  drawCargoChain(ctx, cargoBoxes);
   drawTruck(ctx, truck);
   drawNameLabel(ctx, truck.pos, "you");
 

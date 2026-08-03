@@ -25,7 +25,7 @@ function makeSegment(rng: Rng, a: Vec2, b: Vec2, isBranch: boolean): RoadSegment
   const bow2 = randRange(rng, -0.22, 0.22) * distance(a, b);
   const p1 = add(add(a, scale(sub(b, a), 0.33)), scale(side, bow1));
   const p2 = add(add(a, scale(sub(b, a), 0.66)), scale(side, bow2));
-  const width = randRange(rng, isBranch ? 32 : 40, isBranch ? 45 : 55);
+  const width = randRange(rng, isBranch ? 38 : 48, isBranch ? 52 : 64);
   return { p0: a, p1, p2, p3: b, width, isBranch, samples: sampleSegment(a, p1, p2, b) };
 }
 
