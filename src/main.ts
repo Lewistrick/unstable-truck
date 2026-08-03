@@ -1,4 +1,4 @@
-import { generateLevel, todaySeed } from "./level/generate.js";
+import { generateLevel, shiftSeed, todaySeed } from "./level/generate.js";
 import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
@@ -30,6 +30,22 @@ const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputEle
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 
 startDateEl.textContent = `Today's route — ${seed}`;
+
+const PAST_LEVEL_LABELS = ["Yesterday", "2 days ago"];
+for (let i = 0; i < PAST_LEVEL_LABELS.length; i++) {
+  const pastSeed = shiftSeed(seed, -(i + 1));
+  const pastLevel = generateLevel(pastSeed);
+  const pastBest = loadPersonalBest(pastSeed);
+
+  const dateEl = document.getElementById(`past-level-date-${i + 1}`)!;
+  const bestEl = document.getElementById(`past-level-best-${i + 1}`)!;
+  const canvasEl = document.getElementById(`past-level-canvas-${i + 1}`) as HTMLCanvasElement;
+  const pastCtx = canvasEl.getContext("2d")!;
+
+  dateEl.textContent = `${PAST_LEVEL_LABELS[i]} — ${pastSeed}`;
+  bestEl.textContent = pastBest ? `Best: ${pastBest.time.toFixed(2)}s` : "Best: —";
+  renderMinimap(pastCtx, pastLevel, 0, 0, canvasEl.width, canvasEl.height);
+}
 
 let personalBest: GhostRecording | null = loadPersonalBest(seed);
 
@@ -110,8 +126,22 @@ function endRun(): void {
   }
 }
 
+/** Abandons the current run (no result is recorded) and returns to the start screen. */
+function abortRun(): void {
+  if (appState !== "playing") return;
+  appState = "start";
+  session = null;
+  ghost = null;
+  hud.classList.add("hidden");
+  resultsScreen.classList.add("hidden");
+  startScreen.classList.remove("hidden");
+}
+
 startBtn.addEventListener("click", beginRun);
 retryBtn.addEventListener("click", beginRun);
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") abortRun();
+});
 
 // Physics run on a fixed timestep, independent of render framerate. This is
 // what makes ghost replay deterministic: elapsed time (and therefore every

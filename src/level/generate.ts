@@ -51,3 +51,14 @@ export function todaySeed(): string {
   const d = String(now.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+/** Shifts a YYYY-MM-DD seed by a number of days (negative for earlier). */
+export function shiftSeed(seed: string, deltaDays: number): string {
+  const [y, m, d] = seed.split("-").map(Number);
+  const date = new Date(y!, m! - 1, d!);
+  date.setDate(date.getDate() + deltaDays);
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
