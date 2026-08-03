@@ -44,7 +44,6 @@ export interface RoughZone {
 }
 
 export interface Palette {
-  hueOffset: number;
   grass: string;
   grassAlt: string;
   road: string;

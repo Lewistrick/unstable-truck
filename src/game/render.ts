@@ -62,7 +62,7 @@ function drawObstacles(ctx: CanvasRenderingContext2D, level: Level): void {
   }
 }
 
-type PaletteColorKey = Exclude<keyof Level["palette"], "hueOffset">;
+type PaletteColorKey = keyof Level["palette"];
 
 const WAREHOUSE_COLOR: Record<string, PaletteColorKey> = {
   base: "warehouseBase",
