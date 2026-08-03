@@ -10,7 +10,13 @@ export function createInput(target: HTMLElement): InputState {
     state.held = true;
     e.preventDefault();
   };
+  // Release is bound to window so a press started on the target still ends even
+  // if the finger/cursor lifts elsewhere. But it must be a no-op when nothing
+  // is held: otherwise every touchend on the page (tapping the minimap, the
+  // nav arrows, buttons) would call preventDefault() and cancel the synthesized
+  // click, breaking those controls on touch devices.
   const release = (e: Event) => {
+    if (!state.held) return;
     state.held = false;
     e.preventDefault();
   };
@@ -25,8 +31,8 @@ export function createInput(target: HTMLElement): InputState {
   target.addEventListener("mousedown", press);
   window.addEventListener("mouseup", release);
   target.addEventListener("touchstart", press, { passive: false });
-  window.addEventListener("touchend", release);
-  window.addEventListener("touchcancel", release);
+  window.addEventListener("touchend", release, { passive: false });
+  window.addEventListener("touchcancel", release, { passive: false });
   target.addEventListener("contextmenu", (e) => e.preventDefault());
 
   return state;
