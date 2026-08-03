@@ -50,10 +50,12 @@ const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const pastLevelBest1 = document.getElementById("past-level-best-1")!;
 const pastLevelBest2 = document.getElementById("past-level-best-2")!;
+const todayBestEl = document.getElementById("today-best")!;
 
 startDateEl.textContent = `Today's route — ${today.seed}`;
 
 function refreshTodayUi(): void {
+  todayBestEl.textContent = today.personalBest ? `Best: ${today.personalBest.time.toFixed(2)}s` : "Best: —";
   if (today.personalBest) {
     pbGhostToggle.disabled = false;
     pbGhostToggle.checked = true;
@@ -67,6 +69,25 @@ function refreshTodayUi(): void {
   }
 }
 refreshTodayUi();
+
+/** Picks readable text color (dark or light) for a given `hsl(h s% l%)`
+ * background, since today's road/grass/mud/rock colors are seeded per day
+ * and can land anywhere in their brightness range. */
+function contrastTextFor(hslColor: string): string {
+  const match = hslColor.match(/hsl\(\s*[\d.-]+\s+[\d.]+%\s+([\d.]+)%/);
+  const lightness = match ? parseFloat(match[1]!) : 50;
+  return lightness > 55 ? "#12161c" : "#f5f7fa";
+}
+
+function paintTerrainTag(id: string, backgroundColor: string): void {
+  const el = document.getElementById(id)!;
+  el.style.backgroundColor = backgroundColor;
+  el.style.color = contrastTextFor(backgroundColor);
+}
+paintTerrainTag("tag-road", today.level.palette.road);
+paintTerrainTag("tag-grass", today.level.palette.grass);
+paintTerrainTag("tag-mud", today.level.palette.mud);
+paintTerrainTag("tag-rock", today.level.palette.rock);
 
 function renderPastCard(playable: Playable, index: 1 | 2, label: string): void {
   const dateEl = document.getElementById(`past-level-date-${index}`)!;

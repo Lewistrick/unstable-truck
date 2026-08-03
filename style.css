@@ -109,6 +109,16 @@ html, body {
 .tag-pickup { background: hsl(2 72% 50%); }
 .tag-destination { background: hsl(140 55% 38%); }
 
+/* Background + text color are set inline via JS from today's actual palette
+ * (road/grass/mud/rock hues are seeded per day), so only shared box styling
+ * lives here. */
+.terrain-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
 #past-levels {
   display: flex;
   gap: 12px;
