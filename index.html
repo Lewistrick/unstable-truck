@@ -30,6 +30,10 @@
       <div class="panel">
         <h1>Unstable Truck</h1>
         <p id="viewed-date" class="muted"></p>
+        <div id="progress-strip">
+          <span id="streak-badge" title="Consecutive days delivered"></span>
+          <div id="day-dots" aria-label="Recent days completed"></div>
+        </div>
         <div id="thumbnail-nav">
           <button id="nav-prev-btn" class="nav-arrow" aria-label="Previous day" type="button">&#8249;</button>
           <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
@@ -40,7 +44,10 @@
           <input type="checkbox" id="pb-ghost-toggle" disabled />
           <span id="pb-ghost-label">No personal best yet</span>
         </label>
-        <p class="past-level-best" id="viewed-best"></p>
+        <div id="viewed-best-row">
+          <p class="past-level-best" id="viewed-best"></p>
+          <button id="best-share-btn" class="btn-secondary btn-share-inline hidden" type="button">Share</button>
+        </div>
         <p class="hint">
           Hold (space / tap / click) to steer right. Release to drift left.<br />
           Visit every <span class="tag tag-pickup">P</span> pickup, then deliver to <span
@@ -67,11 +74,13 @@
     <div id="results-screen" class="screen hidden">
       <div class="panel">
         <h1 id="results-title"></h1>
+        <p id="results-medal" class="hidden"></p>
         <p id="results-time"></p>
         <p id="results-personal-best" class="muted"></p>
         <p id="results-stability"></p>
         <div id="results-actions">
           <button id="retry-btn">Retry</button>
+          <button id="share-btn" class="btn-secondary hidden">Share</button>
           <button id="home-btn" class="btn-secondary">Home</button>
         </div>
         <p class="muted" id="retry-hint">Enter to retry &middot; Esc for home</p>

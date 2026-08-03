@@ -80,6 +80,44 @@ export function pruneOldPersonalBests(): void {
   for (const key of staleKeys) localStorage.removeItem(key);
 }
 
+const COMPLETED_KEY = "unstable-truck:completed";
+// Completion history feeds the streak counter, which can legitimately outlive
+// the 7-day personal-best window (play every day and the streak keeps
+// growing), so it's kept far longer - just bounded so it can't grow forever.
+const COMPLETED_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
+
+function parseCompleted(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((d): d is string => typeof d === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function isRecentSeed(seed: string): boolean {
+  const [y, m, d] = seed.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  return Date.now() - new Date(y, m - 1, d).getTime() <= COMPLETED_MAX_AGE_MS;
+}
+
+/** Records a day's seed as completed (a successful delivery). Idempotent -
+ * completing the same day twice doesn't duplicate it - and prunes entries
+ * older than the retention window on write so the set stays bounded. */
+export function recordCompletion(seed: string): void {
+  const set = new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
+  set.add(seed);
+  const kept = [...set].filter(isRecentSeed).sort();
+  localStorage.setItem(COMPLETED_KEY, JSON.stringify(kept));
+}
+
+/** The set of day seeds (YYYY-MM-DD) the player has ever completed, within the
+ * retention window. */
+export function loadCompletedDays(): Set<string> {
+  return new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
+}
+
 const NICKNAME_KEY = "unstable-truck:nickname";
 const MAX_NICKNAME_LENGTH = 24;
 

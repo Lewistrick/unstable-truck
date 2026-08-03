@@ -5,17 +5,28 @@ import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
-import { getOrCreateNickname, loadPersonalBest, pruneOldPersonalBests, savePersonalBestIfBetter, setNickname } from "./game/storage.js";
+import {
+  getOrCreateNickname,
+  loadCompletedDays,
+  loadPersonalBest,
+  pruneOldPersonalBests,
+  recordCompletion,
+  savePersonalBestIfBetter,
+  setNickname,
+} from "./game/storage.js";
+import { computeMedalPars, medalFor, MEDAL_ICON, MEDAL_LABEL, type Medal, type MedalPars } from "./game/medals.js";
 import type { Level } from "./level/types.js";
 
 interface Playable {
   seed: string;
   level: Level;
   personalBest: GhostRecording | null;
+  pars: MedalPars;
 }
 
 function makePlayable(seed: string): Playable {
-  return { seed, level: generateLevel(seed), personalBest: loadPersonalBest(seed) };
+  const level = generateLevel(seed);
+  return { seed, level, personalBest: loadPersonalBest(seed), pars: computeMedalPars(level) };
 }
 
 // Drop any personal bests older than a week before loading anything.
@@ -62,6 +73,8 @@ const navNextBtn = document.getElementById("nav-next-btn") as HTMLButtonElement;
 const retryBtn = document.getElementById("retry-btn")!;
 const homeBtn = document.getElementById("home-btn")!;
 const resultsTitle = document.getElementById("results-title")!;
+const resultsMedal = document.getElementById("results-medal")!;
+const shareBtn = document.getElementById("share-btn") as HTMLButtonElement;
 const resultsTime = document.getElementById("results-time")!;
 const resultsPersonalBest = document.getElementById("results-personal-best")!;
 const resultsStability = document.getElementById("results-stability")!;
@@ -73,9 +86,12 @@ const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const viewedBestEl = document.getElementById("viewed-best")!;
+const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
+const streakBadge = document.getElementById("streak-badge")!;
+const dayDots = document.getElementById("day-dots")!;
 
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
@@ -89,6 +105,12 @@ nicknameInput.addEventListener("change", () => {
 function refreshViewedUi(): void {
   viewedDateEl.textContent = `${describeOffset(viewedOffset)} — ${viewed.seed}`;
   viewedBestEl.textContent = viewed.personalBest ? `Best: ${viewed.personalBest.time.toFixed(2)}s` : "Best: —";
+
+  // Sharing the best time is offered only for today, and only once there's a
+  // best to share.
+  const canShareBest = viewedOffset === 0 && viewed.personalBest != null;
+  bestShareBtn.classList.toggle("hidden", !canShareBest);
+  if (canShareBest) bestShareBtn.textContent = "Share";
   if (viewed.personalBest) {
     pbGhostToggle.disabled = false;
     pbGhostToggle.checked = true;
@@ -122,6 +144,40 @@ function paintViewedTerrainTags(): void {
   paintTerrainTag("tag-grass", viewed.level.palette.grass);
   paintTerrainTag("tag-mud", viewed.level.palette.mud);
   paintTerrainTag("tag-rock", viewed.level.palette.rock);
+}
+
+// --- Streak + recent-days calendar -----------------------------------------
+
+/** Consecutive days delivered, counting back from today. Finishing today
+ * extends the streak; if today isn't done yet, yesterday's streak still shows
+ * (a one-day grace) until the day rolls over. */
+function currentStreak(completed: Set<string>): number {
+  let streak = 0;
+  let offset = completed.has(todaysSeed) ? 0 : -1;
+  while (completed.has(shiftSeed(todaysSeed, offset))) {
+    streak++;
+    offset--;
+  }
+  return streak;
+}
+
+/** Renders the streak badge plus one dot per navigable day (oldest on the
+ * left, today on the right), filled in for days that have been delivered. */
+function renderProgressStrip(): void {
+  const completed = loadCompletedDays();
+  const streak = currentStreak(completed);
+  streakBadge.textContent = streak > 0 ? `\u{1F525} ${streak}-day streak` : "";
+
+  dayDots.replaceChildren();
+  for (let offset = -MAX_PAST_DAYS; offset <= 0; offset++) {
+    const seed = shiftSeed(todaysSeed, offset);
+    const dot = document.createElement("span");
+    dot.className = "day-dot";
+    if (completed.has(seed)) dot.classList.add("done");
+    if (offset === 0) dot.classList.add("today");
+    dot.title = seed;
+    dayDots.appendChild(dot);
+  }
 }
 
 // --- Leaderboard (for whichever day is currently viewed) -------------------
@@ -227,6 +283,7 @@ resizeCanvas();
 updateNavButtons();
 refreshViewedUi();
 paintViewedTerrainTags();
+renderProgressStrip();
 renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
 void refreshLeaderboard();
 
@@ -244,6 +301,84 @@ const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 }
 // "GO" gets its own step so it's visible for one beat before play begins.
 const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
 const COUNTDOWN_STEP_DURATION = 0.8;
+
+// --- Medal + share (results screen) ----------------------------------------
+
+let lastShareText: string | null = null;
+
+/** Shows the earned medal (or a "no medal" nudge) plus the time still needed
+ * for the next tier up. */
+function showMedal(medal: Medal | null, pars: MedalPars): void {
+  resultsMedal.classList.remove("hidden");
+  if (!medal) {
+    resultsMedal.textContent = `No medal — Bronze under ${pars.bronze.toFixed(2)}s`;
+    return;
+  }
+  let text = `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}!`;
+  if (medal === "silver") text += ` — Gold under ${pars.gold.toFixed(2)}s`;
+  else if (medal === "bronze") text += ` — Silver under ${pars.silver.toFixed(2)}s`;
+  resultsMedal.textContent = text;
+}
+
+/** Spoiler-free result summary for the clipboard - no route/map details, just
+ * the day, medal, time, cargo condition, and current streak. */
+function buildShareText(playable: Playable, time: number, stability: number, medal: Medal | null): string {
+  const medalPart = medal ? `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}` : "No medal";
+  const lines = [
+    `Unstable Truck \u{1F69A} ${playable.seed}`,
+    `${medalPart} · ${time.toFixed(2)}s · \u{1F4E6} ${Math.round(stability)}%`,
+  ];
+  const streak = currentStreak(loadCompletedDays());
+  if (streak > 1) lines.push(`\u{1F525} ${streak}-day streak`);
+  return lines.join("\n");
+}
+
+/** Spoiler-free summary of the currently-viewed day's stored best time, or
+ * null if there isn't one. Used by the home-screen "Best time" Share button. */
+function currentBestShareText(): string | null {
+  const best = viewed.personalBest;
+  if (!best) return null;
+  return buildShareText(viewed, best.time, best.stability, medalFor(best.time, viewed.pars));
+}
+
+/** Wires a Share button to copy text (from `getText`) on click, flashing a
+ * transient "Copied!"/"Copy failed" label before reverting to "Share". */
+function attachShareHandler(btn: HTMLButtonElement, getText: () => string | null): void {
+  let resetTimer: number | undefined;
+  btn.addEventListener("click", async () => {
+    const text = getText();
+    if (!text) return;
+    const ok = await copyText(text);
+    btn.textContent = ok ? "Copied!" : "Copy failed";
+    window.clearTimeout(resetTimer);
+    resetTimer = window.setTimeout(() => {
+      btn.textContent = "Share";
+    }, 1600);
+  });
+}
+
+/** Copies text to the clipboard, falling back to a hidden-textarea + execCommand
+ * for contexts without the async clipboard API. Returns whether it worked. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
 
 function beginRun(playable: Playable): void {
   active = playable;
@@ -272,6 +407,17 @@ function endRun(): void {
     resultsTitle.textContent = "Delivered!";
     resultsTime.textContent = `Time: ${session.elapsed.toFixed(2)}s`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.stability)}%`;
+
+    const medal = medalFor(session.elapsed, active.pars);
+    showMedal(medal, active.pars);
+
+    // Mark the day delivered (drives the streak + calendar) before building
+    // the share text, so a fresh completion is reflected in the streak count.
+    recordCompletion(active.seed);
+    renderProgressStrip();
+    lastShareText = buildShareText(active, session.elapsed, session.stability, medal);
+    shareBtn.textContent = "Share";
+    shareBtn.classList.remove("hidden");
 
     const previousBest = active.personalBest;
     const recording: GhostRecording = {
@@ -304,6 +450,9 @@ function endRun(): void {
     resultsTime.textContent = `Survived ${session.elapsed.toFixed(2)}s`;
     resultsStability.textContent = "Drive smoother and avoid mud and rocks.";
     resultsPersonalBest.textContent = "";
+    resultsMedal.classList.add("hidden");
+    shareBtn.classList.add("hidden");
+    lastShareText = null;
   }
 }
 
@@ -323,6 +472,9 @@ function goHome(): void {
 
 retryBtn.addEventListener("click", () => beginRun(active));
 homeBtn.addEventListener("click", goHome);
+
+attachShareHandler(shareBtn, () => lastShareText);
+attachShareHandler(bestShareBtn, currentBestShareText);
 minimapCanvas.addEventListener("click", () => beginRun(viewed));
 minimapCanvas.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {

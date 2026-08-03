@@ -62,6 +62,16 @@ html, body {
   letter-spacing: 0.02em;
 }
 
+.hidden {
+  display: none;
+}
+
+#results-medal {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-top: -4px;
+}
+
 .muted {
   color: #9aa4b2;
   font-size: 0.9rem;
@@ -127,6 +137,47 @@ html, body {
   margin-top: -8px;
 }
 
+#progress-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: -6px;
+}
+
+#streak-badge {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f0a24a;
+  white-space: nowrap;
+}
+
+#streak-badge:empty {
+  display: none;
+}
+
+#day-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.day-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #2c3542;
+  border: 1px solid #3a4554;
+}
+
+.day-dot.done {
+  background: hsl(140 55% 42%);
+  border-color: hsl(140 55% 52%);
+}
+
+.day-dot.today {
+  box-shadow: 0 0 0 2px rgba(240, 162, 74, 0.6);
+}
+
 .hint {
   font-size: 0.85rem;
   line-height: 1.5;
@@ -154,9 +205,24 @@ html, body {
   font-weight: 700;
 }
 
+#viewed-best-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
 .past-level-best {
   font-size: 0.75rem;
   color: #c3cad4;
+}
+
+/* Same secondary look as the results Share button, sized down to sit inline
+   next to the small "Best" line. */
+.btn-share-inline {
+  padding: 4px 14px;
+  font-size: 0.8rem;
+  border-radius: 6px;
 }
 
 #ghost-toggle-row {
