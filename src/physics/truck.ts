@@ -15,27 +15,52 @@ export function createTruck(pos: Vec2, heading: number): TruckState {
 }
 
 const BASE_MAX_SPEED = 260;
-const ACCEL = 220;
 const MAX_TURN_RATE = 2.6;
 const TURN_RESPONSIVENESS = 4.2;
+
+// Terrain-dependent accel/drag: roads let the truck build speed quickly with
+// no extra resistance, while offroad and mud both cap top speed lower AND
+// actively bleed speed off (drag) so leaving the road feels like braking,
+// not just a lower ceiling.
+const ROAD_ACCEL = 260;
+const OFFROAD_ACCEL = 140;
+const MUD_ACCEL = 70;
+const OFFROAD_DRAG = 0.9;
+const MUD_DRAG = 2.4;
 
 /** Advances truck physics by dt seconds. Steering has a default left bias
  * while coasting and turns right while `held`; both the turn rate and the
  * velocity vector ease toward their targets rather than snapping, giving the
- * truck weight and momentum. */
-export function updateTruck(truck: TruckState, held: boolean, dt: number, terrain: TerrainSample): void {
+ * truck weight and momentum. Truck position is clamped to the level bounds
+ * so it can never drive off the map. */
+export function updateTruck(
+  truck: TruckState,
+  held: boolean,
+  dt: number,
+  terrain: TerrainSample,
+  bounds: { width: number; height: number },
+): void {
   const turnDir = held ? 1 : -1;
   const targetAngularVel = turnDir * MAX_TURN_RATE;
   truck.angularVel += (targetAngularVel - truck.angularVel) * Math.min(1, TURN_RESPONSIVENESS * dt);
   truck.heading += truck.angularVel * dt;
 
   let maxSpeed = BASE_MAX_SPEED;
-  if (terrain.inMud) maxSpeed *= 0.45;
-  else if (!terrain.onRoad) maxSpeed *= 0.85;
+  let accel = ROAD_ACCEL;
+  let drag = 0;
+  if (terrain.inMud) {
+    maxSpeed *= 0.45;
+    accel = MUD_ACCEL;
+    drag = MUD_DRAG;
+  } else if (!terrain.onRoad) {
+    maxSpeed *= 0.85;
+    accel = OFFROAD_ACCEL;
+    drag = OFFROAD_DRAG;
+  }
   if (terrain.inRough) maxSpeed *= 0.92;
 
-  const accel = truck.speed > maxSpeed ? -ACCEL * 2.2 : ACCEL;
-  truck.speed = clamp(truck.speed + accel * dt, 0, BASE_MAX_SPEED);
+  const accelSign = truck.speed > maxSpeed ? -accel * 2.2 : accel;
+  truck.speed = clamp(truck.speed + accelSign * dt - drag * truck.speed * dt, 0, BASE_MAX_SPEED);
 
   const headingDir = v(Math.cos(truck.heading), Math.sin(truck.heading));
   const desiredVel = v(headingDir.x * truck.speed, headingDir.y * truck.speed);
@@ -45,6 +70,25 @@ export function updateTruck(truck: TruckState, held: boolean, dt: number, terrai
 
   truck.pos.x += truck.vel.x * dt;
   truck.pos.y += truck.vel.y * dt;
+
+  const minX = truck.radius;
+  const minY = truck.radius;
+  const maxX = bounds.width - truck.radius;
+  const maxY = bounds.height - truck.radius;
+  if (truck.pos.x < minX) {
+    truck.pos.x = minX;
+    truck.vel.x = Math.max(0, truck.vel.x);
+  } else if (truck.pos.x > maxX) {
+    truck.pos.x = maxX;
+    truck.vel.x = Math.min(0, truck.vel.x);
+  }
+  if (truck.pos.y < minY) {
+    truck.pos.y = minY;
+    truck.vel.y = Math.max(0, truck.vel.y);
+  } else if (truck.pos.y > maxY) {
+    truck.pos.y = maxY;
+    truck.vel.y = Math.min(0, truck.vel.y);
+  }
 }
 
 /** Resolves a circular collision with a rock: pushes the truck out along the

@@ -45,7 +45,7 @@ export class GameSession {
     this.elapsed += dt;
 
     const terrain = sampleTerrain(this.truck.pos, this.level);
-    updateTruck(this.truck, held, dt, terrain);
+    updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height });
 
     for (const rock of this.level.rocks) {
       const hit = resolveRockCollision(this.truck, rock.pos, rock.radius);
