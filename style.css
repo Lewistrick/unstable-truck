@@ -210,6 +210,10 @@ button:active {
   font-weight: 800;
   color: #f0f2f5;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+  /* Nudged down from dead-center so it doesn't sit on top of the truck,
+     which is centered on screen and needs to stay visible (heading/direction
+     matters even while frozen during the countdown). */
+  margin-top: 18vh;
 }
 
 #hud {

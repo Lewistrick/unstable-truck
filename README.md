@@ -26,11 +26,12 @@ What's implemented:
   that day's seed is saved to `localStorage` and can be raced against as a
   semi-transparent ghost.
 - Start screen showing today's level plus playable thumbnails for the
-  previous two days (each with its own personal-best time); clicking any
-  thumbnail jumps into a 3-2-1-GO countdown and starts that level. A
-  personal-best ghost toggle, an in-game HUD (timer, objective, stability
-  meter, PB time), and a results screen (showing your time against your
-  personal best) round it out. Escape quits a run/countdown back to the
+  previous two days (each with its own personal-best time) - always anchored
+  to the real calendar date, regardless of which level was last played;
+  clicking any thumbnail jumps into a 3-2-1-GO countdown and starts that
+  level. A personal-best ghost toggle, an in-game HUD (timer, objective,
+  stability meter, PB time), and a results screen (showing your time against
+  your personal best) round it out. Escape quits a run/countdown back to the
   start screen; Enter retries from the results screen.
 
 Not yet built: global leaderboard, daily-best-player ghost, backend/database.
@@ -57,10 +58,9 @@ range Windows/Hyper-V has reserved and blocked; edit the port number in the
 You can list currently reserved ranges with
 `netsh interface ipv4 show excludedportrange protocol=tcp`.
 
-To test a specific day's level instead of today's, add `?seed=YYYY-MM-DD` to
-the URL. Add `&start=1` to also skip straight into the countdown/run for it
-(this is how the past-level thumbnails work; the flag is stripped from the
-URL after being consumed, so refreshing won't restart the run).
+The home screen always generates today's level plus the previous two days
+up front (there's no `?seed=` URL override anymore) - clicking any of the
+three thumbnails plays that level directly, in-memory, with no page reload.
 
 ## Controls
 

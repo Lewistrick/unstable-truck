@@ -4,16 +4,26 @@ import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
 import { loadPersonalBest, savePersonalBestIfBetter } from "./game/storage.js";
+import type { Level } from "./level/types.js";
 
-const initialParams = new URLSearchParams(location.search);
-const seed = initialParams.get("seed") || todaySeed();
-const autostart = initialParams.get("start") === "1";
-if (autostart) {
-  // Consume the one-shot autostart flag so refreshing the page doesn't
-  // immediately restart a run.
-  history.replaceState(null, "", `${location.pathname}?seed=${seed}`);
+interface Playable {
+  seed: string;
+  level: Level;
+  personalBest: GhostRecording | null;
 }
-const level = generateLevel(seed);
+
+function makePlayable(seed: string): Playable {
+  return { seed, level: generateLevel(seed), personalBest: loadPersonalBest(seed) };
+}
+
+// The home screen always shows today plus the previous two days - anchored
+// to the real calendar date, never to whichever level happens to be active -
+// so returning to it (e.g. via Escape) always looks the same regardless of
+// what was just played.
+const todaysSeed = todaySeed();
+const today = makePlayable(todaysSeed);
+const yesterday = makePlayable(shiftSeed(todaysSeed, -1));
+const twoDaysAgo = makePlayable(shiftSeed(todaysSeed, -2));
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -38,49 +48,17 @@ const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputEle
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
+const pastLevelBest1 = document.getElementById("past-level-best-1")!;
+const pastLevelBest2 = document.getElementById("past-level-best-2")!;
 
-startDateEl.textContent = seed === todaySeed() ? `Today's route — ${seed}` : `Route for ${seed}`;
+startDateEl.textContent = `Today's route — ${today.seed}`;
 
-/** Navigating to ?seed=<date>&start=1 is how the game switches which day is
- * active and jumps straight into a (countdown-gated) run for it - used by
- * the past-level thumbnails below. */
-function goToSeed(targetSeed: string): void {
-  location.search = `?seed=${targetSeed}&start=1`;
-}
-
-const PAST_LEVEL_LABELS = ["Yesterday", "2 days ago"];
-for (let i = 0; i < PAST_LEVEL_LABELS.length; i++) {
-  const pastSeed = shiftSeed(seed, -(i + 1));
-  const pastLevel = generateLevel(pastSeed);
-  const pastBest = loadPersonalBest(pastSeed);
-
-  const cardEl = document.getElementById(`past-level-card-${i + 1}`)!;
-  const dateEl = document.getElementById(`past-level-date-${i + 1}`)!;
-  const bestEl = document.getElementById(`past-level-best-${i + 1}`)!;
-  const canvasEl = document.getElementById(`past-level-canvas-${i + 1}`) as HTMLCanvasElement;
-  const pastCtx = canvasEl.getContext("2d")!;
-
-  dateEl.textContent = `${PAST_LEVEL_LABELS[i]} — ${pastSeed}`;
-  bestEl.textContent = pastBest ? `Best: ${pastBest.time.toFixed(2)}s` : "Best: —";
-  renderMinimap(pastCtx, pastLevel, 0, 0, canvasEl.width, canvasEl.height);
-
-  cardEl.addEventListener("click", () => goToSeed(pastSeed));
-  cardEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      goToSeed(pastSeed);
-    }
-  });
-}
-
-let personalBest: GhostRecording | null = loadPersonalBest(seed);
-
-function refreshPersonalBestUi(): void {
-  if (personalBest) {
+function refreshTodayUi(): void {
+  if (today.personalBest) {
     pbGhostToggle.disabled = false;
     pbGhostToggle.checked = true;
-    pbGhostLabel.textContent = `Race personal best ghost (${personalBest.time.toFixed(2)}s)`;
-    hudPb.textContent = `PB: ${personalBest.time.toFixed(2)}s`;
+    pbGhostLabel.textContent = `Race personal best ghost (${today.personalBest.time.toFixed(2)}s)`;
+    hudPb.textContent = `PB: ${today.personalBest.time.toFixed(2)}s`;
   } else {
     pbGhostToggle.disabled = true;
     pbGhostToggle.checked = false;
@@ -88,7 +66,20 @@ function refreshPersonalBestUi(): void {
     hudPb.textContent = "";
   }
 }
-refreshPersonalBestUi();
+refreshTodayUi();
+
+function renderPastCard(playable: Playable, index: 1 | 2, label: string): void {
+  const dateEl = document.getElementById(`past-level-date-${index}`)!;
+  const bestEl = index === 1 ? pastLevelBest1 : pastLevelBest2;
+  const canvasEl = document.getElementById(`past-level-canvas-${index}`) as HTMLCanvasElement;
+  const pastCtx = canvasEl.getContext("2d")!;
+
+  dateEl.textContent = `${label} — ${playable.seed}`;
+  bestEl.textContent = playable.personalBest ? `Best: ${playable.personalBest.time.toFixed(2)}s` : "Best: —";
+  renderMinimap(pastCtx, playable.level, 0, 0, canvasEl.width, canvasEl.height);
+}
+renderPastCard(yesterday, 1, "Yesterday");
+renderPastCard(twoDaysAgo, 2, "2 days ago");
 
 function resizeCanvas(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -98,14 +89,7 @@ function resizeCanvas(): void {
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
-renderMinimap(minimapCtx, level, 0, 0, minimapCanvas.width, minimapCanvas.height);
-minimapCanvas.addEventListener("click", () => beginRun());
-minimapCanvas.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    beginRun();
-  }
-});
+renderMinimap(minimapCtx, today.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
 
 const input = createInput(canvas);
 
@@ -113,8 +97,9 @@ type AppState = "start" | "countdown" | "playing" | "ended";
 let appState: AppState = "start";
 let session: GameSession | null = null;
 let ghost: GhostPlayer | null = null;
+let active: Playable = today;
 let countdownElapsed = 0;
-const camera: Camera = { x: level.width / 2, y: level.height / 2 };
+const camera: Camera = { x: today.level.width / 2, y: today.level.height / 2 };
 
 // "GO" gets its own step so it's visible for one beat before play begins.
 const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
@@ -126,9 +111,10 @@ function stabilityColor(stability: number): string {
   return "#e0453e";
 }
 
-function beginRun(): void {
-  session = new GameSession(level);
-  ghost = personalBest && pbGhostToggle.checked ? new GhostPlayer(level, personalBest) : null;
+function beginRun(playable: Playable): void {
+  active = playable;
+  session = new GameSession(playable.level);
+  ghost = playable.personalBest && pbGhostToggle.checked ? new GhostPlayer(playable.level, playable.personalBest) : null;
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
@@ -149,17 +135,19 @@ function endRun(): void {
     resultsTime.textContent = `Time: ${session.elapsed.toFixed(2)}s`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.cargo.stability)}%`;
 
-    const previousBest = personalBest;
+    const previousBest = active.personalBest;
     const recording: GhostRecording = {
-      seed,
+      seed: active.seed,
       time: session.elapsed,
       stability: session.cargo.stability,
       inputLog: session.inputLog.slice(),
     };
     const isNewBest = savePersonalBestIfBetter(recording);
     if (isNewBest) {
-      personalBest = recording;
-      refreshPersonalBestUi();
+      active.personalBest = recording;
+      if (active === today) refreshTodayUi();
+      else if (active === yesterday) renderPastCard(yesterday, 1, "Yesterday");
+      else if (active === twoDaysAgo) renderPastCard(twoDaysAgo, 2, "2 days ago");
     }
     resultsPersonalBest.textContent = !previousBest
       ? "New personal best!"
@@ -186,11 +174,34 @@ function abortRun(): void {
   startScreen.classList.remove("hidden");
 }
 
-startBtn.addEventListener("click", beginRun);
-retryBtn.addEventListener("click", beginRun);
+startBtn.addEventListener("click", () => beginRun(today));
+retryBtn.addEventListener("click", () => beginRun(active));
+minimapCanvas.addEventListener("click", () => beginRun(today));
+minimapCanvas.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    beginRun(today);
+  }
+});
+
+const pastCardTargets: Array<[string, Playable]> = [
+  ["past-level-card-1", yesterday],
+  ["past-level-card-2", twoDaysAgo],
+];
+for (const [cardId, playable] of pastCardTargets) {
+  const cardEl = document.getElementById(cardId)!;
+  cardEl.addEventListener("click", () => beginRun(playable));
+  cardEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      beginRun(playable);
+    }
+  });
+}
+
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") abortRun();
-  if (e.key === "Enter" && appState === "ended") beginRun();
+  if (e.key === "Enter" && appState === "ended") beginRun(active);
 });
 
 // Physics run on a fixed timestep, independent of render framerate. This is
@@ -210,7 +221,7 @@ function renderScene(activeSession: GameSession, frameDt: number): void {
   const ghostViews: GhostView[] = ghost ? [{ truck: ghost.truck, cargo: ghost.cargo }] : [];
   renderWorld(
     ctx,
-    level,
+    active.level,
     activeSession.truck,
     activeSession.cargo,
     activeSession.visited,
@@ -271,5 +282,3 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-
-if (autostart) beginRun();
