@@ -18,14 +18,36 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # Published on localhost only: in production the Caddy proxy reaches this
+    # container over the shared `edge` network (below), so the port needn't be
+    # exposed on the VPS's public interface. Binding to 127.0.0.1 still lets
+    # `docker compose up` be opened at http://localhost:8003 for standalone
+    # local testing.
     ports:
-      - "${APP_PORT:-8003}:8080"
+      - "127.0.0.1:${APP_PORT:-8003}:8003"
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-truck}:${POSTGRES_PASSWORD:-truck}@db:5432/${POSTGRES_DB:-unstable_truck}
-      PORT: 8080
+      PORT: 8003
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      # Private project network, used to reach Postgres (`db`).
+      default: {}
+      # Shared with the Caddy proxy stack (~/apps/proxy). The alias is the
+      # hostname Caddy targets: `reverse_proxy unstable-truck:8003`.
+      edge:
+        aliases:
+          - unstable-truck
+
+networks:
+  # Owned/created by the Caddy proxy stack (~/apps/proxy), where it's declared
+  # as `edge` but given the real Docker name `host-edge`. We join that existing
+  # network (as external) so the proxy can route to this app. Running this stack
+  # without the proxy? Create it first: docker network create host-edge
+  edge:
+    external: true
+    name: host-edge
 
 volumes:
   db-data:

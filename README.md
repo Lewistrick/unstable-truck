@@ -61,15 +61,25 @@ What's implemented:
 
 ## Running it with Docker (recommended)
 
+The app container joins an external Docker network named `host-edge` (shared
+with a reverse proxy — see below; the compose file refers to it by the local
+alias `edge`). In production that network is created by the proxy stack; to run
+this stack on its own, create it once before the first run:
+
 ```sh
+docker network create host-edge   # harmless "already exists" error if it's there
 docker compose up --build
 ```
 
 This builds one image (compiling both the browser frontend and the backend)
-and starts two containers: `app` (Node/Express, serving both the static
-frontend and the `/api/*` leaderboard endpoints) and `db` (Postgres, schema
-applied automatically from `db/init.sql` on first start). Open
-`http://localhost:8003`.
+and starts two containers: `app` (Node/Express, listening on port `8003`,
+serving both the static frontend and the `/api/*` leaderboard endpoints) and
+`db` (Postgres, schema applied automatically from `db/init.sql` on first
+start). Open `http://localhost:8003`.
+
+The app port is published on `127.0.0.1` only (not the host's public
+interface), which is enough for local testing and safe on a server where the
+reverse proxy fronts it over the `edge` network instead.
 
 Postgres data persists in a named Docker volume (`db-data`) across restarts.
 To reset everything (including all leaderboard data), run
@@ -77,12 +87,34 @@ To reset everything (including all leaderboard data), run
 
 Defaults (all overridable via environment variables or a `.env` file):
 
-| Variable            | Default          | Purpose                                |
-| -------------------| ---------------- | --------------------------------------- |
-| `APP_PORT`          | `8003`           | Host port the game is served on         |
-| `POSTGRES_USER`     | `truck`          | Postgres user                           |
-| `POSTGRES_PASSWORD` | `truck`          | Postgres password                       |
-| `POSTGRES_DB`       | `unstable_truck` | Postgres database name                  |
+| Variable            | Default          | Purpose                                      |
+| ------------------- | ---------------- | -------------------------------------------- |
+| `APP_PORT`          | `8003`           | Localhost port the game is published on      |
+| `POSTGRES_USER`     | `truck`          | Postgres user                                |
+| `POSTGRES_PASSWORD` | `truck`          | Postgres password                            |
+| `POSTGRES_DB`       | `unstable_truck` | Postgres database name                       |
+
+### Deploying behind a reverse proxy under a sub-path
+
+The frontend resolves both its assets and its `/api/*` calls relative to the
+page's own URL (never root-absolute), so the game can be served from a
+sub-path like `https://example.com/unstable-truck/` with no rebuild — as long
+as the proxy strips the prefix before forwarding and redirects the bare path
+to a trailing slash. With [Caddy](https://caddyserver.com) and the app reached
+over the shared `host-edge` network as `unstable-truck:8003`:
+
+```caddy
+redir /unstable-truck /unstable-truck/
+handle /unstable-truck/* {
+	uri strip_prefix /unstable-truck
+	reverse_proxy unstable-truck:8003
+}
+```
+
+The trailing-slash redirect matters: relative URLs only resolve correctly when
+the page is served at `/unstable-truck/`. `strip_prefix` turns the proxied
+`/unstable-truck/style.css`, `/unstable-truck/dist/main.js`, and
+`/unstable-truck/api/...` back into the root paths the app actually serves.
 
 ## Running it locally without Docker
 

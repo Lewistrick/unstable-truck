@@ -19,6 +19,22 @@ export interface RemoteRecording {
   inputLog: number[];
 }
 
+// The game can be served from the domain root (local dev / `npm start`) or
+// under a sub-path behind a reverse proxy (e.g.
+// https://lewistrick.com/unstable-truck/). Resolving API URLs relative to the
+// document's own directory - instead of a root-absolute "/api/..." that would
+// escape the sub-path and 404 - lets both work without the frontend knowing
+// its deploy path. This relies on the page being served with a trailing slash
+// so the base directory is right, so the proxy must redirect
+// /unstable-truck -> /unstable-truck/.
+const API_ROOT = new URL(".", document.baseURI);
+
+/** Builds an absolute API URL from a path relative to the app's base (no
+ * leading slash), e.g. apiUrl(`api/scores/${seed}`). */
+function apiUrl(pathAndQuery: string): string {
+  return new URL(pathAndQuery, API_ROOT).href;
+}
+
 /** Submits a run's result to the backend. Fails silently (returns false) if
  * the server is unreachable - the game is fully playable offline, this is
  * best-effort syncing on top of the local personal best. */
@@ -30,7 +46,7 @@ export async function submitScore(
   inputLog: number[],
 ): Promise<boolean> {
   try {
-    const res = await fetch(`/api/scores/${seed}`, {
+    const res = await fetch(apiUrl(`api/scores/${seed}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nickname, time, stability, inputLog }),
@@ -47,8 +63,8 @@ export async function submitScore(
  * already in the top 10. Returns null if the server is unreachable. */
 export async function fetchLeaderboard(seed: string, nickname?: string): Promise<LeaderboardResponse | null> {
   try {
-    const url = nickname ? `/api/scores/${seed}?nickname=${encodeURIComponent(nickname)}` : `/api/scores/${seed}`;
-    const res = await fetch(url);
+    const path = nickname ? `api/scores/${seed}?nickname=${encodeURIComponent(nickname)}` : `api/scores/${seed}`;
+    const res = await fetch(apiUrl(path));
     if (!res.ok) return null;
     return (await res.json()) as LeaderboardResponse;
   } catch {
@@ -60,7 +76,7 @@ export async function fetchLeaderboard(seed: string, nickname?: string): Promise
  * when selected from the leaderboard. */
 export async function fetchPlayerRecording(seed: string, nickname: string): Promise<RemoteRecording | null> {
   try {
-    const res = await fetch(`/api/scores/${seed}/${encodeURIComponent(nickname)}`);
+    const res = await fetch(apiUrl(`api/scores/${seed}/${encodeURIComponent(nickname)}`));
     if (!res.ok) return null;
     return (await res.json()) as RemoteRecording;
   } catch {

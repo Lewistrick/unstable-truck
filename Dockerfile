@@ -18,5 +18,5 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server/dist ./server/dist
 COPY index.html style.css ./
 
-EXPOSE 8080
+EXPOSE 8003
 CMD ["node", "server/dist/index.js"]
