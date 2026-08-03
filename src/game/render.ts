@@ -144,12 +144,20 @@ export function updateCamera(camera: Camera, truck: TruckState, dt: number): voi
   camera.y += (truck.pos.y - camera.y) * Math.min(1, rate * dt);
 }
 
+export interface GhostView {
+  truck: TruckState;
+  cargo: CargoState;
+}
+
+const GHOST_ALPHA = 0.45;
+
 export function renderWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
   truck: TruckState,
   cargo: CargoState,
   visited: ReadonlySet<Warehouse>,
+  ghosts: readonly GhostView[],
   camera: Camera,
   canvasW: number,
   canvasH: number,
@@ -166,6 +174,15 @@ export function renderWorld(
   strokeRoad(ctx, level);
   drawObstacles(ctx, level);
   drawWarehouses(ctx, level, visited);
+
+  for (const ghost of ghosts) {
+    ctx.save();
+    ctx.globalAlpha = GHOST_ALPHA;
+    drawCargo(ctx, ghost.cargo);
+    drawTruck(ctx, ghost.truck);
+    ctx.restore();
+  }
+
   drawCargo(ctx, cargo);
   drawTruck(ctx, truck);
 

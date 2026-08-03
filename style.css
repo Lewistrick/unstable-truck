@@ -92,6 +92,28 @@ html, body {
 .tag-pickup { background: hsl(2 72% 50%); }
 .tag-destination { background: hsl(140 55% 38%); }
 
+#ghost-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #c3cad4;
+  cursor: pointer;
+}
+
+#ghost-toggle-row:has(input:disabled) {
+  color: #6b7480;
+  cursor: default;
+}
+
+#ghost-toggle-row input {
+  cursor: pointer;
+}
+
+#ghost-toggle-row input:disabled {
+  cursor: default;
+}
+
 button {
   padding: 10px 28px;
   font-size: 1rem;
@@ -125,9 +147,21 @@ button:active {
   display: none;
 }
 
+#hud-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 #hud-timer {
   font-size: 1.4rem;
   font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+#hud-pb {
+  font-size: 0.8rem;
+  color: #c3cad4;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 

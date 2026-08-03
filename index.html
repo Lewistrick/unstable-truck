@@ -11,7 +11,10 @@
     <canvas id="game-canvas"></canvas>
 
     <div id="hud" class="hidden">
-      <div id="hud-timer">0.0s</div>
+      <div id="hud-left">
+        <div id="hud-timer">0.0s</div>
+        <div id="hud-pb"></div>
+      </div>
       <div id="hud-objective">Pick up cargo</div>
       <div id="hud-stability-wrap">
         <div id="hud-stability-label">CARGO</div>
@@ -29,6 +32,10 @@
           Visit every <span class="tag tag-pickup">P</span> pickup, then deliver to <span class="tag tag-destination">D</span>.
           Smooth driving keeps cargo stable &mdash; crashes and mud don't.
         </p>
+        <label id="ghost-toggle-row">
+          <input type="checkbox" id="pb-ghost-toggle" disabled />
+          <span id="pb-ghost-label">No personal best yet</span>
+        </label>
         <button id="start-btn">Start</button>
       </div>
     </div>

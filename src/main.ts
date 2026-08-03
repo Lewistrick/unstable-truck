@@ -1,7 +1,9 @@
 import { generateLevel, todaySeed } from "./level/generate.js";
+import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
-import { renderMinimap, renderWorld, updateCamera, type Camera } from "./game/render.js";
+import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
+import { loadPersonalBest, savePersonalBestIfBetter } from "./game/storage.js";
 
 const seed = new URLSearchParams(location.search).get("seed") || todaySeed();
 const level = generateLevel(seed);
@@ -21,10 +23,30 @@ const resultsTitle = document.getElementById("results-title")!;
 const resultsTime = document.getElementById("results-time")!;
 const resultsStability = document.getElementById("results-stability")!;
 const hudTimer = document.getElementById("hud-timer")!;
+const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
 const hudStabilityBar = document.getElementById("hud-stability-bar")!;
+const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
+const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 
 startDateEl.textContent = `Today's route — ${seed}`;
+
+let personalBest: GhostRecording | null = loadPersonalBest(seed);
+
+function refreshPersonalBestUi(): void {
+  if (personalBest) {
+    pbGhostToggle.disabled = false;
+    pbGhostToggle.checked = true;
+    pbGhostLabel.textContent = `Race personal best ghost (${personalBest.time.toFixed(2)}s)`;
+    hudPb.textContent = `PB: ${personalBest.time.toFixed(2)}s`;
+  } else {
+    pbGhostToggle.disabled = true;
+    pbGhostToggle.checked = false;
+    pbGhostLabel.textContent = "No personal best yet";
+    hudPb.textContent = "";
+  }
+}
+refreshPersonalBestUi();
 
 function resizeCanvas(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -41,6 +63,7 @@ const input = createInput(canvas);
 type AppState = "start" | "playing" | "ended";
 let appState: AppState = "start";
 let session: GameSession | null = null;
+let ghost: GhostPlayer | null = null;
 const camera: Camera = { x: level.width / 2, y: level.height / 2 };
 
 function stabilityColor(stability: number): string {
@@ -51,6 +74,7 @@ function stabilityColor(stability: number): string {
 
 function beginRun(): void {
   session = new GameSession(level);
+  ghost = personalBest && pbGhostToggle.checked ? new GhostPlayer(level, personalBest) : null;
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
   appState = "playing";
@@ -68,6 +92,17 @@ function endRun(): void {
     resultsTitle.textContent = "Delivered!";
     resultsTime.textContent = `Time: ${session.elapsed.toFixed(2)}s`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.cargo.stability)}%`;
+
+    const recording: GhostRecording = {
+      seed,
+      time: session.elapsed,
+      stability: session.cargo.stability,
+      inputLog: session.inputLog.slice(),
+    };
+    if (savePersonalBestIfBetter(recording)) {
+      personalBest = recording;
+      refreshPersonalBestUi();
+    }
   } else {
     resultsTitle.textContent = "Cargo fell off!";
     resultsTime.textContent = `Survived ${session.elapsed.toFixed(2)}s`;
@@ -78,15 +113,36 @@ function endRun(): void {
 startBtn.addEventListener("click", beginRun);
 retryBtn.addEventListener("click", beginRun);
 
+// Physics run on a fixed timestep, independent of render framerate. This is
+// what makes ghost replay deterministic: elapsed time (and therefore every
+// recorded input-toggle timestamp) is always an exact multiple of FIXED_DT,
+// so replaying the same toggle list drives the exact same sequence of
+// physics steps no matter how the real frame timing varied between the
+// recording run and any later replay. A variable per-frame dt would instead
+// integrate momentum/collisions slightly differently each time, and those
+// tiny differences compound into a visibly different route.
+const FIXED_DT = 1 / 60;
+const MAX_STEPS_PER_FRAME = 8;
+let accumulator = 0;
+
 let lastTime = performance.now();
 function frame(now: number): void {
-  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  const frameDt = Math.min(0.25, (now - lastTime) / 1000);
   lastTime = now;
 
   if (appState === "playing" && session) {
-    session.update(dt, input.held);
-    updateCamera(camera, session.truck, dt);
-    renderWorld(ctx, level, session.truck, session.cargo, session.visited, camera, canvas.clientWidth, canvas.clientHeight);
+    accumulator += frameDt;
+    let steps = 0;
+    while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+      session.update(FIXED_DT, input.held);
+      ghost?.update(FIXED_DT);
+      accumulator -= FIXED_DT;
+      steps++;
+    }
+    updateCamera(camera, session.truck, frameDt);
+
+    const ghostViews: GhostView[] = ghost ? [{ truck: ghost.truck, cargo: ghost.cargo }] : [];
+    renderWorld(ctx, level, session.truck, session.cargo, session.visited, ghostViews, camera, canvas.clientWidth, canvas.clientHeight);
 
     hudTimer.textContent = `${session.elapsed.toFixed(1)}s`;
     hudObjective.textContent = session.allPickedUp
@@ -97,6 +153,8 @@ function frame(now: number): void {
     hudStabilityBar.style.backgroundColor = stabilityColor(stability);
 
     if (session.status !== "playing") endRun();
+  } else {
+    accumulator = 0;
   }
 
   requestAnimationFrame(frame);

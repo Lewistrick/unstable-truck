@@ -29,6 +29,13 @@ export class GameSession {
   status: GameStatus = "playing";
   elapsed = 0;
 
+  /** Times (seconds since run start) at which the input button toggled
+   * held/released, starting from released. A ghost replay reconstructs the
+   * exact input stream from just this list, without needing to store
+   * per-frame position/state. */
+  readonly inputLog: number[] = [];
+  private lastHeld = false;
+
   constructor(level: Level) {
     this.level = level;
     this.base = findWarehouse(level, "base");
@@ -58,6 +65,10 @@ export class GameSession {
 
   update(dt: number, held: boolean): void {
     if (this.status !== "playing") return;
+    if (held !== this.lastHeld) {
+      this.inputLog.push(this.elapsed);
+      this.lastHeld = held;
+    }
     this.elapsed += dt;
 
     const terrain = sampleTerrain(this.truck.pos, this.level);
