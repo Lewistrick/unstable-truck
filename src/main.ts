@@ -21,6 +21,7 @@ const startBtn = document.getElementById("start-btn")!;
 const retryBtn = document.getElementById("retry-btn")!;
 const resultsTitle = document.getElementById("results-title")!;
 const resultsTime = document.getElementById("results-time")!;
+const resultsPersonalBest = document.getElementById("results-personal-best")!;
 const resultsStability = document.getElementById("results-stability")!;
 const hudTimer = document.getElementById("hud-timer")!;
 const hudPb = document.getElementById("hud-pb")!;
@@ -29,7 +30,13 @@ const hudStabilityBar = document.getElementById("hud-stability-bar")!;
 const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 
-startDateEl.textContent = `Today's route — ${seed}`;
+startDateEl.textContent = seed === todaySeed() ? `Today's route — ${seed}` : `Route for ${seed}`;
+
+/** Navigating to ?seed=<date> is how the game switches which day is active
+ * (also used by the past-level cards below to make that day playable). */
+function goToSeed(targetSeed: string): void {
+  location.search = `?seed=${targetSeed}`;
+}
 
 const PAST_LEVEL_LABELS = ["Yesterday", "2 days ago"];
 for (let i = 0; i < PAST_LEVEL_LABELS.length; i++) {
@@ -37,6 +44,7 @@ for (let i = 0; i < PAST_LEVEL_LABELS.length; i++) {
   const pastLevel = generateLevel(pastSeed);
   const pastBest = loadPersonalBest(pastSeed);
 
+  const cardEl = document.getElementById(`past-level-card-${i + 1}`)!;
   const dateEl = document.getElementById(`past-level-date-${i + 1}`)!;
   const bestEl = document.getElementById(`past-level-best-${i + 1}`)!;
   const canvasEl = document.getElementById(`past-level-canvas-${i + 1}`) as HTMLCanvasElement;
@@ -45,6 +53,14 @@ for (let i = 0; i < PAST_LEVEL_LABELS.length; i++) {
   dateEl.textContent = `${PAST_LEVEL_LABELS[i]} — ${pastSeed}`;
   bestEl.textContent = pastBest ? `Best: ${pastBest.time.toFixed(2)}s` : "Best: —";
   renderMinimap(pastCtx, pastLevel, 0, 0, canvasEl.width, canvasEl.height);
+
+  cardEl.addEventListener("click", () => goToSeed(pastSeed));
+  cardEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      goToSeed(pastSeed);
+    }
+  });
 }
 
 let personalBest: GhostRecording | null = loadPersonalBest(seed);
@@ -109,20 +125,28 @@ function endRun(): void {
     resultsTime.textContent = `Time: ${session.elapsed.toFixed(2)}s`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.cargo.stability)}%`;
 
+    const previousBest = personalBest;
     const recording: GhostRecording = {
       seed,
       time: session.elapsed,
       stability: session.cargo.stability,
       inputLog: session.inputLog.slice(),
     };
-    if (savePersonalBestIfBetter(recording)) {
+    const isNewBest = savePersonalBestIfBetter(recording);
+    if (isNewBest) {
       personalBest = recording;
       refreshPersonalBestUi();
     }
+    resultsPersonalBest.textContent = !previousBest
+      ? "New personal best!"
+      : isNewBest
+        ? `New personal best! (previous: ${previousBest.time.toFixed(2)}s)`
+        : `Personal best: ${previousBest.time.toFixed(2)}s`;
   } else {
     resultsTitle.textContent = "Cargo fell off!";
     resultsTime.textContent = `Survived ${session.elapsed.toFixed(2)}s`;
     resultsStability.textContent = "Drive smoother and avoid mud and rocks.";
+    resultsPersonalBest.textContent = "";
   }
 }
 
@@ -141,6 +165,7 @@ startBtn.addEventListener("click", beginRun);
 retryBtn.addEventListener("click", beginRun);
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") abortRun();
+  if (e.key === "Enter" && appState === "ended") beginRun();
 });
 
 // Physics run on a fixed timestep, independent of render framerate. This is

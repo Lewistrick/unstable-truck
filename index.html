@@ -34,12 +34,12 @@
           Press <strong>Esc</strong> during a run to quit back here.
         </p>
         <div id="past-levels">
-          <div class="past-level-card">
+          <div class="past-level-card" id="past-level-card-1" role="button" tabindex="0">
             <div class="past-level-date" id="past-level-date-1"></div>
             <canvas class="past-level-canvas" id="past-level-canvas-1" width="150" height="97"></canvas>
             <div class="past-level-best" id="past-level-best-1"></div>
           </div>
-          <div class="past-level-card">
+          <div class="past-level-card" id="past-level-card-2" role="button" tabindex="0">
             <div class="past-level-date" id="past-level-date-2"></div>
             <canvas class="past-level-canvas" id="past-level-canvas-2" width="150" height="97"></canvas>
             <div class="past-level-best" id="past-level-best-2"></div>
@@ -57,8 +57,10 @@
       <div class="panel">
         <h1 id="results-title"></h1>
         <p id="results-time"></p>
+        <p id="results-personal-best" class="muted"></p>
         <p id="results-stability"></p>
         <button id="retry-btn">Retry</button>
+        <p class="muted" id="retry-hint">Press Enter to retry</p>
       </div>
     </div>
   </div>

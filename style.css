@@ -67,6 +67,11 @@ html, body {
   font-size: 0.9rem;
 }
 
+#retry-hint {
+  font-size: 0.75rem;
+  margin-top: -8px;
+}
+
 #minimap-canvas {
   width: 100%;
   max-width: 300px;
@@ -103,6 +108,20 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.past-level-card:hover,
+.past-level-card:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.past-level-card:hover .past-level-canvas,
+.past-level-card:focus-visible .past-level-canvas {
+  opacity: 1;
+  border-color: #4a5566;
 }
 
 .past-level-date {
