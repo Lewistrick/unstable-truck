@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-truck}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-truck}
+      POSTGRES_DB: ${POSTGRES_DB:-unstable_truck}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-truck} -d ${POSTGRES_DB:-unstable_truck}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8003}:8080"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-truck}:${POSTGRES_PASSWORD:-truck}@db:5432/${POSTGRES_DB:-unstable_truck}
+      PORT: 8080
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

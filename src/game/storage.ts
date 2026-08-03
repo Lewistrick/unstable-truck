@@ -79,3 +79,22 @@ export function pruneOldPersonalBests(): void {
   }
   for (const key of staleKeys) localStorage.removeItem(key);
 }
+
+const NICKNAME_KEY = "unstable-truck:nickname";
+const MAX_NICKNAME_LENGTH = 24;
+
+/** Returns the stored nickname, generating and persisting a friendly default
+ * on first visit so score submission works without forcing input up front. */
+export function getOrCreateNickname(): string {
+  const stored = localStorage.getItem(NICKNAME_KEY);
+  if (stored) return stored;
+  const generated = `Racer${Math.floor(1000 + Math.random() * 9000)}`;
+  localStorage.setItem(NICKNAME_KEY, generated);
+  return generated;
+}
+
+/** Saves a (trimmed, length-capped) nickname; ignores blank input. */
+export function setNickname(name: string): void {
+  const trimmed = name.trim().slice(0, MAX_NICKNAME_LENGTH);
+  if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
+}

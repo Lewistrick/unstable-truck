@@ -5,11 +5,21 @@
   "description": "Daily speed-run truck delivery game with procedurally generated road networks.",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "tsc",
+    "build:server": "tsc -p server/tsconfig.json",
     "watch": "tsc --watch",
+    "start": "node server/dist/index.js",
     "serve": "python -m http.server 8123"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.20.3",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.22.0"
   }
 }

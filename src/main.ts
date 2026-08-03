@@ -1,10 +1,11 @@
 import { generateLevel, shiftSeed, todaySeed } from "./level/generate.js";
 import { FIXED_DT } from "./physics/constants.js";
+import { fetchLeaderboard, fetchPlayerRecording, submitScore, type LeaderboardEntry, type RemoteRecording } from "./game/api.js";
 import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
-import { loadPersonalBest, pruneOldPersonalBests, savePersonalBestIfBetter } from "./game/storage.js";
+import { getOrCreateNickname, loadPersonalBest, pruneOldPersonalBests, savePersonalBestIfBetter, setNickname } from "./game/storage.js";
 import type { Level } from "./level/types.js";
 
 interface Playable {
@@ -56,8 +57,19 @@ const countdownText = document.getElementById("countdown-text")!;
 const pastLevelBest1 = document.getElementById("past-level-best-1")!;
 const pastLevelBest2 = document.getElementById("past-level-best-2")!;
 const todayBestEl = document.getElementById("today-best")!;
+const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
+const leaderboardList = document.getElementById("leaderboard-list")!;
 
 startDateEl.textContent = `Today's route — ${today.seed}`;
+
+let nickname = getOrCreateNickname();
+nicknameInput.value = nickname;
+nicknameInput.addEventListener("change", () => {
+  setNickname(nicknameInput.value);
+  nickname = getOrCreateNickname();
+  nicknameInput.value = nickname;
+  renderLeaderboardList();
+});
 
 function refreshTodayUi(): void {
   todayBestEl.textContent = today.personalBest ? `Best: ${today.personalBest.time.toFixed(2)}s` : "Best: —";
@@ -107,6 +119,74 @@ function renderPastCard(playable: Playable, index: 1 | 2, label: string): void {
 renderPastCard(yesterday, 1, "Yesterday");
 renderPastCard(twoDaysAgo, 2, "2 days ago");
 
+// --- Leaderboard (today's seed only) ---------------------------------------
+
+let leaderboardTop: LeaderboardEntry[] = [];
+let leaderboardContext: LeaderboardEntry[] = [];
+let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
+
+function renderLeaderboardList(): void {
+  leaderboardList.replaceChildren();
+  if (leaderboardTop.length === 0) {
+    const li = document.createElement("li");
+    li.className = "leaderboard-empty";
+    li.textContent = "No times yet today — be the first!";
+    leaderboardList.appendChild(li);
+    return;
+  }
+
+  for (const entry of [...leaderboardTop, ...leaderboardContext]) {
+    const li = document.createElement("li");
+    li.className = "leaderboard-row";
+    if (entry.nickname === nickname) li.classList.add("self");
+    if (selectedGhostEntry?.nickname === entry.nickname) li.classList.add("selected");
+
+    const rankEl = document.createElement("span");
+    rankEl.className = "leaderboard-rank";
+    rankEl.textContent = String(entry.rank);
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "leaderboard-nickname";
+    nameEl.textContent = selectedGhostEntry?.nickname === entry.nickname ? `\u{1F4F7} ${entry.nickname}` : entry.nickname;
+
+    const timeEl = document.createElement("span");
+    timeEl.className = "leaderboard-time";
+    timeEl.textContent = `${entry.time.toFixed(2)}s`;
+
+    li.append(rankEl, nameEl, timeEl);
+    li.addEventListener("click", () => {
+      void toggleLeaderboardGhost(entry.nickname);
+    });
+    leaderboardList.appendChild(li);
+  }
+}
+
+/** Selecting a leaderboard row races their ghost alongside (or instead of)
+ * the personal-best ghost; clicking the same row again deselects it. Only
+ * one leaderboard player can be selected at a time. */
+async function toggleLeaderboardGhost(clickedNickname: string): Promise<void> {
+  if (selectedGhostEntry?.nickname === clickedNickname) {
+    selectedGhostEntry = null;
+    renderLeaderboardList();
+    return;
+  }
+  const recording = await fetchPlayerRecording(today.seed, clickedNickname);
+  if (recording) selectedGhostEntry = { nickname: clickedNickname, recording };
+  renderLeaderboardList();
+}
+
+async function refreshLeaderboard(): Promise<void> {
+  const data = await fetchLeaderboard(today.seed, nickname);
+  if (data) {
+    leaderboardTop = data.top;
+    leaderboardContext = data.context;
+  }
+  renderLeaderboardList();
+}
+void refreshLeaderboard();
+
+// -----------------------------------------------------------------------
+
 function resizeCanvas(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(canvas.clientWidth * dpr);
@@ -122,7 +202,8 @@ const input = createInput(canvas);
 type AppState = "start" | "countdown" | "playing" | "ended";
 let appState: AppState = "start";
 let session: GameSession | null = null;
-let ghost: GhostPlayer | null = null;
+let pbGhost: GhostPlayer | null = null;
+let leaderboardGhost: GhostPlayer | null = null;
 let active: Playable = today;
 let countdownElapsed = 0;
 const camera: Camera = { x: today.level.width / 2, y: today.level.height / 2 };
@@ -140,7 +221,11 @@ function stabilityColor(stability: number): string {
 function beginRun(playable: Playable): void {
   active = playable;
   session = new GameSession(playable.level);
-  ghost = playable.personalBest && pbGhostToggle.checked ? new GhostPlayer(playable.level, playable.personalBest) : null;
+  pbGhost = playable.personalBest && pbGhostToggle.checked ? new GhostPlayer(playable.level, playable.personalBest) : null;
+  leaderboardGhost =
+    selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
+      ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
+      : null;
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
@@ -180,6 +265,14 @@ function endRun(): void {
       : isNewBest
         ? `New personal best! (previous: ${previousBest.time.toFixed(2)}s)`
         : `Personal best: ${previousBest.time.toFixed(2)}s`;
+
+    // Best-effort sync to the shared leaderboard; works offline too since
+    // submitScore() swallows network failures and the local PB above is
+    // already saved regardless.
+    const submittedSeed = active.seed;
+    submitScore(submittedSeed, nickname, recording.time, recording.stability, recording.inputLog).then(() => {
+      if (submittedSeed === today.seed) void refreshLeaderboard();
+    });
   } else {
     resultsTitle.textContent = "Cargo fell off!";
     resultsTime.textContent = `Survived ${session.elapsed.toFixed(2)}s`;
@@ -194,7 +287,8 @@ function goHome(): void {
   if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
   appState = "start";
   session = null;
-  ghost = null;
+  pbGhost = null;
+  leaderboardGhost = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
@@ -246,7 +340,9 @@ let accumulator = 0;
 
 function renderScene(activeSession: GameSession, frameDt: number): void {
   updateCamera(camera, activeSession.truck, frameDt);
-  const ghostViews: GhostView[] = ghost ? [{ truck: ghost.truck, cargo: ghost.cargo }] : [];
+  const ghostViews: GhostView[] = [];
+  if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargo: pbGhost.cargo });
+  if (leaderboardGhost) ghostViews.push({ truck: leaderboardGhost.truck, cargo: leaderboardGhost.cargo });
   renderWorld(
     ctx,
     active.level,
@@ -288,7 +384,8 @@ function frame(now: number): void {
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
       session.update(FIXED_DT, input.held);
-      ghost?.update(FIXED_DT);
+      pbGhost?.update(FIXED_DT);
+      leaderboardGhost?.update(FIXED_DT);
       accumulator -= FIXED_DT;
       steps++;
     }
