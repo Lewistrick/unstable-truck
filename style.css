@@ -191,6 +191,16 @@ button:active {
   transform: scale(0.97);
 }
 
+#results-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-secondary {
+  color: #f0f2f5;
+  background: #2c3542;
+}
+
 #countdown-overlay {
   position: absolute;
   inset: 0;

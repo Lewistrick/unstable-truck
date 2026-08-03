@@ -34,8 +34,8 @@ const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
 const hud = document.getElementById("hud")!;
 const startDateEl = document.getElementById("start-date")!;
-const startBtn = document.getElementById("start-btn")!;
 const retryBtn = document.getElementById("retry-btn")!;
+const homeBtn = document.getElementById("home-btn")!;
 const resultsTitle = document.getElementById("results-title")!;
 const resultsTime = document.getElementById("results-time")!;
 const resultsPersonalBest = document.getElementById("results-personal-best")!;
@@ -162,9 +162,10 @@ function endRun(): void {
   }
 }
 
-/** Abandons the current run or countdown (no result is recorded) and returns to the start screen. */
-function abortRun(): void {
-  if (appState !== "playing" && appState !== "countdown") return;
+/** Leaves a run, countdown, or the results screen (no result is recorded if
+ * mid-run) and returns to the start screen. */
+function goHome(): void {
+  if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
   appState = "start";
   session = null;
   ghost = null;
@@ -174,8 +175,8 @@ function abortRun(): void {
   startScreen.classList.remove("hidden");
 }
 
-startBtn.addEventListener("click", () => beginRun(today));
 retryBtn.addEventListener("click", () => beginRun(active));
+homeBtn.addEventListener("click", goHome);
 minimapCanvas.addEventListener("click", () => beginRun(today));
 minimapCanvas.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
@@ -200,8 +201,11 @@ for (const [cardId, playable] of pastCardTargets) {
 }
 
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") abortRun();
-  if (e.key === "Enter" && appState === "ended") beginRun(active);
+  if (e.key === "Escape") goHome();
+  if (e.key === "Enter") {
+    if (appState === "ended") beginRun(active);
+    else if (appState === "start") beginRun(today);
+  }
 });
 
 // Physics run on a fixed timestep, independent of render framerate. This is

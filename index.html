@@ -36,7 +36,7 @@
           Hold (space / tap / click) to steer right. Release to drift left.<br />
           Visit every <span class="tag tag-pickup">P</span> pickup, then deliver to <span class="tag tag-destination">D</span>.
           Smooth driving keeps cargo stable &mdash; crashes and mud don't.<br />
-          Press <strong>Esc</strong> during a run to quit back here.
+          Press <strong>Enter</strong> to start today's route, <strong>Esc</strong> during a run to quit back here.
         </p>
         <div id="past-levels">
           <div class="past-level-card" id="past-level-card-1" role="button" tabindex="0">
@@ -54,7 +54,6 @@
           <input type="checkbox" id="pb-ghost-toggle" disabled />
           <span id="pb-ghost-label">No personal best yet</span>
         </label>
-        <button id="start-btn">Start</button>
       </div>
     </div>
 
@@ -64,8 +63,11 @@
         <p id="results-time"></p>
         <p id="results-personal-best" class="muted"></p>
         <p id="results-stability"></p>
-        <button id="retry-btn">Retry</button>
-        <p class="muted" id="retry-hint">Press Enter to retry</p>
+        <div id="results-actions">
+          <button id="retry-btn">Retry</button>
+          <button id="home-btn" class="btn-secondary">Home</button>
+        </div>
+        <p class="muted" id="retry-hint">Enter to retry &middot; Esc for home</p>
       </div>
     </div>
   </div>

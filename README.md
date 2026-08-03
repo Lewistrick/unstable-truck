@@ -28,11 +28,13 @@ What's implemented:
 - Start screen showing today's level plus playable thumbnails for the
   previous two days (each with its own personal-best time) - always anchored
   to the real calendar date, regardless of which level was last played;
-  clicking any thumbnail jumps into a 3-2-1-GO countdown and starts that
-  level. A personal-best ghost toggle, an in-game HUD (timer, objective,
+  clicking any thumbnail (or pressing Enter for today's) jumps into a
+  3-2-1-GO countdown and starts that level. There's no separate Start
+  button. A personal-best ghost toggle, an in-game HUD (timer, objective,
   stability meter, PB time), and a results screen (showing your time against
-  your personal best) round it out. Escape quits a run/countdown back to the
-  start screen; Enter retries from the results screen.
+  your personal best, with Retry and Home buttons) round it out. Escape
+  quits a run, countdown, or the results screen back to the start screen;
+  Enter retries from the results screen.
 
 Not yet built: global leaderboard, daily-best-player ghost, backend/database.
 See the project's design doc for the full intended scope.
