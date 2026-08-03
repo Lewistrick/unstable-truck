@@ -68,7 +68,6 @@ const WAREHOUSE_COLOR: Record<string, PaletteColorKey> = {
   base: "warehouseBase",
   pickup: "warehousePickup",
   destination: "warehouseDestination",
-  decorative: "warehouseDecorative",
 };
 
 const WAREHOUSE_LABEL: Record<string, string> = { base: "B", pickup: "P", destination: "D" };

@@ -89,7 +89,9 @@ function frame(now: number): void {
     renderWorld(ctx, level, session.truck, session.cargo, camera, canvas.clientWidth, canvas.clientHeight);
 
     hudTimer.textContent = `${session.elapsed.toFixed(1)}s`;
-    hudObjective.textContent = session.hasCargo ? "Deliver to destination" : "Pick up cargo";
+    hudObjective.textContent = session.allPickedUp
+      ? "Deliver to destination"
+      : `Pick up cargo (${session.visited.size}/${session.pickups.length})`;
     const stability = Math.round(session.cargo.stability);
     hudStabilityBar.style.width = `${stability}%`;
     hudStabilityBar.style.backgroundColor = stabilityColor(stability);

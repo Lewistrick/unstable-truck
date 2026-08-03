@@ -12,11 +12,14 @@ export function generateWarehouses(
     ...branches.map((b) => b.p3),
   ];
 
-  const count = Math.max(3, Math.min(randInt(rng, 4, 10), candidates.length));
+  const count = Math.min(randInt(rng, 4, 10), candidates.length);
   const spots = shuffle(rng, candidates).slice(0, count);
+  const lastIndex = spots.length - 1;
 
+  // First is always base, last is always the destination; every warehouse
+  // in between is a pickup the player must visit before delivering.
   return spots.map((pos, i): Warehouse => {
-    const kind = i === 0 ? "base" : i === 1 ? "pickup" : i === 2 ? "destination" : "decorative";
+    const kind = i === 0 ? "base" : i === lastIndex ? "destination" : "pickup";
     const size = randRange(rng, 30, 45);
     return {
       kind,

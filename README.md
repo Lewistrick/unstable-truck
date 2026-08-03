@@ -11,7 +11,8 @@ yet. What's implemented:
 
 - Deterministic daily level generation (Mulberry32 PRNG seeded from
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
-  few branching dead ends, warehouse placement (base/pickup/destination),
+  few branching dead ends, 4-10 warehouses per level (one base, one
+  destination, the rest pickups that must all be visited before delivery),
   rocks/mud/rough-terrain obstacles, and a seeded color palette.
 - Truck physics: single-button steering (default left bias while coasting,
   right while held) with momentum/inertia on both turning and velocity.

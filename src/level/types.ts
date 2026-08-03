@@ -16,7 +16,7 @@ export interface RoadSegment {
   samples: Vec2[];
 }
 
-export type WarehouseKind = "base" | "pickup" | "destination" | "decorative";
+export type WarehouseKind = "base" | "pickup" | "destination";
 
 export interface Warehouse {
   kind: WarehouseKind;
@@ -52,7 +52,6 @@ export interface Palette {
   warehouseBase: string;
   warehousePickup: string;
   warehouseDestination: string;
-  warehouseDecorative: string;
   rock: string;
   mud: string;
   rough: string;
