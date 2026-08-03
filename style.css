@@ -72,8 +72,43 @@ html, body {
   margin-top: -8px;
 }
 
-#minimap-canvas {
+#thumbnail-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
+}
+
+.nav-arrow {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: #f0f2f5;
+  background: #2c3542;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.nav-arrow:hover:not(:disabled) {
+  background: #3a4554;
+}
+
+.nav-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+#minimap-canvas {
+  flex: 1;
+  min-width: 0;
   max-width: 300px;
   height: auto;
   border-radius: 8px;
@@ -117,46 +152,6 @@ html, body {
   padding: 0 6px;
   border-radius: 4px;
   font-weight: 700;
-}
-
-#past-levels {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-}
-
-.past-level-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 4px;
-}
-
-.past-level-card:hover,
-.past-level-card:focus-visible {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.past-level-card:hover .past-level-canvas,
-.past-level-card:focus-visible .past-level-canvas {
-  opacity: 1;
-  border-color: #4a5566;
-}
-
-.past-level-date {
-  font-size: 0.75rem;
-  color: #9aa4b2;
-}
-
-.past-level-canvas {
-  width: 150px;
-  height: 97px;
-  border-radius: 6px;
-  border: 1px solid #2c3542;
-  opacity: 0.85;
 }
 
 .past-level-best {

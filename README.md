@@ -27,21 +27,22 @@ What's implemented:
 - Global leaderboard, backed by a Postgres + Express server: each successful
   run is submitted under a nickname (auto-generated on first visit, editable)
   and only overwrites your prior score for that seed if it's faster. The home
-  screen shows today's top 10; clicking a leaderboard row races that player's
-  ghost too (up to two ghosts race at once: your personal best and a selected
-  leaderboard player). The game is fully playable offline/without the backend
-  — score submission and the leaderboard just silently no-op if the server is
-  unreachable.
-- Start screen showing today's level plus playable thumbnails for the
-  previous two days (each with its own personal-best time) - always anchored
-  to the real calendar date, regardless of which level was last played;
-  clicking any thumbnail (or pressing Enter for today's) jumps into a
-  3-2-1-GO countdown and starts that level. There's no separate Start
-  button. A personal-best ghost toggle, an in-game HUD (timer, objective,
-  stability meter, PB time), and a results screen (showing your time against
-  your personal best, with Retry and Home buttons) round it out. Escape
-  quits a run, countdown, or the results screen back to the start screen;
-  Enter retries from the results screen.
+  screen shows the viewed day's top 10; clicking a leaderboard row races that
+  player's ghost too (up to two ghosts race at once: your personal best and a
+  selected leaderboard player, each labeled in a small muted tag - "you",
+  "pb", or their nickname). The game is fully playable offline/without the
+  backend — score submission and the leaderboard just silently no-op if the
+  server is unreachable.
+- Start screen shows one day at a time (today by default), with prev/next
+  arrows beside the thumbnail to browse up to 7 days back - the date,
+  minimap, personal best, ghost toggle, and leaderboard panel all update
+  together as you navigate. Clicking the thumbnail (or pressing Enter) jumps
+  into a 3-2-1-GO countdown and starts whichever day is showing. There's no
+  separate Start button. A results screen (showing your time against your
+  personal best, with Retry and Home buttons) rounds it out. Escape quits a
+  run, countdown, or the results screen back to the start screen; Enter
+  retries from the results screen; Backspace instantly restarts the current
+  run (fresh countdown included).
 
 ## Running it with Docker (recommended)
 
@@ -92,15 +93,16 @@ reserves ranges via Hyper-V), override it (`APP_PORT` for Docker, or edit
 the `serve`/`start` scripts) and try a different one. You can list currently
 reserved ranges with `netsh interface ipv4 show excludedportrange protocol=tcp`.
 
-The home screen always generates today's level plus the previous two days
-up front - clicking any of the three thumbnails plays that level directly,
-in-memory, with no page reload.
+Days are generated lazily and cached in memory as you navigate the home
+screen's prev/next arrows (up to 7 days back), so browsing around doesn't
+reload the page or regenerate a level you've already visited.
 
 ## Controls
 
 Hold spacebar (desktop) or press-and-hold on the canvas (mouse/touch) to
 steer right. Release to drift left. The truck always drives forward;
-steering is the only input.
+steering is the only input. Enter starts/retries, Escape quits to the home
+screen, Backspace restarts the current run.
 
 ## Project layout
 

@@ -118,6 +118,18 @@ function drawTruck(ctx: CanvasRenderingContext2D, truck: TruckState): void {
   ctx.restore();
 }
 
+/** Small muted name tag above a truck (drawn outside any rotation transform,
+ * so it stays upright regardless of heading). */
+function drawNameLabel(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }, text: string): void {
+  ctx.save();
+  ctx.font = "600 11px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(240, 242, 245, 0.75)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText(text, pos.x, pos.y - 20);
+  ctx.restore();
+}
+
 export interface Camera {
   x: number;
   y: number;
@@ -132,6 +144,8 @@ export function updateCamera(camera: Camera, truck: TruckState, dt: number): voi
 export interface GhostView {
   truck: TruckState;
   cargo: CargoState;
+  /** Small muted label drawn above the ghost - e.g. "pb" or a nickname. */
+  label: string;
 }
 
 const GHOST_ALPHA = 0.45;
@@ -168,10 +182,12 @@ export function renderWorld(
     drawCargo(ctx, ghost.cargo);
     drawTruck(ctx, ghost.truck);
     ctx.restore();
+    drawNameLabel(ctx, ghost.truck.pos, ghost.label);
   }
 
   drawCargo(ctx, cargo);
   drawTruck(ctx, truck);
+  drawNameLabel(ctx, truck.pos, "you");
 
   ctx.restore();
 }

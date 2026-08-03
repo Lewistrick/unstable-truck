@@ -18,18 +18,35 @@ function makePlayable(seed: string): Playable {
   return { seed, level: generateLevel(seed), personalBest: loadPersonalBest(seed) };
 }
 
-// Drop any personal bests older than a week (across all seeds, not just the
-// three shown below) before loading today's/yesterday's/two-days-ago's.
+// Drop any personal bests older than a week before loading anything.
 pruneOldPersonalBests();
 
-// The home screen always shows today plus the previous two days - anchored
-// to the real calendar date, never to whichever level happens to be active -
-// so returning to it (e.g. via Escape) always looks the same regardless of
-// what was just played.
 const todaysSeed = todaySeed();
-const today = makePlayable(todaysSeed);
-const yesterday = makePlayable(shiftSeed(todaysSeed, -1));
-const twoDaysAgo = makePlayable(shiftSeed(todaysSeed, -2));
+
+// The home screen shows one browsable day at a time, always anchored to the
+// real calendar date (today's seed never drifts based on what's been
+// played). Levels are generated lazily as the player navigates and cached so
+// re-visiting a day doesn't regenerate it.
+const MAX_PAST_DAYS = 7;
+const playableCache = new Map<number, Playable>();
+
+function getPlayable(offset: number): Playable {
+  let playable = playableCache.get(offset);
+  if (!playable) {
+    playable = makePlayable(shiftSeed(todaysSeed, offset));
+    playableCache.set(offset, playable);
+  }
+  return playable;
+}
+
+function describeOffset(offset: number): string {
+  if (offset === 0) return "Today";
+  if (offset === -1) return "Yesterday";
+  return `${-offset} days ago`;
+}
+
+let viewedOffset = 0;
+let viewed: Playable = getPlayable(0);
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -39,7 +56,9 @@ const minimapCtx = minimapCanvas.getContext("2d")!;
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
 const hud = document.getElementById("hud")!;
-const startDateEl = document.getElementById("start-date")!;
+const viewedDateEl = document.getElementById("viewed-date")!;
+const navPrevBtn = document.getElementById("nav-prev-btn") as HTMLButtonElement;
+const navNextBtn = document.getElementById("nav-next-btn") as HTMLButtonElement;
 const retryBtn = document.getElementById("retry-btn")!;
 const homeBtn = document.getElementById("home-btn")!;
 const resultsTitle = document.getElementById("results-title")!;
@@ -54,13 +73,10 @@ const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputEle
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
-const pastLevelBest1 = document.getElementById("past-level-best-1")!;
-const pastLevelBest2 = document.getElementById("past-level-best-2")!;
-const todayBestEl = document.getElementById("today-best")!;
+const viewedBestEl = document.getElementById("viewed-best")!;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
+const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
-
-startDateEl.textContent = `Today's route — ${today.seed}`;
 
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
@@ -71,13 +87,14 @@ nicknameInput.addEventListener("change", () => {
   renderLeaderboardList();
 });
 
-function refreshTodayUi(): void {
-  todayBestEl.textContent = today.personalBest ? `Best: ${today.personalBest.time.toFixed(2)}s` : "Best: —";
-  if (today.personalBest) {
+function refreshViewedUi(): void {
+  viewedDateEl.textContent = `${describeOffset(viewedOffset)} — ${viewed.seed}`;
+  viewedBestEl.textContent = viewed.personalBest ? `Best: ${viewed.personalBest.time.toFixed(2)}s` : "Best: —";
+  if (viewed.personalBest) {
     pbGhostToggle.disabled = false;
     pbGhostToggle.checked = true;
-    pbGhostLabel.textContent = `Race personal best ghost (${today.personalBest.time.toFixed(2)}s)`;
-    hudPb.textContent = `PB: ${today.personalBest.time.toFixed(2)}s`;
+    pbGhostLabel.textContent = `Race personal best ghost (${viewed.personalBest.time.toFixed(2)}s)`;
+    hudPb.textContent = `PB: ${viewed.personalBest.time.toFixed(2)}s`;
   } else {
     pbGhostToggle.disabled = true;
     pbGhostToggle.checked = false;
@@ -85,10 +102,9 @@ function refreshTodayUi(): void {
     hudPb.textContent = "";
   }
 }
-refreshTodayUi();
 
 /** Picks readable text color (dark or light) for a given `hsl(h s% l%)`
- * background, since today's road/grass/mud/rock colors are seeded per day
+ * background, since a day's road/grass/mud/rock colors are seeded per day
  * and can land anywhere in their brightness range. */
 function contrastTextFor(hslColor: string): string {
   const match = hslColor.match(/hsl\(\s*[\d.-]+\s+[\d.]+%\s+([\d.]+)%/);
@@ -101,36 +117,27 @@ function paintTerrainTag(id: string, backgroundColor: string): void {
   el.style.backgroundColor = backgroundColor;
   el.style.color = contrastTextFor(backgroundColor);
 }
-paintTerrainTag("tag-road", today.level.palette.road);
-paintTerrainTag("tag-grass", today.level.palette.grass);
-paintTerrainTag("tag-mud", today.level.palette.mud);
-paintTerrainTag("tag-rock", today.level.palette.rock);
 
-function renderPastCard(playable: Playable, index: 1 | 2, label: string): void {
-  const dateEl = document.getElementById(`past-level-date-${index}`)!;
-  const bestEl = index === 1 ? pastLevelBest1 : pastLevelBest2;
-  const canvasEl = document.getElementById(`past-level-canvas-${index}`) as HTMLCanvasElement;
-  const pastCtx = canvasEl.getContext("2d")!;
-
-  dateEl.textContent = `${label} — ${playable.seed}`;
-  bestEl.textContent = playable.personalBest ? `Best: ${playable.personalBest.time.toFixed(2)}s` : "Best: —";
-  renderMinimap(pastCtx, playable.level, 0, 0, canvasEl.width, canvasEl.height);
+function paintViewedTerrainTags(): void {
+  paintTerrainTag("tag-road", viewed.level.palette.road);
+  paintTerrainTag("tag-grass", viewed.level.palette.grass);
+  paintTerrainTag("tag-mud", viewed.level.palette.mud);
+  paintTerrainTag("tag-rock", viewed.level.palette.rock);
 }
-renderPastCard(yesterday, 1, "Yesterday");
-renderPastCard(twoDaysAgo, 2, "2 days ago");
 
-// --- Leaderboard (today's seed only) ---------------------------------------
+// --- Leaderboard (for whichever day is currently viewed) -------------------
 
 let leaderboardTop: LeaderboardEntry[] = [];
 let leaderboardContext: LeaderboardEntry[] = [];
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
 
 function renderLeaderboardList(): void {
+  leaderboardHeaderEl.textContent = `Leaderboard (${describeOffset(viewedOffset)})`;
   leaderboardList.replaceChildren();
   if (leaderboardTop.length === 0) {
     const li = document.createElement("li");
     li.className = "leaderboard-empty";
-    li.textContent = "No times yet today — be the first!";
+    li.textContent = "No times yet — be the first!";
     leaderboardList.appendChild(li);
     return;
   }
@@ -170,20 +177,41 @@ async function toggleLeaderboardGhost(clickedNickname: string): Promise<void> {
     renderLeaderboardList();
     return;
   }
-  const recording = await fetchPlayerRecording(today.seed, clickedNickname);
+  const recording = await fetchPlayerRecording(viewed.seed, clickedNickname);
   if (recording) selectedGhostEntry = { nickname: clickedNickname, recording };
   renderLeaderboardList();
 }
 
 async function refreshLeaderboard(): Promise<void> {
-  const data = await fetchLeaderboard(today.seed, nickname);
+  const data = await fetchLeaderboard(viewed.seed, nickname);
   if (data) {
     leaderboardTop = data.top;
     leaderboardContext = data.context;
   }
   renderLeaderboardList();
 }
-void refreshLeaderboard();
+
+// --- Day navigation ---------------------------------------------------
+
+function updateNavButtons(): void {
+  navPrevBtn.disabled = viewedOffset <= -MAX_PAST_DAYS;
+  navNextBtn.disabled = viewedOffset >= 0;
+}
+
+function navigateTo(offset: number): void {
+  viewedOffset = Math.max(-MAX_PAST_DAYS, Math.min(0, offset));
+  viewed = getPlayable(viewedOffset);
+  // A selected ghost is contextual to the day it was fetched for.
+  selectedGhostEntry = null;
+  updateNavButtons();
+  refreshViewedUi();
+  paintViewedTerrainTags();
+  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  void refreshLeaderboard();
+}
+
+navPrevBtn.addEventListener("click", () => navigateTo(viewedOffset - 1));
+navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
 
 // -----------------------------------------------------------------------
 
@@ -195,7 +223,13 @@ function resizeCanvas(): void {
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
-renderMinimap(minimapCtx, today.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+
+// Initial paint: today (offset 0), same steps navigateTo() would do.
+updateNavButtons();
+refreshViewedUi();
+paintViewedTerrainTags();
+renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+void refreshLeaderboard();
 
 const input = createInput(canvas);
 
@@ -204,9 +238,9 @@ let appState: AppState = "start";
 let session: GameSession | null = null;
 let pbGhost: GhostPlayer | null = null;
 let leaderboardGhost: GhostPlayer | null = null;
-let active: Playable = today;
+let active: Playable = viewed;
 let countdownElapsed = 0;
-const camera: Camera = { x: today.level.width / 2, y: today.level.height / 2 };
+const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
 
 // "GO" gets its own step so it's visible for one beat before play begins.
 const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
@@ -256,9 +290,8 @@ function endRun(): void {
     const isNewBest = savePersonalBestIfBetter(recording);
     if (isNewBest) {
       active.personalBest = recording;
-      if (active === today) refreshTodayUi();
-      else if (active === yesterday) renderPastCard(yesterday, 1, "Yesterday");
-      else if (active === twoDaysAgo) renderPastCard(twoDaysAgo, 2, "2 days ago");
+      // No navigation happens mid-run, so `active` is still `viewed` here.
+      refreshViewedUi();
     }
     resultsPersonalBest.textContent = !previousBest
       ? "New personal best!"
@@ -271,7 +304,7 @@ function endRun(): void {
     // already saved regardless.
     const submittedSeed = active.seed;
     submitScore(submittedSeed, nickname, recording.time, recording.stability, recording.inputLog).then(() => {
-      if (submittedSeed === today.seed) void refreshLeaderboard();
+      if (submittedSeed === viewed.seed) void refreshLeaderboard();
     });
   } else {
     resultsTitle.textContent = "Cargo fell off!";
@@ -297,34 +330,23 @@ function goHome(): void {
 
 retryBtn.addEventListener("click", () => beginRun(active));
 homeBtn.addEventListener("click", goHome);
-minimapCanvas.addEventListener("click", () => beginRun(today));
+minimapCanvas.addEventListener("click", () => beginRun(viewed));
 minimapCanvas.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
-    beginRun(today);
+    beginRun(viewed);
   }
 });
-
-const pastCardTargets: Array<[string, Playable]> = [
-  ["past-level-card-1", yesterday],
-  ["past-level-card-2", twoDaysAgo],
-];
-for (const [cardId, playable] of pastCardTargets) {
-  const cardEl = document.getElementById(cardId)!;
-  cardEl.addEventListener("click", () => beginRun(playable));
-  cardEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      beginRun(playable);
-    }
-  });
-}
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") goHome();
   if (e.key === "Enter") {
     if (appState === "ended") beginRun(active);
-    else if (appState === "start") beginRun(today);
+    else if (appState === "start") beginRun(viewed);
+  }
+  if (e.key === "Backspace" && (appState === "playing" || appState === "countdown")) {
+    e.preventDefault(); // Backspace defaults to browser back-navigation.
+    beginRun(active);
   }
 });
 
@@ -341,8 +363,10 @@ let accumulator = 0;
 function renderScene(activeSession: GameSession, frameDt: number): void {
   updateCamera(camera, activeSession.truck, frameDt);
   const ghostViews: GhostView[] = [];
-  if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargo: pbGhost.cargo });
-  if (leaderboardGhost) ghostViews.push({ truck: leaderboardGhost.truck, cargo: leaderboardGhost.cargo });
+  if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargo: pbGhost.cargo, label: "pb" });
+  if (leaderboardGhost) {
+    ghostViews.push({ truck: leaderboardGhost.truck, cargo: leaderboardGhost.cargo, label: selectedGhostEntry?.nickname ?? "ghost" });
+  }
   renderWorld(
     ctx,
     active.level,
