@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Unstable Truck</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <div id="app">
     <canvas id="game-canvas"></canvas>
@@ -18,7 +20,9 @@
       <div id="hud-objective">Pick up cargo</div>
       <div id="hud-stability-wrap">
         <div id="hud-stability-label">CARGO</div>
-        <div id="hud-stability-track"><div id="hud-stability-bar"></div></div>
+        <div id="hud-stability-track">
+          <div id="hud-stability-bar"></div>
+        </div>
       </div>
     </div>
 
@@ -39,12 +43,14 @@
         <p class="past-level-best" id="today-best"></p>
         <p class="hint">
           Hold (space / tap / click) to steer right. Release to drift left.<br />
-          Visit every <span class="tag tag-pickup">P</span> pickup, then deliver to <span class="tag tag-destination">D</span>.<br />
-          Keep on the <span class="terrain-tag" id="tag-road">road</span>,
-          <span class="terrain-tag" id="tag-grass">grass</span> slows you down, and
-          <span class="terrain-tag" id="tag-mud">mud</span> even more. Don't crash into
-          <span class="terrain-tag" id="tag-rock">rocks</span>!<br />
-          Press <strong>Enter</strong> to start today's route, <strong>Esc</strong> during a run to quit back here.
+          Visit every <span class="tag tag-pickup">P</span> pickup, then deliver to <span
+            class="tag tag-destination">D</span>.<br /><br />
+          <span class="terrain-tag" id="tag-road">ROAD</span> is fast,
+          <span class="terrain-tag" id="tag-grass">GRASS</span> slows you down,<br />
+          <span class="terrain-tag" id="tag-mud">MUD</span> will slide you out,
+          <span class="terrain-tag" id="tag-rock">ROCKS</span> are deadly.<br /><br />
+          Press <strong>Enter</strong> to start today's route, <strong>Esc</strong> during a run to quit back
+          here.
         </p>
         <div id="past-levels">
           <div class="past-level-card" id="past-level-card-1" role="button" tabindex="0">
@@ -78,4 +84,5 @@
 
   <script type="module" src="dist/main.js"></script>
 </body>
+
 </html>
