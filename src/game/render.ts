@@ -147,7 +147,9 @@ export function renderWorld(
   canvasW: number,
   canvasH: number,
 ): void {
-  ctx.fillStyle = "#1a1f26";
+  // Area beyond the level bounds (visible near the world's edges) matches
+  // the grass color instead of a hardcoded dark void.
+  ctx.fillStyle = level.palette.grass;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   ctx.save();

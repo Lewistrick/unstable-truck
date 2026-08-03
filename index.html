@@ -32,6 +32,10 @@
         <p id="start-date" class="muted"></p>
         <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
         <p class="muted thumbnail-hint">Click the map to jump in</p>
+        <label id="ghost-toggle-row">
+          <input type="checkbox" id="pb-ghost-toggle" disabled />
+          <span id="pb-ghost-label">No personal best yet</span>
+        </label>
         <p class="past-level-best" id="today-best"></p>
         <p class="hint">
           Hold (space / tap / click) to steer right. Release to drift left.<br />
@@ -54,10 +58,6 @@
             <div class="past-level-best" id="past-level-best-2"></div>
           </div>
         </div>
-        <label id="ghost-toggle-row">
-          <input type="checkbox" id="pb-ghost-toggle" disabled />
-          <span id="pb-ghost-label">No personal best yet</span>
-        </label>
       </div>
     </div>
 
