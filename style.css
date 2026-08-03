@@ -17,6 +17,10 @@ html, body {
   position: relative;
   width: 100vw;
   height: 100vh;
+  /* On mobile, 100vh includes the area behind the retractable toolbars, which
+     pushes the canvas centre (and the truck) below the visible middle. dvh
+     tracks the actually-visible viewport instead. */
+  height: 100dvh;
 }
 
 #game-canvas {

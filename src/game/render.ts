@@ -157,6 +157,18 @@ export interface GhostView {
 
 const GHOST_ALPHA = 0.45;
 
+// The world is drawn at roughly 1 unit = 1 CSS pixel. On a large screen that
+// shows most of the 2000x1300 level, but on a phone it would show only a tiny
+// slice. So on small screens we zoom out to guarantee at least this many world
+// units are visible along the shorter viewport axis - never zooming in past
+// 1:1, so desktop is unaffected.
+const MIN_VIEW_SPAN = 640;
+
+/** World-to-screen zoom factor for the current canvas size (<= 1). */
+function viewZoom(canvasW: number, canvasH: number): number {
+  return Math.min(1, Math.min(canvasW, canvasH) / MIN_VIEW_SPAN);
+}
+
 export function renderWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
@@ -173,8 +185,13 @@ export function renderWorld(
   ctx.fillStyle = level.palette.grass;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
+  // Center the camera on screen, then scale about that center so the truck
+  // stays put while more of the world comes into view on small screens.
+  const zoom = viewZoom(canvasW, canvasH);
   ctx.save();
-  ctx.translate(canvasW / 2 - camera.x, canvasH / 2 - camera.y);
+  ctx.translate(canvasW / 2, canvasH / 2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-camera.x, -camera.y);
 
   ctx.fillStyle = level.palette.grass;
   ctx.fillRect(0, 0, level.width, level.height);

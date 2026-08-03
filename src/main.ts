@@ -277,6 +277,9 @@ function resizeCanvas(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener("resize", resizeCanvas);
+// On mobile, showing/hiding the browser toolbar changes the visible viewport
+// without always firing a window resize, so also track the visual viewport.
+window.visualViewport?.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
 // Initial paint: today (offset 0), same steps navigateTo() would do.
