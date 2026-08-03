@@ -1,9 +1,10 @@
 import { generateLevel, shiftSeed, todaySeed } from "./level/generate.js";
+import { FIXED_DT } from "./physics/constants.js";
 import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
-import { loadPersonalBest, savePersonalBestIfBetter } from "./game/storage.js";
+import { loadPersonalBest, pruneOldPersonalBests, savePersonalBestIfBetter } from "./game/storage.js";
 import type { Level } from "./level/types.js";
 
 interface Playable {
@@ -15,6 +16,10 @@ interface Playable {
 function makePlayable(seed: string): Playable {
   return { seed, level: generateLevel(seed), personalBest: loadPersonalBest(seed) };
 }
+
+// Drop any personal bests older than a week (across all seeds, not just the
+// three shown below) before loading today's/yesterday's/two-days-ago's.
+pruneOldPersonalBests();
 
 // The home screen always shows today plus the previous two days - anchored
 // to the real calendar date, never to whichever level happens to be active -
@@ -230,14 +235,12 @@ window.addEventListener("keydown", (e) => {
 });
 
 // Physics run on a fixed timestep, independent of render framerate. This is
-// what makes ghost replay deterministic: elapsed time (and therefore every
-// recorded input-toggle timestamp) is always an exact multiple of FIXED_DT,
-// so replaying the same toggle list drives the exact same sequence of
-// physics steps no matter how the real frame timing varied between the
-// recording run and any later replay. A variable per-frame dt would instead
-// integrate momentum/collisions slightly differently each time, and those
-// tiny differences compound into a visibly different route.
-const FIXED_DT = 1 / 60;
+// what makes ghost replay deterministic: each update() call always advances
+// exactly one tick, so replaying the same toggle-tick list drives the exact
+// same sequence of physics steps no matter how the real frame timing varied
+// between the recording run and any later replay. A variable per-frame dt
+// would instead integrate momentum/collisions slightly differently each
+// time, and those tiny differences compound into a visibly different route.
 const MAX_STEPS_PER_FRAME = 8;
 let accumulator = 0;
 

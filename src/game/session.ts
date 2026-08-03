@@ -28,11 +28,13 @@ export class GameSession {
   visited = new Set<Warehouse>();
   status: GameStatus = "playing";
   elapsed = 0;
+  private tick = 0;
 
-  /** Times (seconds since run start) at which the input button toggled
-   * held/released, starting from released. A ghost replay reconstructs the
-   * exact input stream from just this list, without needing to store
-   * per-frame position/state. */
+  /** Tick indices (not seconds - update() is always called once per fixed
+   * physics tick) at which the input button toggled held/released, starting
+   * from released. A ghost replay reconstructs the exact input stream from
+   * just this list, without needing to store per-frame position/state.
+   * Whole-tick integers keep the persisted JSON clean plain ints. */
   readonly inputLog: number[] = [];
   private lastHeld = false;
 
@@ -63,13 +65,19 @@ export class GameSession {
     return this.visited.size >= this.pickups.length;
   }
 
+  /** The current tick index (0 at run start, +1 per update() call). */
+  get currentTick(): number {
+    return this.tick;
+  }
+
   update(dt: number, held: boolean): void {
     if (this.status !== "playing") return;
     if (held !== this.lastHeld) {
-      this.inputLog.push(this.elapsed);
+      this.inputLog.push(this.tick);
       this.lastHeld = held;
     }
     this.elapsed += dt;
+    this.tick++;
 
     const terrain = sampleTerrain(this.truck.pos, this.level);
     updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height });
