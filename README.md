@@ -6,8 +6,8 @@ deliver it as fast as possible without letting it fall off.
 
 ## Status
 
-This is the **core gameplay loop only** — no leaderboard, ghosts, or backend
-yet. What's implemented:
+No global leaderboard or backend yet — everything runs and saves locally.
+What's implemented:
 
 - Deterministic daily level generation (Mulberry32 PRNG seeded from
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
@@ -16,14 +16,21 @@ yet. What's implemented:
   rocks/mud/rough-terrain obstacles, and a seeded color palette.
 - Truck physics: single-button steering (default left bias while coasting,
   right while held) with momentum/inertia on both turning and velocity.
+  Physics run on a fixed 1/60s timestep (via an accumulator decoupled from
+  `requestAnimationFrame`), which is what makes ghost replay deterministic.
 - Cargo physics: the cargo box trails behind the truck with lag, destabilizing
   on sharp turns, mud, rough terrain, and rock impacts. Stability hits 0 →
   the run ends.
-- Start screen with a minimap preview of the day's level, an in-game HUD
-  (timer, objective, stability meter), and a results screen.
+- Personal-best recording and ghost replay: each run's input (held/released
+  toggle times) is recorded; a successful run that beats your stored best for
+  that day's seed is saved to `localStorage` and can be raced against as a
+  semi-transparent ghost.
+- Start screen with a minimap preview of the day's level, a personal-best
+  ghost toggle, an in-game HUD (timer, objective, stability meter, PB time),
+  and a results screen.
 
-Not yet built: global leaderboard, ghost replays, personal-best storage,
-backend/database. See the project's design doc for the full intended scope.
+Not yet built: global leaderboard, daily-best-player ghost, backend/database.
+See the project's design doc for the full intended scope.
 
 ## Running it locally
 
