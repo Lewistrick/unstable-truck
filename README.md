@@ -33,6 +33,21 @@ What's implemented:
   "pb", or their nickname). The game is fully playable offline/without the
   backend — score submission and the leaderboard just silently no-op if the
   server is unreachable.
+- Medal targets per day: each level has deterministic gold/silver/bronze
+  finish-time thresholds derived purely from its geometry (the ideal
+  base → pickups → destination route length, inflated for road curvature and
+  divided by an assumed good-driving speed), so they're identical for every
+  player and work fully offline. The results screen shows the medal earned and
+  the time needed for the next tier up.
+- Daily streak and a recent-days calendar on the home screen: delivering a day
+  successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
+  consecutive delivered days (with a one-day grace before today's is done), and
+  a row of dots (one per navigable day, today highlighted) fills in for the
+  days you've completed.
+- Shareable result card: after a delivery, a Share button copies a spoiler-free
+  summary (day, medal, time, cargo %, streak — no map details) to the clipboard.
+  The home screen also has a Share button next to today's "Best" time that
+  copies the same kind of summary for your stored personal best (today only).
 - Start screen shows one day at a time (today by default), with prev/next
   arrows beside the thumbnail to browse up to 7 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
@@ -112,7 +127,8 @@ src/                frontend (compiles to dist/, loaded by the browser)
   level/    procedural generation (roads, warehouses, obstacles, palette) + terrain queries
   physics/  truck and cargo simulation, shared fixed-timestep constant
   game/     input handling, canvas rendering, game session/state machine,
-            API client, localStorage (personal bests + nickname)
+            API client, medal thresholds, localStorage (personal bests,
+            nickname, completion history)
   main.ts   DOM wiring and the render loop
 
 server/             backend (own tsconfig, compiles to server/dist/)
