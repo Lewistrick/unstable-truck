@@ -26,21 +26,6 @@ function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
 }
 
 function drawObstacles(ctx: CanvasRenderingContext2D, level: Level): void {
-  for (const rough of level.roughZones) {
-    ctx.beginPath();
-    ctx.arc(rough.pos.x, rough.pos.y, rough.radius, 0, Math.PI * 2);
-    ctx.fillStyle = level.palette.rough;
-    ctx.globalAlpha = 0.35;
-    ctx.fill();
-    ctx.setLineDash([6, 8]);
-    ctx.strokeStyle = level.palette.rough;
-    ctx.globalAlpha = 0.6;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-  }
-
   for (const mud of level.muds) {
     ctx.beginPath();
     mud.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));

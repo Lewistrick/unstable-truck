@@ -1,6 +1,6 @@
 import { type Rng, randInt, randRange } from "../util/rng.js";
 import { distance, v, type Vec2 } from "../util/vec2.js";
-import type { MudObstacle, RockObstacle, RoughZone, Warehouse } from "./types.js";
+import type { MudObstacle, RockObstacle, Warehouse } from "./types.js";
 
 const MIN_CLEARANCE_FROM_WAREHOUSE = 90;
 
@@ -30,7 +30,7 @@ export function generateObstacles(
   width: number,
   height: number,
   warehouses: Warehouse[],
-): { rocks: RockObstacle[]; muds: MudObstacle[]; roughZones: RoughZone[] } {
+): { rocks: RockObstacle[]; muds: MudObstacle[] } {
   const occupied: Vec2[] = warehouses.map((w) => w.pos);
   const spacingFor = (r: number) => Math.max(MIN_CLEARANCE_FROM_WAREHOUSE, r + 50);
 
@@ -47,7 +47,7 @@ export function generateObstacles(
   const muds: MudObstacle[] = [];
   const mudCount = randInt(rng, 4, 10);
   for (let i = 0; i < mudCount; i++) {
-    const radius = randRange(rng, 40, 80);
+    const radius = randRange(rng, 70, 140);
     const pos = findSpot(rng, noise, width, height, 0.004, 0.05, occupied, spacingFor(radius));
     if (!pos) continue;
     occupied.push(pos);
@@ -62,14 +62,5 @@ export function generateObstacles(
     muds.push({ pos, radius, points });
   }
 
-  const roughZones: RoughZone[] = [];
-  const roughCount = randInt(rng, 3, 8);
-  for (let i = 0; i < roughCount; i++) {
-    const radius = randRange(rng, 60, 130);
-    const pos = findSpot(rng, noise, width, height, 0.003, 0.1, occupied, spacingFor(radius) * 0.6);
-    if (!pos) continue;
-    roughZones.push({ pos, radius });
-  }
-
-  return { rocks, muds, roughZones };
+  return { rocks, muds };
 }

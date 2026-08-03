@@ -57,7 +57,6 @@ export function updateTruck(
     accel = OFFROAD_ACCEL;
     drag = OFFROAD_DRAG;
   }
-  if (terrain.inRough) maxSpeed *= 0.92;
 
   const accelSign = truck.speed > maxSpeed ? -accel * 2.2 : accel;
   truck.speed = clamp(truck.speed + accelSign * dt - drag * truck.speed * dt, 0, BASE_MAX_SPEED);

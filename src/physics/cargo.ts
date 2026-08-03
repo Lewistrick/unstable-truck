@@ -22,7 +22,6 @@ const LATERAL_INSTABILITY_FACTOR = 0.9;
 const GENTLE_TURN_RATE = 1.0;
 const TURN_INSTABILITY_FACTOR = 6.0;
 const MUD_INSTABILITY = 20;
-const ROUGH_INSTABILITY = 10;
 
 /** The cargo box trails behind the truck rather than following it exactly:
  * it eases toward a target point/angle offset behind the truck, so sharp
@@ -30,8 +29,8 @@ const ROUGH_INSTABILITY = 10;
  * component of that lag is treated as instability — the steady-state
  * straight-line trailing offset itself is normal and shouldn't drain
  * stability. Sharp turns (angular velocity past a gentle-steering
- * threshold), rough terrain, and mud drain the meter; smooth driving on a
- * road lets it recover quickly. */
+ * threshold) and mud drain the meter; smooth driving on a road lets it
+ * recover quickly. */
 export function updateCargo(cargo: CargoState, truck: TruckState, dt: number, terrain: TerrainSample): void {
   const headingDir = v(Math.cos(truck.heading), Math.sin(truck.heading));
   const target = v(truck.pos.x - headingDir.x * TRAILER_DISTANCE, truck.pos.y - headingDir.y * TRAILER_DISTANCE);
@@ -51,7 +50,6 @@ export function updateCargo(cargo: CargoState, truck: TruckState, dt: number, te
 
   let destabilize = lateralLag * LATERAL_INSTABILITY_FACTOR + sharpTurn * TURN_INSTABILITY_FACTOR;
   if (terrain.inMud) destabilize += MUD_INSTABILITY;
-  if (terrain.inRough) destabilize += ROUGH_INSTABILITY;
 
   const recoverRate = terrain.onRoad ? STABILITY_RECOVER_RATE_ON_ROAD : STABILITY_RECOVER_RATE_OFF_ROAD;
   cargo.stability = clamp(cargo.stability + (recoverRate - destabilize) * dt, 0, 100);

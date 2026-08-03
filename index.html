@@ -22,11 +22,16 @@
       </div>
     </div>
 
+    <div id="countdown-overlay" class="hidden">
+      <span id="countdown-text"></span>
+    </div>
+
     <div id="start-screen" class="screen">
       <div class="panel">
         <h1>Unstable Truck</h1>
         <p id="start-date" class="muted"></p>
-        <canvas id="minimap-canvas" width="300" height="190"></canvas>
+        <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
+        <p class="muted thumbnail-hint">Click the map to jump in</p>
         <p class="hint">
           Hold (space / tap / click) to steer right. Release to drift left.<br />
           Visit every <span class="tag tag-pickup">P</span> pickup, then deliver to <span class="tag tag-destination">D</span>.

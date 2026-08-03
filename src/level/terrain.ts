@@ -1,12 +1,10 @@
 import { distance, type Vec2 } from "../util/vec2.js";
-import type { Level, MudObstacle, RoughZone } from "./types.js";
+import type { Level, MudObstacle } from "./types.js";
 
 export interface TerrainSample {
   onRoad: boolean;
   inMud: boolean;
-  inRough: boolean;
   mud: MudObstacle | null;
-  rough: RoughZone | null;
 }
 
 function pointInPolygon(p: Vec2, polygon: Vec2[]): boolean {
@@ -45,15 +43,5 @@ export function sampleTerrain(pos: Vec2, level: Level): TerrainSample {
     }
   }
 
-  let inRough = false;
-  let rough: RoughZone | null = null;
-  for (const r of level.roughZones) {
-    if (distance(pos, r.pos) <= r.radius) {
-      inRough = true;
-      rough = r;
-      break;
-    }
-  }
-
-  return { onRoad, inMud, inRough, mud, rough };
+  return { onRoad, inMud, mud };
 }

@@ -29,10 +29,6 @@ export function generatePalette(rng: Rng): Palette {
   const mudSat = randRange(rng, 20, 42);
   const mudLight = randRange(rng, 24, 34);
 
-  const roughHue = (rockHue + 15) % 360;
-  const roughSat = randRange(rng, 15, 30);
-  const roughLight = randRange(rng, 45, 58);
-
   return {
     grass: hsl(grassHue, grassSat, grassLight),
     grassAlt: hsl(grassHue, grassSat, grassLight - 6),
@@ -43,6 +39,5 @@ export function generatePalette(rng: Rng): Palette {
     warehouseDestination: hsl(140, 55, 38),
     rock: hsl(rockHue, rockSat, rockLight),
     mud: hsl(mudHue, mudSat, mudLight),
-    rough: hsl(roughHue, roughSat, roughLight),
   };
 }

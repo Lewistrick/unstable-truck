@@ -20,13 +20,7 @@ export function generateLevel(seed: string): Level {
   const branches = generateBranches(rng, mainRoads, WORLD_WIDTH, WORLD_HEIGHT);
   const roads = [...mainRoads, ...branches];
   const warehouses = generateWarehouses(rng, hubs, branches);
-  const { rocks, muds, roughZones } = generateObstacles(
-    rng,
-    noise,
-    WORLD_WIDTH,
-    WORLD_HEIGHT,
-    warehouses,
-  );
+  const { rocks, muds } = generateObstacles(rng, noise, WORLD_WIDTH, WORLD_HEIGHT, warehouses);
   const palette = generatePalette(rng);
 
   return {
@@ -38,7 +32,6 @@ export function generateLevel(seed: string): Level {
     warehouses,
     rocks,
     muds,
-    roughZones,
     palette,
   };
 }

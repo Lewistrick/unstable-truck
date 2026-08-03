@@ -5,7 +5,14 @@ import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView }
 import { GameSession } from "./game/session.js";
 import { loadPersonalBest, savePersonalBestIfBetter } from "./game/storage.js";
 
-const seed = new URLSearchParams(location.search).get("seed") || todaySeed();
+const initialParams = new URLSearchParams(location.search);
+const seed = initialParams.get("seed") || todaySeed();
+const autostart = initialParams.get("start") === "1";
+if (autostart) {
+  // Consume the one-shot autostart flag so refreshing the page doesn't
+  // immediately restart a run.
+  history.replaceState(null, "", `${location.pathname}?seed=${seed}`);
+}
 const level = generateLevel(seed);
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
@@ -29,13 +36,16 @@ const hudObjective = document.getElementById("hud-objective")!;
 const hudStabilityBar = document.getElementById("hud-stability-bar")!;
 const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
+const countdownOverlay = document.getElementById("countdown-overlay")!;
+const countdownText = document.getElementById("countdown-text")!;
 
 startDateEl.textContent = seed === todaySeed() ? `Today's route — ${seed}` : `Route for ${seed}`;
 
-/** Navigating to ?seed=<date> is how the game switches which day is active
- * (also used by the past-level cards below to make that day playable). */
+/** Navigating to ?seed=<date>&start=1 is how the game switches which day is
+ * active and jumps straight into a (countdown-gated) run for it - used by
+ * the past-level thumbnails below. */
 function goToSeed(targetSeed: string): void {
-  location.search = `?seed=${targetSeed}`;
+  location.search = `?seed=${targetSeed}&start=1`;
 }
 
 const PAST_LEVEL_LABELS = ["Yesterday", "2 days ago"];
@@ -89,14 +99,26 @@ function resizeCanvas(): void {
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 renderMinimap(minimapCtx, level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+minimapCanvas.addEventListener("click", () => beginRun());
+minimapCanvas.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    beginRun();
+  }
+});
 
 const input = createInput(canvas);
 
-type AppState = "start" | "playing" | "ended";
+type AppState = "start" | "countdown" | "playing" | "ended";
 let appState: AppState = "start";
 let session: GameSession | null = null;
 let ghost: GhostPlayer | null = null;
+let countdownElapsed = 0;
 const camera: Camera = { x: level.width / 2, y: level.height / 2 };
+
+// "GO" gets its own step so it's visible for one beat before play begins.
+const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
+const COUNTDOWN_STEP_DURATION = 0.8;
 
 function stabilityColor(stability: number): string {
   if (stability > 50) return "#3ecf6b";
@@ -109,10 +131,12 @@ function beginRun(): void {
   ghost = personalBest && pbGhostToggle.checked ? new GhostPlayer(level, personalBest) : null;
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
-  appState = "playing";
+  countdownElapsed = 0;
+  appState = "countdown";
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
   hud.classList.remove("hidden");
+  countdownOverlay.classList.remove("hidden");
 }
 
 function endRun(): void {
@@ -150,13 +174,14 @@ function endRun(): void {
   }
 }
 
-/** Abandons the current run (no result is recorded) and returns to the start screen. */
+/** Abandons the current run or countdown (no result is recorded) and returns to the start screen. */
 function abortRun(): void {
-  if (appState !== "playing") return;
+  if (appState !== "playing" && appState !== "countdown") return;
   appState = "start";
   session = null;
   ghost = null;
   hud.classList.add("hidden");
+  countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
   startScreen.classList.remove("hidden");
 }
@@ -180,12 +205,46 @@ const FIXED_DT = 1 / 60;
 const MAX_STEPS_PER_FRAME = 8;
 let accumulator = 0;
 
+function renderScene(activeSession: GameSession, frameDt: number): void {
+  updateCamera(camera, activeSession.truck, frameDt);
+  const ghostViews: GhostView[] = ghost ? [{ truck: ghost.truck, cargo: ghost.cargo }] : [];
+  renderWorld(
+    ctx,
+    level,
+    activeSession.truck,
+    activeSession.cargo,
+    activeSession.visited,
+    ghostViews,
+    camera,
+    canvas.clientWidth,
+    canvas.clientHeight,
+  );
+}
+
 let lastTime = performance.now();
 function frame(now: number): void {
   const frameDt = Math.min(0.25, (now - lastTime) / 1000);
   lastTime = now;
 
-  if (appState === "playing" && session) {
+  if (appState === "countdown" && session) {
+    // Input is tracked continuously regardless of app state (see input.ts),
+    // so a press during the countdown is already reflected in input.held
+    // and takes effect on the very first physics tick once play begins.
+    countdownElapsed += frameDt;
+    const stepIndex = Math.floor(countdownElapsed / COUNTDOWN_STEP_DURATION);
+    if (stepIndex >= COUNTDOWN_STEPS.length) {
+      appState = "playing";
+      accumulator = 0;
+      countdownOverlay.classList.add("hidden");
+    } else {
+      countdownText.textContent = COUNTDOWN_STEPS[stepIndex]!;
+      renderScene(session, frameDt);
+      hudTimer.textContent = "0.0s";
+      hudObjective.textContent = `Pick up cargo (0/${session.pickups.length})`;
+      hudStabilityBar.style.width = "100%";
+      hudStabilityBar.style.backgroundColor = stabilityColor(100);
+    }
+  } else if (appState === "playing" && session) {
     accumulator += frameDt;
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
@@ -194,10 +253,7 @@ function frame(now: number): void {
       accumulator -= FIXED_DT;
       steps++;
     }
-    updateCamera(camera, session.truck, frameDt);
-
-    const ghostViews: GhostView[] = ghost ? [{ truck: ghost.truck, cargo: ghost.cargo }] : [];
-    renderWorld(ctx, level, session.truck, session.cargo, session.visited, ghostViews, camera, canvas.clientWidth, canvas.clientHeight);
+    renderScene(session, frameDt);
 
     hudTimer.textContent = `${session.elapsed.toFixed(1)}s`;
     hudObjective.textContent = session.allPickedUp
@@ -215,3 +271,5 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+if (autostart) beginRun();

@@ -38,11 +38,6 @@ export interface MudObstacle {
   points: Vec2[];
 }
 
-export interface RoughZone {
-  pos: Vec2;
-  radius: number;
-}
-
 export interface Palette {
   grass: string;
   grassAlt: string;
@@ -53,7 +48,6 @@ export interface Palette {
   warehouseDestination: string;
   rock: string;
   mud: string;
-  rough: string;
 }
 
 export interface Level {
@@ -65,6 +59,5 @@ export interface Level {
   warehouses: Warehouse[];
   rocks: RockObstacle[];
   muds: MudObstacle[];
-  roughZones: RoughZone[];
   palette: Palette;
 }
