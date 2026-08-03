@@ -1,0 +1,173 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #10141a;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #f0f2f5;
+  touch-action: none;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 13, 18, 0.72);
+  backdrop-filter: blur(3px);
+  z-index: 10;
+}
+
+.screen.hidden {
+  display: none;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 32px;
+  background: #1c222b;
+  border: 1px solid #2c3542;
+  border-radius: 14px;
+  max-width: 420px;
+  width: 90vw;
+  text-align: center;
+}
+
+.panel h1 {
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+}
+
+.muted {
+  color: #9aa4b2;
+  font-size: 0.9rem;
+}
+
+#minimap-canvas {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid #2c3542;
+}
+
+.hint {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #c3cad4;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  color: white;
+}
+
+.tag-pickup { background: hsl(2 72% 50%); }
+.tag-destination { background: hsl(140 55% 38%); }
+
+button {
+  padding: 10px 28px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #10141a;
+  background: #f0f2f5;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 14px 18px;
+  pointer-events: none;
+  z-index: 5;
+  font-variant-numeric: tabular-nums;
+}
+
+#hud.hidden {
+  display: none;
+}
+
+#hud-timer {
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+#hud-objective {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+
+#hud-stability-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  min-width: 130px;
+}
+
+#hud-stability-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: #c3cad4;
+}
+
+#hud-stability-track {
+  width: 130px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+#hud-stability-bar {
+  height: 100%;
+  width: 100%;
+  background: #3ecf6b;
+  transition: width 0.1s linear, background-color 0.2s linear;
+}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Unstable Truck</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="hud-timer">0.0s</div>
+      <div id="hud-objective">Pick up cargo</div>
+      <div id="hud-stability-wrap">
+        <div id="hud-stability-label">CARGO</div>
+        <div id="hud-stability-track"><div id="hud-stability-bar"></div></div>
+      </div>
+    </div>
+
+    <div id="start-screen" class="screen">
+      <div class="panel">
+        <h1>Unstable Truck</h1>
+        <p id="start-date" class="muted"></p>
+        <canvas id="minimap-canvas" width="300" height="190"></canvas>
+        <p class="hint">
+          Hold (space / tap / click) to steer right. Release to drift left.<br />
+          Pick up cargo at <span class="tag tag-pickup">P</span>, deliver to <span class="tag tag-destination">D</span>.
+          Smooth driving keeps cargo stable &mdash; crashes and mud don't.
+        </p>
+        <button id="start-btn">Start</button>
+      </div>
+    </div>
+
+    <div id="results-screen" class="screen hidden">
+      <div class="panel">
+        <h1 id="results-title"></h1>
+        <p id="results-time"></p>
+        <p id="results-stability"></p>
+        <button id="retry-btn">Retry</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>
