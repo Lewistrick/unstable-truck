@@ -29,11 +29,21 @@ backend/database. See the project's design doc for the full intended scope.
 ```sh
 npm install
 npm run build   # compiles src/**/*.ts -> dist/**/*.js
-npm run serve   # serves the project on http://localhost:8080 (or use any static server)
+npm run serve   # serves the project on http://localhost:8123 (or use any static server)
 ```
 
-Open `http://localhost:8080` in a browser. During development, run
+Open `http://localhost:8123` in a browser. During development, run
 `npm run watch` in a separate terminal to recompile on save.
+
+`index.html` loads the game as an ES module, which browsers refuse to do
+over a bare `file://` URL — it must be served over `http://`, not opened by
+double-clicking the file. If `npm run serve` fails with a Windows
+`PermissionError: [WinError 10013]` on the port, that port is likely in a
+range Windows/Hyper-V has reserved and blocked; edit the port number in the
+`serve` script in `package.json` (or run
+`python -m http.server <some-other-port>` directly) and try a different one.
+You can list currently reserved ranges with
+`netsh interface ipv4 show excludedportrange protocol=tcp`.
 
 To test a specific day's level instead of today's, add `?seed=YYYY-MM-DD` to
 the URL.
