@@ -13,21 +13,25 @@ What's implemented:
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
   few branching dead ends, 4-10 warehouses per level (one base, one
   destination, the rest pickups that must all be visited before delivery),
-  rocks/mud/rough-terrain obstacles, and a seeded color palette.
+  rock/mud obstacles, and a seeded color palette.
 - Truck physics: single-button steering (default left bias while coasting,
   right while held) with momentum/inertia on both turning and velocity.
   Physics run on a fixed 1/60s timestep (via an accumulator decoupled from
   `requestAnimationFrame`), which is what makes ghost replay deterministic.
 - Cargo physics: the cargo box trails behind the truck with lag, destabilizing
-  on sharp turns, mud, rough terrain, and rock impacts. Stability hits 0 →
-  the run ends.
+  on sharp turns and mud, and taking a stability hit on rock impacts.
+  Stability hits 0 → the run ends.
 - Personal-best recording and ghost replay: each run's input (held/released
   toggle times) is recorded; a successful run that beats your stored best for
   that day's seed is saved to `localStorage` and can be raced against as a
   semi-transparent ghost.
-- Start screen with a minimap preview of the day's level, a personal-best
-  ghost toggle, an in-game HUD (timer, objective, stability meter, PB time),
-  and a results screen.
+- Start screen showing today's level plus playable thumbnails for the
+  previous two days (each with its own personal-best time); clicking any
+  thumbnail jumps into a 3-2-1-GO countdown and starts that level. A
+  personal-best ghost toggle, an in-game HUD (timer, objective, stability
+  meter, PB time), and a results screen (showing your time against your
+  personal best) round it out. Escape quits a run/countdown back to the
+  start screen; Enter retries from the results screen.
 
 Not yet built: global leaderboard, daily-best-player ghost, backend/database.
 See the project's design doc for the full intended scope.
@@ -54,7 +58,9 @@ You can list currently reserved ranges with
 `netsh interface ipv4 show excludedportrange protocol=tcp`.
 
 To test a specific day's level instead of today's, add `?seed=YYYY-MM-DD` to
-the URL.
+the URL. Add `&start=1` to also skip straight into the countdown/run for it
+(this is how the past-level thumbnails work; the flag is stripped from the
+URL after being consumed, so refreshing won't restart the run).
 
 ## Controls
 
