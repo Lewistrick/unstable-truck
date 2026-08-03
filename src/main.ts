@@ -86,7 +86,7 @@ function frame(now: number): void {
   if (appState === "playing" && session) {
     session.update(dt, input.held);
     updateCamera(camera, session.truck, dt);
-    renderWorld(ctx, level, session.truck, session.cargo, camera, canvas.clientWidth, canvas.clientHeight);
+    renderWorld(ctx, level, session.truck, session.cargo, session.visited, camera, canvas.clientWidth, canvas.clientHeight);
 
     hudTimer.textContent = `${session.elapsed.toFixed(1)}s`;
     hudObjective.textContent = session.allPickedUp

@@ -1,6 +1,6 @@
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
-import type { Level } from "../level/types.js";
+import type { Level, Warehouse } from "../level/types.js";
 
 function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
   for (const road of level.roads) {
@@ -72,9 +72,18 @@ const WAREHOUSE_COLOR: Record<string, PaletteColorKey> = {
 
 const WAREHOUSE_LABEL: Record<string, string> = { base: "B", pickup: "P", destination: "D" };
 
-function drawWarehouses(ctx: CanvasRenderingContext2D, level: Level): void {
+const VISITED_OPACITY = 0.4;
+
+function drawWarehouses(
+  ctx: CanvasRenderingContext2D,
+  level: Level,
+  visited: ReadonlySet<Warehouse>,
+): void {
   for (const wh of level.warehouses) {
+    const isVisited = wh.kind === "pickup" && visited.has(wh);
+
     ctx.save();
+    ctx.globalAlpha = isVisited ? VISITED_OPACITY : 1;
     ctx.translate(wh.pos.x, wh.pos.y);
     ctx.rotate(wh.angle);
     ctx.fillStyle = level.palette[WAREHOUSE_COLOR[wh.kind]!];
@@ -84,13 +93,16 @@ function drawWarehouses(ctx: CanvasRenderingContext2D, level: Level): void {
     ctx.strokeRect(-wh.width / 2, -wh.height / 2, wh.width, wh.height);
     ctx.restore();
 
-    const label = WAREHOUSE_LABEL[wh.kind];
+    const label = isVisited ? "✓" : WAREHOUSE_LABEL[wh.kind];
     if (label) {
+      ctx.save();
+      ctx.globalAlpha = isVisited ? VISITED_OPACITY : 1;
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       ctx.font = "bold 16px system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(label, wh.pos.x, wh.pos.y);
+      ctx.restore();
     }
   }
 }
@@ -137,6 +149,7 @@ export function renderWorld(
   level: Level,
   truck: TruckState,
   cargo: CargoState,
+  visited: ReadonlySet<Warehouse>,
   camera: Camera,
   canvasW: number,
   canvasH: number,
@@ -152,7 +165,7 @@ export function renderWorld(
 
   strokeRoad(ctx, level);
   drawObstacles(ctx, level);
-  drawWarehouses(ctx, level);
+  drawWarehouses(ctx, level, visited);
   drawCargo(ctx, cargo);
   drawTruck(ctx, truck);
 
