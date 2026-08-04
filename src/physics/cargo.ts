@@ -1,12 +1,24 @@
 import { angleDiff, clamp, length, sub, v, type Vec2 } from "../util/vec2.js";
 import type { TerrainSample } from "../level/terrain.js";
 
+/** How many pickups fill one cargo box before a new box is started. */
+export const CARGO_MAX_FILL = 5;
+/** Length (along travel) that each collected pickup adds to a box. A full box
+ * is CARGO_MAX_FILL * CARGO_UNIT_LENGTH long. */
+export const CARGO_UNIT_LENGTH = 9;
+/** Gap between a box and whatever it trails (truck rear or the box ahead). */
+export const CARGO_GAP = 5;
+
 export interface CargoState {
   pos: Vec2;
   heading: number;
   angularVel: number;
   stability: number;
   lag: number;
+  /** Number of pickups loaded into this box, 1..CARGO_MAX_FILL. */
+  fill: number;
+  /** Box length along the direction of travel (grows with `fill`). */
+  length: number;
 }
 
 /** Anything a cargo box can trail behind: the truck itself, or the box ahead
@@ -18,10 +30,9 @@ export interface CargoLeader {
 }
 
 export function createCargo(leader: CargoLeader): CargoState {
-  return { pos: { ...leader.pos }, heading: leader.heading, angularVel: 0, stability: 100, lag: 0 };
+  return { pos: { ...leader.pos }, heading: leader.heading, angularVel: 0, stability: 100, lag: 0, fill: 1, length: CARGO_UNIT_LENGTH };
 }
 
-const TRAILER_DISTANCE = 16;
 const FOLLOW_RATE = 11;
 const ANGLE_FOLLOW_RATE = 3.0;
 const STABILITY_RECOVER_RATE_ON_ROAD = 16;
@@ -41,9 +52,15 @@ const MUD_INSTABILITY = 20;
  * quickly. When boxes are chained, each one's own swinging becomes the next
  * one's sharp-turn instability, so instability can compound toward the back
  * of the chain. */
-export function updateCargo(cargo: CargoState, leader: CargoLeader, dt: number, terrain: TerrainSample): void {
+export function updateCargo(
+  cargo: CargoState,
+  leader: CargoLeader,
+  dt: number,
+  terrain: TerrainSample,
+  trailDistance: number,
+): void {
   const headingDir = v(Math.cos(leader.heading), Math.sin(leader.heading));
-  const target = v(leader.pos.x - headingDir.x * TRAILER_DISTANCE, leader.pos.y - headingDir.y * TRAILER_DISTANCE);
+  const target = v(leader.pos.x - headingDir.x * trailDistance, leader.pos.y - headingDir.y * trailDistance);
   const lagVec = sub(target, cargo.pos);
   const lagDist = length(lagVec);
   cargo.lag = lagDist;

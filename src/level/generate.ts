@@ -56,15 +56,22 @@ export function generateWeeklyLevel(seed: string): Level {
   const houseCount = randInt(rng, 30, 40);
   const nodeCount = warehouseCount + houseCount;
 
-  const hubs = generateHubs(rng, noise, WEEKLY_WIDTH, WEEKLY_HEIGHT, nodeCount);
-  const mainRoads = generateRoads(rng, hubs, randInt(rng, 12, 20));
-  const branches = generateBranches(rng, mainRoads, WEEKLY_WIDTH, WEEKLY_HEIGHT, randInt(rng, 8, 14));
+  // Larger jitter than daily so the many hubs don't read as a grid, and
+  // straight (not curved) roads between them.
+  const hubs = generateHubs(rng, noise, WEEKLY_WIDTH, WEEKLY_HEIGHT, nodeCount, 0.75);
+  const mainRoads = generateRoads(rng, hubs, randInt(rng, 12, 20), true);
+  const branches = generateBranches(rng, mainRoads, WEEKLY_WIDTH, WEEKLY_HEIGHT, randInt(rng, 8, 14), true);
   const roads = [...mainRoads, ...branches];
   const { warehouses, houses } = generateWeeklyBuildings(rng, hubs, warehouseCount);
-  const { rocks, muds } = generateObstacles(rng, noise, WEEKLY_WIDTH, WEEKLY_HEIGHT, warehouses, {
-    rocks: randInt(rng, 30, 60),
-    muds: randInt(rng, 24, 44),
-  });
+  const { rocks, muds } = generateObstacles(
+    rng,
+    noise,
+    WEEKLY_WIDTH,
+    WEEKLY_HEIGHT,
+    warehouses,
+    { rocks: randInt(rng, 90, 180), muds: randInt(rng, 72, 132) },
+    houses.map((h) => h.pos),
+  );
   const palette = generatePalette(rng);
 
   return {

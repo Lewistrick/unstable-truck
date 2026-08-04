@@ -31,8 +31,9 @@ export function generateObstacles(
   height: number,
   warehouses: Warehouse[],
   counts?: { rocks: number; muds: number },
+  extraOccupied: Vec2[] = [],
 ): { rocks: RockObstacle[]; muds: MudObstacle[] } {
-  const occupied: Vec2[] = warehouses.map((w) => w.pos);
+  const occupied: Vec2[] = [...warehouses.map((w) => w.pos), ...extraOccupied];
   const spacingFor = (r: number) => Math.max(MIN_CLEARANCE_FROM_WAREHOUSE, r + 50);
 
   const rocks: RockObstacle[] = [];

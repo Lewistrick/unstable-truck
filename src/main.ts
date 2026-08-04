@@ -73,6 +73,17 @@ function describeOffset(mode: Mode, offset: number): string {
   return `${-offset} days ago`;
 }
 
+/** Formats a run time. Under a minute reads like "42.31s"; a minute or over
+ * switches to "m:ss.xx" (e.g. "1:05.30"). */
+function formatTime(seconds: number): string {
+  if (seconds >= 60) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds - m * 60;
+    return `${m}:${s.toFixed(2).padStart(5, "0")}`;
+  }
+  return `${seconds.toFixed(2)}s`;
+}
+
 let mode: Mode = "daily";
 let viewedOffset = 0;
 let viewed: Playable = getPlayable(mode, 0);
@@ -132,7 +143,7 @@ nicknameInput.addEventListener("change", () => {
 
 function refreshViewedUi(): void {
   viewedDateEl.textContent = `${describeOffset(mode, viewedOffset)} · ${viewed.seed}`;
-  viewedBestEl.textContent = viewed.personalBest ? `Best: ${viewed.personalBest.time.toFixed(2)}s` : "Best: —";
+  viewedBestEl.textContent = viewed.personalBest ? `Best: ${formatTime(viewed.personalBest.time)}` : "Best: -";
 
   // Sharing the best time is offered only for today, and only once there's a
   // best to share.
@@ -142,8 +153,8 @@ function refreshViewedUi(): void {
   if (viewed.personalBest) {
     pbGhostToggle.disabled = false;
     pbGhostToggle.checked = true;
-    pbGhostLabel.textContent = `Race personal best ghost (${viewed.personalBest.time.toFixed(2)}s)`;
-    hudPb.textContent = `PB: ${viewed.personalBest.time.toFixed(2)}s`;
+    pbGhostLabel.textContent = `Race personal best ghost (${formatTime(viewed.personalBest.time)})`;
+    hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
   } else {
     pbGhostToggle.disabled = true;
     pbGhostToggle.checked = false;
@@ -220,7 +231,7 @@ function renderLeaderboardList(): void {
   if (leaderboardTop.length === 0) {
     const li = document.createElement("li");
     li.className = "leaderboard-empty";
-    li.textContent = "No times yet — be the first!";
+    li.textContent = "No times yet - be the first!";
     leaderboardList.appendChild(li);
     return;
   }
@@ -241,7 +252,7 @@ function renderLeaderboardList(): void {
 
     const timeEl = document.createElement("span");
     timeEl.className = "leaderboard-time";
-    timeEl.textContent = `${entry.time.toFixed(2)}s`;
+    timeEl.textContent = formatTime(entry.time);
 
     li.append(rankEl, nameEl, timeEl);
     li.addEventListener("click", () => {
@@ -363,12 +374,12 @@ let lastShareText: string | null = null;
 function showMedal(medal: Medal | null, pars: MedalPars): void {
   resultsMedal.classList.remove("hidden");
   if (!medal) {
-    resultsMedal.textContent = `No medal — Bronze under ${pars.bronze.toFixed(2)}s`;
+    resultsMedal.textContent = `No medal - Bronze under ${formatTime(pars.bronze)}`;
     return;
   }
   let text = `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}!`;
-  if (medal === "silver") text += ` — Gold under ${pars.gold.toFixed(2)}s`;
-  else if (medal === "bronze") text += ` — Silver under ${pars.silver.toFixed(2)}s`;
+  if (medal === "silver") text += ` - Gold under ${formatTime(pars.gold)}`;
+  else if (medal === "bronze") text += ` - Silver under ${formatTime(pars.silver)}`;
   resultsMedal.textContent = text;
 }
 
@@ -378,7 +389,7 @@ function buildShareText(playable: Playable, time: number, stability: number, med
   const medalPart = medal ? `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}` : "No medal";
   const lines = [
     `Unstable Truck \u{1F69A} ${playable.seed}`,
-    `${medalPart} · ${time.toFixed(2)}s · \u{1F4E6} ${Math.round(stability)}%`,
+    `${medalPart} · ${formatTime(time)} · \u{1F4E6} ${Math.round(stability)}%`,
   ];
   if (playable.level.kind === "daily") {
     const streak = currentStreak(loadCompletedDays());
@@ -460,7 +471,7 @@ function endRun(): void {
   resultsScreen.classList.remove("hidden");
   if (session.status === "success") {
     resultsTitle.textContent = "Delivered!";
-    resultsTime.textContent = `Time: ${session.elapsed.toFixed(2)}s`;
+    resultsTime.textContent = `Time: ${formatTime(session.elapsed)}`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.stability)}%`;
 
     const medal = medalFor(session.elapsed, active.pars);
@@ -493,8 +504,8 @@ function endRun(): void {
     resultsPersonalBest.textContent = !previousBest
       ? "New personal best!"
       : isNewBest
-        ? `New personal best! (previous: ${previousBest.time.toFixed(2)}s)`
-        : `Personal best: ${previousBest.time.toFixed(2)}s`;
+        ? `New personal best! (previous: ${formatTime(previousBest.time)})`
+        : `Personal best: ${formatTime(previousBest.time)}`;
 
     // Best-effort sync to the shared leaderboard; works offline too since
     // submitScore() swallows network failures and the local PB above is
@@ -505,7 +516,7 @@ function endRun(): void {
     });
   } else {
     resultsTitle.textContent = "Cargo fell off!";
-    resultsTime.textContent = `Survived ${session.elapsed.toFixed(2)}s`;
+    resultsTime.textContent = `Survived ${formatTime(session.elapsed)}`;
     resultsStability.textContent = "Drive smoother and avoid mud and rocks.";
     resultsPersonalBest.textContent = "";
     resultsMedal.classList.add("hidden");
@@ -647,7 +658,7 @@ function frame(now: number): void {
     } else {
       countdownText.textContent = COUNTDOWN_STEPS[stepIndex]!;
       renderScene(session, frameDt);
-      hudTimer.textContent = "0.0s";
+      hudTimer.textContent = formatTime(0);
       hudObjective.textContent = `Pick up cargo (0/${session.pickups.length})`;
     }
   } else if (appState === "playing" && session) {
@@ -662,7 +673,7 @@ function frame(now: number): void {
     }
     renderScene(session, frameDt);
 
-    hudTimer.textContent = `${session.elapsed.toFixed(1)}s`;
+    hudTimer.textContent = formatTime(session.elapsed);
     hudObjective.textContent = session.allPickedUp
       ? "Deliver to destination"
       : `Pick up cargo (${session.visited.size}/${session.pickups.length})`;

@@ -16,8 +16,9 @@ What's implemented:
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
-  decorative houses (no value, no collision) fleshing out the road network,
-  and proportionally more obstacles. Because the map is big, a small arrow next
+  decorative houses (no value, no collision) fleshing out the road network
+  (weekly roads are straight lines, not curves), and much denser obstacles.
+  Because the map is big, a small arrow next
   to the truck points to the nearest unvisited warehouse (red), turning green
   and pointing to the drop-off once every warehouse has been visited. Weekly
   boards can be browsed up to 52 weeks back, each with its own leaderboard.
@@ -25,9 +26,12 @@ What's implemented:
   right while held) with momentum/inertia on both turning and velocity.
   Physics run on a fixed 1/60s timestep (via an accumulator decoupled from
   `requestAnimationFrame`), which is what makes ghost replay deterministic.
-- Cargo physics: the cargo box trails behind the truck with lag, destabilizing
-  on sharp turns and mud, and taking a stability hit on rock impacts.
-  Stability hits 0 → the run ends.
+- Cargo physics: cargo boxes trail behind the truck with lag, destabilizing on
+  sharp turns and mud, and taking a stability hit on rock impacts. Stability
+  hitting 0 ends the run. Pickups are grouped five to a box: each collected
+  warehouse adds a fifth of a box's length to the current box, and once it's
+  full a new box starts trailing behind it (so a long weekly route pulls a few
+  growing boxes rather than a huge chain of one-per-pickup).
 - Personal-best recording and ghost replay: each run's input (held/released
   toggle ticks) is recorded; a successful run that beats your stored best for
   that day's seed is saved to `localStorage` and can be raced against as a

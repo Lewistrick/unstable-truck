@@ -1,5 +1,14 @@
 import { distance } from "../util/vec2.js";
-import { applyImpactStabilityHit, createCargo, updateCargo, type CargoLeader, type CargoState } from "../physics/cargo.js";
+import {
+  applyImpactStabilityHit,
+  CARGO_GAP,
+  CARGO_MAX_FILL,
+  CARGO_UNIT_LENGTH,
+  createCargo,
+  updateCargo,
+  type CargoLeader,
+  type CargoState,
+} from "../physics/cargo.js";
 import { createTruck, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
 import { sampleTerrain } from "../level/terrain.js";
 import type { Level, Warehouse } from "../level/types.js";
@@ -8,6 +17,9 @@ export type GameStatus = "playing" | "success" | "fail";
 
 const PICKUP_DELIVER_RADIUS = 34;
 const ROCK_IMPACT_STABILITY_HIT = 22;
+// Half the truck body length, used as the hitch point the first cargo box
+// trails behind.
+const TRUCK_HITCH_HALF_LENGTH = 16;
 
 function findWarehouse(level: Level, kind: Warehouse["kind"]): Warehouse {
   const wh = level.warehouses.find((w) => w.kind === kind);
@@ -79,6 +91,19 @@ export class GameSession {
     return this.tick;
   }
 
+  /** Loads one collected pickup: it tops up the rearmost box by one unit of
+   * length until that box is full (CARGO_MAX_FILL), then starts a new box. */
+  private loadPickup(): void {
+    const last = this.cargoBoxes[this.cargoBoxes.length - 1];
+    if (last && last.fill < CARGO_MAX_FILL) {
+      last.fill += 1;
+      last.length = last.fill * CARGO_UNIT_LENGTH;
+    } else {
+      const leader: CargoLeader = last ?? this.truck;
+      this.cargoBoxes.push(createCargo(leader));
+    }
+  }
+
   update(dt: number, held: boolean): void {
     if (this.status !== "playing") return;
     if (held !== this.lastHeld) {
@@ -101,15 +126,18 @@ export class GameSession {
     for (const wh of this.pickups) {
       if (!this.visited.has(wh) && distance(this.truck.pos, wh.pos) < PICKUP_DELIVER_RADIUS) {
         this.visited.add(wh);
-        const hitchPoint: CargoLeader = this.cargoBoxes[this.cargoBoxes.length - 1] ?? this.truck;
-        this.cargoBoxes.push(createCargo(hitchPoint));
+        this.loadPickup();
       }
     }
 
+    // Each box trails behind the truck's rear (or the box ahead of it), spaced
+    // by the leader's and its own half-length so longer boxes don't overlap.
     let leader: CargoLeader = this.truck;
+    let leaderHalfLength = TRUCK_HITCH_HALF_LENGTH;
     for (const box of this.cargoBoxes) {
-      updateCargo(box, leader, dt, terrain);
+      updateCargo(box, leader, dt, terrain, leaderHalfLength + CARGO_GAP + box.length / 2);
       leader = box;
+      leaderHalfLength = box.length / 2;
     }
 
     if (this.cargoBoxes.some((box) => box.stability <= 0)) {

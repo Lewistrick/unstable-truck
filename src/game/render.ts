@@ -151,18 +151,21 @@ function drawWarehouses(
   }
 }
 
+const CARGO_RENDER_WIDTH = 18;
+
 function drawCargo(ctx: CanvasRenderingContext2D, cargo: CargoState): void {
   ctx.save();
   ctx.translate(cargo.pos.x, cargo.pos.y);
   ctx.rotate(cargo.heading);
-  const w = 26;
-  const h = 20;
+  // Length (along travel) grows as the box fills; width is fixed.
+  const len = cargo.length;
+  const wid = CARGO_RENDER_WIDTH;
   const stabilityColor = cargo.stability > 50 ? "#8a5a34" : cargo.stability > 25 ? "#b0632f" : "#c23b2a";
   ctx.fillStyle = stabilityColor;
-  ctx.fillRect(-w / 2, -h / 2, w, h);
+  ctx.fillRect(-len / 2, -wid / 2, len, wid);
   ctx.strokeStyle = "rgba(0,0,0,0.35)";
   ctx.lineWidth = 2;
-  ctx.strokeRect(-w / 2, -h / 2, w, h);
+  ctx.strokeRect(-len / 2, -wid / 2, len, wid);
   ctx.restore();
 }
 

@@ -19,12 +19,20 @@ function perp(a: Vec2, b: Vec2): Vec2 {
   return v(-d.y / len, d.x / len);
 }
 
-function makeSegment(rng: Rng, a: Vec2, b: Vec2, isBranch: boolean): RoadSegment {
-  const side = perp(a, b);
-  const bow1 = randRange(rng, -0.22, 0.22) * distance(a, b);
-  const bow2 = randRange(rng, -0.22, 0.22) * distance(a, b);
-  const p1 = add(add(a, scale(sub(b, a), 0.33)), scale(side, bow1));
-  const p2 = add(add(a, scale(sub(b, a), 0.66)), scale(side, bow2));
+function makeSegment(rng: Rng, a: Vec2, b: Vec2, isBranch: boolean, straight = false): RoadSegment {
+  let p1: Vec2;
+  let p2: Vec2;
+  if (straight) {
+    // Colinear control points give a dead-straight bezier (used by weekly maps).
+    p1 = add(a, scale(sub(b, a), 0.33));
+    p2 = add(a, scale(sub(b, a), 0.66));
+  } else {
+    const side = perp(a, b);
+    const bow1 = randRange(rng, -0.22, 0.22) * distance(a, b);
+    const bow2 = randRange(rng, -0.22, 0.22) * distance(a, b);
+    p1 = add(add(a, scale(sub(b, a), 0.33)), scale(side, bow1));
+    p2 = add(add(a, scale(sub(b, a), 0.66)), scale(side, bow2));
+  }
   const width = randRange(rng, isBranch ? 38 : 48, isBranch ? 52 : 64);
   return { p0: a, p1, p2, p3: b, width, isBranch, samples: sampleSegment(a, p1, p2, b) };
 }
@@ -35,6 +43,11 @@ export function generateHubs(
   width: number,
   height: number,
   count: number = randInt(rng, 4, 10),
+  // How far a hub can jitter from its grid cell's center, as a fraction of the
+  // cell size. Small values (the daily default) keep hubs near cell centers;
+  // larger values spread them out so a fine grid (many hubs, i.e. weekly maps)
+  // doesn't visibly read as a grid.
+  jitterFrac = 0.38,
 ): Hub[] {
   const margin = 170;
   const usableW = width - margin * 2;
@@ -49,13 +62,16 @@ export function generateHubs(
     for (let c = 0; c < cols; c++) cells.push({ col: c, row: r });
   }
 
+  const clamp = (val: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, val));
   const chosen = shuffle(rng, cells).slice(0, count);
   return chosen.map(({ col, row }, id) => {
     const cx = margin + col * cellW + cellW / 2;
     const cy = margin + row * cellH + cellH / 2;
-    const jx = noise(col * 0.9 + 11.3, row * 0.9 + 4.7) * cellW * 0.38;
-    const jy = noise(col * 0.9 + 71.1, row * 0.9 + 20.9) * cellH * 0.38;
-    return { id, pos: v(cx + jx, cy + jy) };
+    const jx = noise(col * 0.9 + 11.3, row * 0.9 + 4.7) * cellW * jitterFrac;
+    const jy = noise(col * 0.9 + 71.1, row * 0.9 + 20.9) * cellH * jitterFrac;
+    // Clamp so a large jitter can't push a hub off the usable area (a no-op at
+    // the small daily jitter, so daily levels are unchanged).
+    return { id, pos: v(clamp(cx + jx, margin, width - margin), clamp(cy + jy, margin, height - margin)) };
   });
 }
 
@@ -65,7 +81,7 @@ export function generateHubs(
  * in a few extra edges so players have real route choices instead of one
  * forced path.
  */
-export function generateRoads(rng: Rng, hubs: Hub[], extraEdgeCount?: number): RoadSegment[] {
+export function generateRoads(rng: Rng, hubs: Hub[], extraEdgeCount?: number, straight = false): RoadSegment[] {
   if (hubs.length < 2) return [];
 
   const connected = new Set<number>([0]);
@@ -105,7 +121,7 @@ export function generateRoads(rng: Rng, hubs: Hub[], extraEdgeCount?: number): R
     if (!already) edges.push([a.id, b.id]);
   }
 
-  return edges.map(([aId, bId]) => makeSegment(rng, hubs[aId]!.pos, hubs[bId]!.pos, false));
+  return edges.map(([aId, bId]) => makeSegment(rng, hubs[aId]!.pos, hubs[bId]!.pos, false, straight));
 }
 
 /** Short dead-end forks off the main network for extra route texture. */
@@ -115,6 +131,7 @@ export function generateBranches(
   width: number,
   height: number,
   branchCount: number = randInt(rng, 2, 4),
+  straight = false,
 ): RoadSegment[] {
   if (roads.length === 0) return [];
   const branches: RoadSegment[] = [];
@@ -131,7 +148,7 @@ export function generateBranches(
       Math.max(60, Math.min(width - 60, start.x + Math.cos(angle) * dist)),
       Math.max(60, Math.min(height - 60, start.y + Math.sin(angle) * dist)),
     );
-    branches.push(makeSegment(rng, start, end, true));
+    branches.push(makeSegment(rng, start, end, true, straight));
   }
   return branches;
 }
