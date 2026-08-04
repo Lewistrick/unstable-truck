@@ -149,7 +149,9 @@ reload the page or regenerate a level you've already visited.
 Hold spacebar (desktop) or press-and-hold on the canvas (mouse/touch) to
 steer right. Release to drift left. The truck always drives forward;
 steering is the only input. Enter starts/retries, Escape quits to the home
-screen, Backspace restarts the current run.
+screen, Backspace restarts the current run. During a run, a hamburger menu in
+the top-left corner opens Restart/Home buttons - the touch equivalent of
+Backspace/Escape (steering or restarting dismisses it).
 
 ## Project layout
 

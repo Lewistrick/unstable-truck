@@ -67,6 +67,10 @@ const minimapCtx = minimapCanvas.getContext("2d")!;
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
 const hud = document.getElementById("hud")!;
+const menuBtn = document.getElementById("menu-btn") as HTMLButtonElement;
+const menuOverlay = document.getElementById("menu-overlay")!;
+const menuRestartBtn = document.getElementById("menu-restart") as HTMLButtonElement;
+const menuHomeBtn = document.getElementById("menu-home") as HTMLButtonElement;
 const viewedDateEl = document.getElementById("viewed-date")!;
 const navPrevBtn = document.getElementById("nav-prev-btn") as HTMLButtonElement;
 const navNextBtn = document.getElementById("nav-next-btn") as HTMLButtonElement;
@@ -395,6 +399,7 @@ function beginRun(playable: Playable): void {
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
   appState = "countdown";
+  setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
   hud.classList.remove("hidden");
@@ -464,6 +469,7 @@ function endRun(): void {
 function goHome(): void {
   if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
   appState = "start";
+  setMenuOpen(false);
   session = null;
   pbGhost = null;
   leaderboardGhost = null;
@@ -475,6 +481,24 @@ function goHome(): void {
 
 retryBtn.addEventListener("click", () => beginRun(active));
 homeBtn.addEventListener("click", goHome);
+
+// In-run hamburger menu: gives touch devices the Restart/Home that desktop
+// gets from Backspace/Esc. Lives inside #hud, so it's only present during a run.
+function setMenuOpen(open: boolean): void {
+  menuOverlay.classList.toggle("hidden", !open);
+  menuBtn.setAttribute("aria-expanded", String(open));
+}
+menuBtn.addEventListener("click", () => setMenuOpen(menuOverlay.classList.contains("hidden")));
+menuRestartBtn.addEventListener("click", () => {
+  setMenuOpen(false);
+  beginRun(active);
+});
+menuHomeBtn.addEventListener("click", () => {
+  setMenuOpen(false);
+  goHome();
+});
+// Steering (a press on the canvas) dismisses an open menu.
+canvas.addEventListener("pointerdown", () => setMenuOpen(false));
 
 attachShareHandler(shareBtn, () => lastShareText);
 attachShareHandler(bestShareBtn, currentBestShareText);

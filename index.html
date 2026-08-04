@@ -13,6 +13,13 @@
     <canvas id="game-canvas"></canvas>
 
     <div id="hud" class="hidden">
+      <button id="menu-btn" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <div id="menu-overlay" class="hidden" role="menu">
+        <button id="menu-restart" type="button" role="menuitem">Restart</button>
+        <button id="menu-home" type="button" role="menuitem">Home</button>
+      </div>
       <div id="hud-left">
         <div id="hud-pb"></div>
       </div>
