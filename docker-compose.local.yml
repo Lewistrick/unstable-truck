@@ -1,0 +1,19 @@
+# Local-only overlay for running the stack on a dev machine, WITHOUT the
+# production reverse-proxy network.
+#
+# The base docker-compose.yml attaches the app to the external `host-edge`
+# network that the Caddy proxy stack owns. On a machine where that proxy isn't
+# running, `host-edge` doesn't exist and `docker compose up` fails with
+# "network host-edge declared as external, but could not be found". This overlay
+# redefines `edge` as an ordinary local bridge that Compose creates for you.
+#
+# Usage (note the two -f flags):
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+# Production is unaffected and still uses the base file on its own:
+#   docker compose up -d --build
+
+networks:
+  edge:
+    external: false
+    name: unstable-truck-local-edge

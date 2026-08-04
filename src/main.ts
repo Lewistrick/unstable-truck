@@ -66,6 +66,9 @@ const minimapCtx = minimapCanvas.getContext("2d")!;
 
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
+const helpScreen = document.getElementById("help-screen")!;
+const helpBtn = document.getElementById("help-btn") as HTMLButtonElement;
+const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
 const hud = document.getElementById("hud")!;
 const menuBtn = document.getElementById("menu-btn") as HTMLButtonElement;
 const menuOverlay = document.getElementById("menu-overlay")!;
@@ -500,6 +503,23 @@ menuHomeBtn.addEventListener("click", () => {
 // Steering (a press on the canvas) dismisses an open menu.
 canvas.addEventListener("pointerdown", () => setMenuOpen(false));
 
+// Help overlay, opened from the home screen.
+let helpOpen = false;
+function openHelp(): void {
+  helpOpen = true;
+  helpScreen.classList.remove("hidden");
+}
+function closeHelp(): void {
+  helpOpen = false;
+  helpScreen.classList.add("hidden");
+}
+helpBtn.addEventListener("click", openHelp);
+helpCloseBtn.addEventListener("click", closeHelp);
+// Tapping the dimmed backdrop (outside the panel) closes it.
+helpScreen.addEventListener("click", (e) => {
+  if (e.target === helpScreen) closeHelp();
+});
+
 attachShareHandler(shareBtn, () => lastShareText);
 attachShareHandler(bestShareBtn, currentBestShareText);
 minimapCanvas.addEventListener("click", () => beginRun(viewed));
@@ -511,6 +531,12 @@ minimapCanvas.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  // While the help overlay is up it captures Escape (to close itself) and
+  // swallows the other run controls.
+  if (helpOpen) {
+    if (e.key === "Escape") closeHelp();
+    return;
+  }
   if (e.key === "Escape") goHome();
   if (e.key === "Enter") {
     if (appState === "ended") beginRun(active);

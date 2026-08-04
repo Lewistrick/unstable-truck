@@ -61,14 +61,12 @@ What's implemented:
 
 ## Running it with Docker (recommended)
 
-The app container joins an external Docker network named `host-edge` (shared
-with a reverse proxy — see below; the compose file refers to it by the local
-alias `edge`). In production that network is created by the proxy stack; to run
-this stack on its own, create it once before the first run:
+For local testing, run the base file together with the local overlay (it swaps
+the production reverse-proxy network for a throwaway local one, so nothing extra
+needs to exist first):
 
 ```sh
-docker network create host-edge   # harmless "already exists" error if it's there
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 This builds one image (compiling both the browser frontend and the backend)
@@ -79,7 +77,16 @@ start). Open `http://localhost:8003`.
 
 The app port is published on `127.0.0.1` only (not the host's public
 interface), which is enough for local testing and safe on a server where the
-reverse proxy fronts it over the `edge` network instead.
+reverse proxy fronts it instead.
+
+In **production**, the base file is used on its own. There the app joins the
+external Docker network `host-edge` (created by the Caddy proxy stack; the
+compose file refers to it by the local alias `edge`) so the proxy can route to
+it. See "Deploying behind a reverse proxy" below.
+
+```sh
+docker compose up -d --build
+```
 
 Postgres data persists in a named Docker volume (`db-data`) across restarts.
 To reset everything (including all leaderboard data), run
@@ -152,6 +159,10 @@ steering is the only input. Enter starts/retries, Escape quits to the home
 screen, Backspace restarts the current run. During a run, a hamburger menu in
 the top-left corner opens Restart/Home buttons - the touch equivalent of
 Backspace/Escape (steering or restarting dismisses it).
+
+A "How to play" button on the home screen opens a help overlay covering the
+objective, controls, terrain, and daily/leaderboard basics (close it with the
+Close button, Escape, or by tapping the backdrop).
 
 ## Project layout
 
