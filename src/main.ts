@@ -14,7 +14,16 @@ import {
   savePersonalBestIfBetter,
   setNickname,
 } from "./game/storage.js";
-import { computeMedalPars, medalFor, MEDAL_ICON, MEDAL_LABEL, type Medal, type MedalPars } from "./game/medals.js";
+import {
+  championTime,
+  CHAMPION_COLOR,
+  computeMedalPars,
+  medalFor,
+  MEDAL_ICON,
+  MEDAL_LABEL,
+  type Medal,
+  type MedalPars,
+} from "./game/medals.js";
 import type { Level } from "./level/types.js";
 
 type Mode = "daily" | "weekly";
@@ -84,6 +93,29 @@ function formatTime(seconds: number): string {
   return `${seconds.toFixed(2)}s`;
 }
 
+/** Local start (midnight, or Monday midnight for weeks) of the period at a
+ * given mode+offset. */
+function periodStart(mode: Mode, offset: number): Date {
+  const d = new Date();
+  if (mode === "weekly") {
+    d.setDate(d.getDate() + offset * 7);
+    const mondayOffset = (d.getDay() + 6) % 7; // days since Monday (Mon=0)
+    d.setDate(d.getDate() - mondayOffset);
+  } else {
+    d.setDate(d.getDate() + offset);
+  }
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** The champion tier only becomes available halfway through a period (12h for
+ * daily, 3.5 days for weekly). Past periods are fully elapsed, so it's always
+ * available for them. */
+function isChampionActive(mode: Mode, offset: number): boolean {
+  const halfMs = (mode === "weekly" ? 3.5 : 0.5) * 24 * 60 * 60 * 1000;
+  return Date.now() >= periodStart(mode, offset).getTime() + halfMs;
+}
+
 let mode: Mode = "daily";
 let viewedOffset = 0;
 let viewed: Playable = getPlayable(mode, 0);
@@ -131,6 +163,7 @@ const dayDots = document.getElementById("day-dots")!;
 const progressStrip = document.getElementById("progress-strip")!;
 const modeDailyBtn = document.getElementById("mode-daily") as HTMLButtonElement;
 const modeWeeklyBtn = document.getElementById("mode-weekly") as HTMLButtonElement;
+const medalTrack = document.getElementById("medal-track")!;
 
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
@@ -161,6 +194,10 @@ function refreshViewedUi(): void {
     pbGhostLabel.textContent = "No personal best yet";
     hudPb.textContent = "";
   }
+
+  // Show the level's medal times immediately on navigation; the leaderboard
+  // load will refresh the champion tier once it arrives.
+  renderMedalTrack();
 }
 
 /** Picks readable text color (dark or light) for a given `hsl(h s% l%)`
@@ -225,8 +262,48 @@ let leaderboardTop: LeaderboardEntry[] = [];
 let leaderboardContext: LeaderboardEntry[] = [];
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
 
+/** Champion threshold for the currently viewed level, or null if the tier is
+ * not available yet (before the period's halfway point) or no record beats the
+ * gold time. Uses the current #1 time from the loaded leaderboard. */
+function currentChampionTime(): number | null {
+  if (!isChampionActive(mode, viewedOffset)) return null;
+  return championTime(viewed.pars.gold, leaderboardTop[0]?.time ?? null);
+}
+
+/** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
+ * always, plus the red Champion tier at the top when it's available. */
+function renderMedalTrack(): void {
+  const pars = viewed.pars;
+  const champion = currentChampionTime();
+  const tiers: Array<{ medal: Medal; time: number }> = [];
+  if (champion != null) tiers.push({ medal: "champion", time: champion });
+  tiers.push({ medal: "gold", time: pars.gold });
+  tiers.push({ medal: "silver", time: pars.silver });
+  tiers.push({ medal: "bronze", time: pars.bronze });
+
+  medalTrack.replaceChildren();
+  for (const { medal, time } of tiers) {
+    const row = document.createElement("div");
+    row.className = "medal-row";
+    if (medal === "champion") row.style.color = CHAMPION_COLOR;
+
+    const name = document.createElement("span");
+    name.className = "medal-name";
+    name.textContent = `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}`;
+
+    const t = document.createElement("span");
+    t.className = "medal-time";
+    t.textContent = formatTime(time);
+
+    row.append(name, t);
+    medalTrack.appendChild(row);
+  }
+}
+
 function renderLeaderboardList(): void {
   leaderboardHeaderEl.textContent = `Leaderboard (${describeOffset(mode, viewedOffset)})`;
+  // Champion depends on the leaderboard's #1, so refresh the track alongside.
+  renderMedalTrack();
   leaderboardList.replaceChildren();
   if (leaderboardTop.length === 0) {
     const li = document.createElement("li");
@@ -371,14 +448,18 @@ let lastShareText: string | null = null;
 
 /** Shows the earned medal (or a "no medal" nudge) plus the time still needed
  * for the next tier up. */
-function showMedal(medal: Medal | null, pars: MedalPars): void {
+function showMedal(medal: Medal | null, pars: MedalPars, champion: number | null): void {
   resultsMedal.classList.remove("hidden");
+  resultsMedal.style.color = medal === "champion" ? CHAMPION_COLOR : "";
   if (!medal) {
     resultsMedal.textContent = `No medal - Bronze under ${formatTime(pars.bronze)}`;
     return;
   }
   let text = `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}!`;
-  if (medal === "silver") text += ` - Gold under ${formatTime(pars.gold)}`;
+  // Point at the next tier up. Above gold sits champion, but only when it's
+  // available (a faster tier actually exists).
+  if (medal === "gold" && champion != null) text += ` - Champion under ${formatTime(champion)}`;
+  else if (medal === "silver") text += ` - Gold under ${formatTime(pars.gold)}`;
   else if (medal === "bronze") text += ` - Silver under ${formatTime(pars.silver)}`;
   resultsMedal.textContent = text;
 }
@@ -474,8 +555,11 @@ function endRun(): void {
     resultsTime.textContent = `Time: ${formatTime(session.elapsed)}`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.stability)}%`;
 
-    const medal = medalFor(session.elapsed, active.pars);
-    showMedal(medal, active.pars);
+    // The champion reference is the leaderboard's current #1 (as last loaded,
+    // i.e. the record being chased, not this just-finished run).
+    const champion = currentChampionTime();
+    const medal = medalFor(session.elapsed, active.pars, champion);
+    showMedal(medal, active.pars, champion);
 
     // Mark the day delivered (drives the streak + calendar) before building
     // the share text, so a fresh completion is reflected in the streak count.

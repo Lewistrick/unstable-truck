@@ -184,6 +184,29 @@ html, body {
   display: none;
 }
 
+#medal-track {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 8px;
+}
+
+.medal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #c3cad4;
+}
+
+.medal-time {
+  font-variant-numeric: tabular-nums;
+}
+
 #streak-badge {
   font-size: 0.85rem;
   font-weight: 700;

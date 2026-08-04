@@ -45,12 +45,17 @@ What's implemented:
   "pb", or their nickname). The game is fully playable offline/without the
   backend — score submission and the leaderboard just silently no-op if the
   server is unreachable.
-- Medal targets per day: each level has deterministic gold/silver/bronze
-  finish-time thresholds derived purely from its geometry (the ideal
+- Medal targets: each level has deterministic gold/silver/bronze finish-time
+  thresholds derived purely from its geometry (the ideal
   base → pickups → destination route length, inflated for road curvature and
   divided by an assumed good-driving speed), so they're identical for every
-  player and work fully offline. The results screen shows the medal earned and
-  the time needed for the next tier up.
+  player and work fully offline. Above gold sits a leaderboard-driven red
+  Champion tier at `gold - 3*(gold - top)/4` (three quarters of the way from
+  the gold time down to the current #1 time); it only unlocks halfway through
+  the period (12h into a day, 3.5 days into a week) and only when a record
+  actually beats gold. The home screen shows a medal-time track (Champion when
+  available, then Gold/Silver/Bronze) for both the daily and weekly boards, and
+  the results screen shows the medal earned plus the next tier up.
 - Daily streak and a recent-days calendar on the home screen: delivering a day
   successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
   consecutive delivered days (with a one-day grace before today's is done), and

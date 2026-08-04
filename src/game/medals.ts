@@ -1,7 +1,9 @@
 import { distance } from "../util/vec2.js";
 import type { Level, Warehouse } from "../level/types.js";
 
-export type Medal = "gold" | "silver" | "bronze";
+// Ordered hardest to easiest. "champion" is a dynamic tier above gold, derived
+// from the current #1 time rather than the level geometry.
+export type Medal = "champion" | "gold" | "silver" | "bronze";
 
 export interface MedalPars {
   /** Finish strictly under this time to earn the medal. */
@@ -11,16 +13,30 @@ export interface MedalPars {
 }
 
 export const MEDAL_ICON: Record<Medal, string> = {
+  champion: "\u{1F3C6}", // 🏆
   gold: "\u{1F947}", // 🥇
   silver: "\u{1F948}", // 🥈
   bronze: "\u{1F949}", // 🥉
 };
 
 export const MEDAL_LABEL: Record<Medal, string> = {
+  champion: "Champion",
   gold: "Gold",
   silver: "Silver",
   bronze: "Bronze",
 };
+
+/** The champion tier is shown in red; the rest use the default text color. */
+export const CHAMPION_COLOR = "#ef3b2a";
+
+/** Champion threshold from the gold time `g` and the current top (#1) time
+ * `t`: three quarters of the way from gold down to the record,
+ * `g - 3*(g - t)/4` = `(g + 3*t)/4`. Returns null when there's no record
+ * faster than gold (champion would just equal gold), so the tier is omitted. */
+export function championTime(gold: number, topTime: number | null): number | null {
+  if (topTime == null || topTime >= gold) return null;
+  return (gold + 3 * topTime) / 4;
+}
 
 // Medal targets are derived purely from the level's geometry so they work
 // fully offline, identically for every player, without needing any
@@ -76,8 +92,11 @@ export function computeMedalPars(level: Level): MedalPars {
   return { gold, silver: gold * SILVER_MULTIPLIER, bronze: gold * BRONZE_MULTIPLIER };
 }
 
-/** Best medal earned for a finish time, or null if slower than bronze. */
-export function medalFor(time: number, pars: MedalPars): Medal | null {
+/** Best medal earned for a finish time, or null if slower than bronze. Pass a
+ * champion threshold (from championTime()) to enable the champion tier; it's
+ * always faster than gold, so it's checked first. */
+export function medalFor(time: number, pars: MedalPars, champion: number | null = null): Medal | null {
+  if (champion != null && time <= champion) return "champion";
   if (time <= pars.gold) return "gold";
   if (time <= pars.silver) return "silver";
   if (time <= pars.bronze) return "bronze";

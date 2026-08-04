@@ -2,12 +2,13 @@ import { angleDiff, clamp, length, sub, v, type Vec2 } from "../util/vec2.js";
 import type { TerrainSample } from "../level/terrain.js";
 
 /** How many pickups fill one cargo box before a new box is started. */
-export const CARGO_MAX_FILL = 5;
+export const CARGO_MAX_FILL = 4;
 /** Length (along travel) that each collected pickup adds to a box. A full box
  * is CARGO_MAX_FILL * CARGO_UNIT_LENGTH long. */
 export const CARGO_UNIT_LENGTH = 9;
-/** Gap between a box and whatever it trails (truck rear or the box ahead). */
-export const CARGO_GAP = 5;
+/** Gap between a box and whatever it trails (truck rear or the box ahead).
+ * Kept small so boxes hitch close together. */
+export const CARGO_GAP = 2;
 
 export interface CargoState {
   pos: Vec2;
