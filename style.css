@@ -149,12 +149,39 @@ html, body {
   margin-top: -8px;
 }
 
+#mode-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 999px;
+}
+
+.mode-btn {
+  padding: 6px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #9aa4b2;
+  background: transparent;
+  border-radius: 999px;
+}
+
+.mode-btn.active {
+  color: #10141a;
+  background: #f0f2f5;
+}
+
 #progress-strip {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
   margin-top: -6px;
+}
+
+#progress-strip.hidden {
+  display: none;
 }
 
 #streak-badge {

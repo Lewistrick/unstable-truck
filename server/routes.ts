@@ -3,7 +3,11 @@ import { getScore, getSeedLeaderboard, upsertScoreIfBetter } from "./db.js";
 
 export const scoresRouter = Router();
 
-const SEED_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+// Daily seeds are dates (YYYY-MM-DD); weekly seeds are ISO year+week
+// (YYYY-Www, e.g. 2026-W31). Both are stored in the same scores table.
+const DAILY_SEED_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
+const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
 const MAX_NICKNAME_LENGTH = 24;
 const TOP_N = 10;
 
@@ -37,8 +41,8 @@ function parseSubmission(body: unknown): SubmitBody | null {
  * existing best for that seed (or they have none yet). */
 scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, res) => {
   const { seed } = req.params;
-  if (!SEED_PATTERN.test(seed)) {
-    res.status(400).json({ error: "seed must be YYYY-MM-DD" });
+  if (!isValidSeed(seed)) {
+    res.status(400).json({ error: "seed must be YYYY-MM-DD or YYYY-Www" });
     return;
   }
   const submission = parseSubmission(req.body);
@@ -55,8 +59,8 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
  * player can still see where they stand. */
 scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res) => {
   const { seed } = req.params;
-  if (!SEED_PATTERN.test(seed)) {
-    res.status(400).json({ error: "seed must be YYYY-MM-DD" });
+  if (!isValidSeed(seed)) {
+    res.status(400).json({ error: "seed must be YYYY-MM-DD or YYYY-Www" });
     return;
   }
   const nickname = typeof req.query.nickname === "string" ? req.query.nickname : null;
@@ -78,8 +82,8 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
 /** A specific player's full recording for a seed, for racing their ghost. */
 scoresRouter.get("/api/scores/:seed/:nickname", async (req: Request<{ seed: string; nickname: string }>, res) => {
   const { seed, nickname } = req.params;
-  if (!SEED_PATTERN.test(seed)) {
-    res.status(400).json({ error: "seed must be YYYY-MM-DD" });
+  if (!isValidSeed(seed)) {
+    res.status(400).json({ error: "seed must be YYYY-MM-DD or YYYY-Www" });
     return;
   }
   const row = await getScore(seed, nickname);

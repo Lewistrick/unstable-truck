@@ -29,6 +29,14 @@ export function generatePalette(rng: Rng): Palette {
   const mudSat = randRange(rng, 20, 42);
   const mudLight = randRange(rng, 24, 34);
 
+  // Decorative houses (weekly maps): a muted mid-tone so they read as neutral
+  // scenery, distinct from the light grass, the dark road, and the fixed
+  // primary-colored warehouses. Drawn last so grass/road/rock/mud keep the
+  // exact same seeded values they had before houses existed.
+  const houseHue = randInt(rng, 0, 360);
+  const houseSat = randRange(rng, 10, 22);
+  const houseLight = randRange(rng, 46, 60);
+
   return {
     grass: hsl(grassHue, grassSat, grassLight),
     grassAlt: hsl(grassHue, grassSat, grassLight - 6),
@@ -39,5 +47,6 @@ export function generatePalette(rng: Rng): Palette {
     warehouseDestination: hsl(140, 55, 38),
     rock: hsl(rockHue, rockSat, rockLight),
     mud: hsl(mudHue, mudSat, mudLight),
+    house: hsl(houseHue, houseSat, houseLight),
   };
 }

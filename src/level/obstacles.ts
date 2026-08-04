@@ -30,12 +30,13 @@ export function generateObstacles(
   width: number,
   height: number,
   warehouses: Warehouse[],
+  counts?: { rocks: number; muds: number },
 ): { rocks: RockObstacle[]; muds: MudObstacle[] } {
   const occupied: Vec2[] = warehouses.map((w) => w.pos);
   const spacingFor = (r: number) => Math.max(MIN_CLEARANCE_FROM_WAREHOUSE, r + 50);
 
   const rocks: RockObstacle[] = [];
-  const rockCount = randInt(rng, 6, 14);
+  const rockCount = counts?.rocks ?? randInt(rng, 6, 14);
   for (let i = 0; i < rockCount; i++) {
     const radius = randRange(rng, 20, 40);
     const pos = findSpot(rng, noise, width, height, 0.006, -0.15, occupied, spacingFor(radius));
@@ -45,7 +46,7 @@ export function generateObstacles(
   }
 
   const muds: MudObstacle[] = [];
-  const mudCount = randInt(rng, 4, 10);
+  const mudCount = counts?.muds ?? randInt(rng, 4, 10);
   for (let i = 0; i < mudCount; i++) {
     const radius = randRange(rng, 70, 140);
     const pos = findSpot(rng, noise, width, height, 0.004, 0.05, occupied, spacingFor(radius));

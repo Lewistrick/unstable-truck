@@ -13,6 +13,14 @@ What's implemented:
   few branching dead ends, 4-10 warehouses per level (one base, one
   destination, the rest pickups that must all be visited before delivery),
   rock/mud obstacles, and a seeded color palette.
+- Weekly board: a Daily/Weekly toggle on the home screen switches to a much
+  larger map (5x in every dimension) seeded from the ISO year+week
+  (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
+  decorative houses (no value, no collision) fleshing out the road network,
+  and proportionally more obstacles. Because the map is big, a small arrow next
+  to the truck points to the nearest unvisited warehouse (red), turning green
+  and pointing to the drop-off once every warehouse has been visited. Weekly
+  boards can be browsed up to 52 weeks back, each with its own leaderboard.
 - Truck physics: single-button steering (default left bias while coasting,
   right while held) with momentum/inertia on both turning and velocity.
   Physics run on a fixed 1/60s timestep (via an accumulator decoupled from

@@ -36,6 +36,10 @@
     <div id="start-screen" class="screen">
       <div class="panel">
         <h1>Unstable Truck</h1>
+        <div id="mode-toggle" role="tablist" aria-label="Board">
+          <button id="mode-daily" class="mode-btn active" type="button" role="tab" aria-selected="true">Daily</button>
+          <button id="mode-weekly" class="mode-btn" type="button" role="tab" aria-selected="false">Weekly</button>
+        </div>
         <p id="viewed-date" class="muted"></p>
         <div id="progress-strip">
           <span id="streak-badge" title="Consecutive days delivered"></span>
@@ -104,6 +108,9 @@
             <li>Restart or quit mid-run: the top-left menu on mobile, or <strong>Backspace</strong> to
               restart and <strong>Escape</strong> to quit on desktop.</li>
             <li>Replay earlier days: browse up to 7 days back from the main menu.</li>
+            <li>Switch between the daily map and the much larger weekly challenge with the
+              Daily / Weekly toggle at the top. On the weekly map, a small arrow by the truck
+              points you to the next warehouse (green once they're all done, pointing to the drop-off).</li>
           </ul>
         </div>
         <button id="help-close-btn" type="button">Close</button>

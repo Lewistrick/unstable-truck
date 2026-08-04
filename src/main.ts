@@ -1,4 +1,4 @@
-import { generateLevel, shiftSeed, todaySeed } from "./level/generate.js";
+import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
 import { FIXED_DT } from "./physics/constants.js";
 import { fetchLeaderboard, fetchPlayerRecording, submitScore, type LeaderboardEntry, type RemoteRecording } from "./game/api.js";
 import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
@@ -17,6 +17,8 @@ import {
 import { computeMedalPars, medalFor, MEDAL_ICON, MEDAL_LABEL, type Medal, type MedalPars } from "./game/medals.js";
 import type { Level } from "./level/types.js";
 
+type Mode = "daily" | "weekly";
+
 interface Playable {
   seed: string;
   level: Level;
@@ -24,40 +26,56 @@ interface Playable {
   pars: MedalPars;
 }
 
-function makePlayable(seed: string): Playable {
-  const level = generateLevel(seed);
+function makePlayable(seed: string, kind: Mode): Playable {
+  const level = kind === "weekly" ? generateWeeklyLevel(seed) : generateLevel(seed);
   return { seed, level, personalBest: loadPersonalBest(seed), pars: computeMedalPars(level) };
 }
 
-// Drop any personal bests older than a week before loading anything.
+// Drop any personal bests past their retention age before loading anything.
 pruneOldPersonalBests();
 
 const todaysSeed = todaySeed();
 
-// The home screen shows one browsable day at a time, always anchored to the
-// real calendar date (today's seed never drifts based on what's been
-// played). Levels are generated lazily as the player navigates and cached so
-// re-visiting a day doesn't regenerate it.
+// The home screen shows one browsable period at a time in the selected mode:
+// a day (daily) or an ISO week (weekly), always anchored to the real calendar
+// so seeds never drift based on what's been played. Levels are generated
+// lazily and cached per mode so re-visiting doesn't regenerate them.
 const MAX_PAST_DAYS = 7;
-const playableCache = new Map<number, Playable>();
+const MAX_PAST_WEEKS = 52;
+const playableCache: Record<Mode, Map<number, Playable>> = { daily: new Map(), weekly: new Map() };
 
-function getPlayable(offset: number): Playable {
-  let playable = playableCache.get(offset);
+function seedFor(mode: Mode, offset: number): string {
+  return mode === "weekly" ? weekSeed(offset) : shiftSeed(todaysSeed, offset);
+}
+
+function getPlayable(mode: Mode, offset: number): Playable {
+  const cache = playableCache[mode];
+  let playable = cache.get(offset);
   if (!playable) {
-    playable = makePlayable(shiftSeed(todaysSeed, offset));
-    playableCache.set(offset, playable);
+    playable = makePlayable(seedFor(mode, offset), mode);
+    cache.set(offset, playable);
   }
   return playable;
 }
 
-function describeOffset(offset: number): string {
+function maxPastOffset(mode: Mode): number {
+  return mode === "weekly" ? MAX_PAST_WEEKS : MAX_PAST_DAYS;
+}
+
+function describeOffset(mode: Mode, offset: number): string {
+  if (mode === "weekly") {
+    if (offset === 0) return "This week";
+    if (offset === -1) return "Last week";
+    return `${-offset} weeks ago`;
+  }
   if (offset === 0) return "Today";
   if (offset === -1) return "Yesterday";
   return `${-offset} days ago`;
 }
 
+let mode: Mode = "daily";
 let viewedOffset = 0;
-let viewed: Playable = getPlayable(0);
+let viewed: Playable = getPlayable(mode, 0);
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -99,6 +117,9 @@ const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
 const streakBadge = document.getElementById("streak-badge")!;
 const dayDots = document.getElementById("day-dots")!;
+const progressStrip = document.getElementById("progress-strip")!;
+const modeDailyBtn = document.getElementById("mode-daily") as HTMLButtonElement;
+const modeWeeklyBtn = document.getElementById("mode-weekly") as HTMLButtonElement;
 
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
@@ -110,7 +131,7 @@ nicknameInput.addEventListener("change", () => {
 });
 
 function refreshViewedUi(): void {
-  viewedDateEl.textContent = `${describeOffset(viewedOffset)} — ${viewed.seed}`;
+  viewedDateEl.textContent = `${describeOffset(mode, viewedOffset)} · ${viewed.seed}`;
   viewedBestEl.textContent = viewed.personalBest ? `Best: ${viewed.personalBest.time.toFixed(2)}s` : "Best: —";
 
   // Sharing the best time is offered only for today, and only once there's a
@@ -194,7 +215,7 @@ let leaderboardContext: LeaderboardEntry[] = [];
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
 
 function renderLeaderboardList(): void {
-  leaderboardHeaderEl.textContent = `Leaderboard (${describeOffset(viewedOffset)})`;
+  leaderboardHeaderEl.textContent = `Leaderboard (${describeOffset(mode, viewedOffset)})`;
   leaderboardList.replaceChildren();
   if (leaderboardTop.length === 0) {
     const li = document.createElement("li");
@@ -253,17 +274,18 @@ async function refreshLeaderboard(): Promise<void> {
   renderLeaderboardList();
 }
 
-// --- Day navigation ---------------------------------------------------
+// --- Period navigation (day or week) ----------------------------------
 
 function updateNavButtons(): void {
-  navPrevBtn.disabled = viewedOffset <= -MAX_PAST_DAYS;
+  navPrevBtn.disabled = viewedOffset <= -maxPastOffset(mode);
   navNextBtn.disabled = viewedOffset >= 0;
 }
 
-function navigateTo(offset: number): void {
-  viewedOffset = Math.max(-MAX_PAST_DAYS, Math.min(0, offset));
-  viewed = getPlayable(viewedOffset);
-  // A selected ghost is contextual to the day it was fetched for.
+/** Re-syncs the whole home view (map, best, ghost toggle, leaderboard) to the
+ * currently selected mode + offset. */
+function refreshViewedSelection(): void {
+  viewed = getPlayable(mode, viewedOffset);
+  // A selected ghost is contextual to the exact seed it was fetched for.
   selectedGhostEntry = null;
   updateNavButtons();
   refreshViewedUi();
@@ -272,8 +294,28 @@ function navigateTo(offset: number): void {
   void refreshLeaderboard();
 }
 
+function navigateTo(offset: number): void {
+  viewedOffset = Math.max(-maxPastOffset(mode), Math.min(0, offset));
+  refreshViewedSelection();
+}
+
+function switchMode(newMode: Mode): void {
+  if (mode === newMode) return;
+  mode = newMode;
+  viewedOffset = 0;
+  modeDailyBtn.classList.toggle("active", mode === "daily");
+  modeWeeklyBtn.classList.toggle("active", mode === "weekly");
+  modeDailyBtn.setAttribute("aria-selected", String(mode === "daily"));
+  modeWeeklyBtn.setAttribute("aria-selected", String(mode === "weekly"));
+  // The streak/calendar strip only applies to daily play.
+  progressStrip.classList.toggle("hidden", mode !== "daily");
+  refreshViewedSelection();
+}
+
 navPrevBtn.addEventListener("click", () => navigateTo(viewedOffset - 1));
 navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
+modeDailyBtn.addEventListener("click", () => switchMode("daily"));
+modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 
 // -----------------------------------------------------------------------
 
@@ -338,8 +380,10 @@ function buildShareText(playable: Playable, time: number, stability: number, med
     `Unstable Truck \u{1F69A} ${playable.seed}`,
     `${medalPart} · ${time.toFixed(2)}s · \u{1F4E6} ${Math.round(stability)}%`,
   ];
-  const streak = currentStreak(loadCompletedDays());
-  if (streak > 1) lines.push(`\u{1F525} ${streak}-day streak`);
+  if (playable.level.kind === "daily") {
+    const streak = currentStreak(loadCompletedDays());
+    if (streak > 1) lines.push(`\u{1F525} ${streak}-day streak`);
+  }
   return lines.join("\n");
 }
 
@@ -424,8 +468,11 @@ function endRun(): void {
 
     // Mark the day delivered (drives the streak + calendar) before building
     // the share text, so a fresh completion is reflected in the streak count.
-    recordCompletion(active.seed);
-    renderProgressStrip();
+    // The streak is a daily-play concept only.
+    if (active.level.kind === "daily") {
+      recordCompletion(active.seed);
+      renderProgressStrip();
+    }
     lastShareText = buildShareText(active, session.elapsed, session.stability, medal);
     shareBtn.textContent = "Share";
     shareBtn.classList.remove("hidden");

@@ -34,8 +34,8 @@ export function generateHubs(
   noise: (x: number, y: number) => number,
   width: number,
   height: number,
+  count: number = randInt(rng, 4, 10),
 ): Hub[] {
-  const count = randInt(rng, 4, 10);
   const margin = 170;
   const usableW = width - margin * 2;
   const usableH = height - margin * 2;
@@ -65,7 +65,7 @@ export function generateHubs(
  * in a few extra edges so players have real route choices instead of one
  * forced path.
  */
-export function generateRoads(rng: Rng, hubs: Hub[]): RoadSegment[] {
+export function generateRoads(rng: Rng, hubs: Hub[], extraEdgeCount?: number): RoadSegment[] {
   if (hubs.length < 2) return [];
 
   const connected = new Set<number>([0]);
@@ -87,7 +87,9 @@ export function generateRoads(rng: Rng, hubs: Hub[]): RoadSegment[] {
     remaining.delete(target.id);
   }
 
-  const extraEdges = randInt(rng, 1, 3);
+  // Drawn here (not as a default arg) so the RNG is consumed at the same point
+  // it always was, keeping daily levels for existing seeds byte-identical.
+  const extraEdges = extraEdgeCount ?? randInt(rng, 1, 3);
   for (let i = 0; i < extraEdges; i++) {
     const a = hubs[randInt(rng, 0, hubs.length - 1)]!;
     const candidates = hubs
@@ -112,9 +114,9 @@ export function generateBranches(
   roads: RoadSegment[],
   width: number,
   height: number,
+  branchCount: number = randInt(rng, 2, 4),
 ): RoadSegment[] {
   if (roads.length === 0) return [];
-  const branchCount = randInt(rng, 2, 4);
   const branches: RoadSegment[] = [];
 
   for (let i = 0; i < branchCount; i++) {

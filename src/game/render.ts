@@ -1,3 +1,4 @@
+import { distance } from "../util/vec2.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import type { Level, Warehouse } from "../level/types.js";
@@ -45,6 +46,64 @@ function drawObstacles(ctx: CanvasRenderingContext2D, level: Level): void {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+}
+
+/** Decorative houses: plain little buildings, no label or state. */
+function drawHouses(ctx: CanvasRenderingContext2D, level: Level): void {
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1.5;
+  for (const house of level.houses) {
+    ctx.save();
+    ctx.translate(house.pos.x, house.pos.y);
+    ctx.rotate(house.angle);
+    ctx.fillStyle = level.palette.house;
+    ctx.fillRect(-house.width / 2, -house.height / 2, house.width, house.height);
+    ctx.strokeRect(-house.width / 2, -house.height / 2, house.width, house.height);
+    ctx.restore();
+  }
+}
+
+/** Points the player toward the nearest unvisited pickup (red), or once every
+ * pickup is done, toward the destination (green). Sits just off the truck in
+ * the target's direction and rotates to point at it. */
+function drawGuidanceArrow(
+  ctx: CanvasRenderingContext2D,
+  truck: TruckState,
+  level: Level,
+  visited: ReadonlySet<Warehouse>,
+): void {
+  const unvisited = level.warehouses.filter((w) => w.kind === "pickup" && !visited.has(w));
+  let target: Warehouse | undefined;
+  let done = false;
+  if (unvisited.length > 0) {
+    target = unvisited.reduce((a, b) => (distance(truck.pos, a.pos) <= distance(truck.pos, b.pos) ? a : b));
+  } else {
+    target = level.warehouses.find((w) => w.kind === "destination");
+    done = true;
+  }
+  if (!target) return;
+
+  const dx = target.pos.x - truck.pos.x;
+  const dy = target.pos.y - truck.pos.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = dx / len;
+  const ny = dy / len;
+  const offset = truck.radius + 30;
+
+  ctx.save();
+  ctx.translate(truck.pos.x + nx * offset, truck.pos.y + ny * offset);
+  ctx.rotate(Math.atan2(ny, nx));
+  ctx.beginPath();
+  ctx.moveTo(20, 0);
+  ctx.lineTo(-10, -13);
+  ctx.lineTo(-10, 13);
+  ctx.closePath();
+  ctx.fillStyle = done ? "#22c55e" : "#ef3b2a";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
 }
 
 type PaletteColorKey = keyof Level["palette"];
@@ -198,6 +257,7 @@ export function renderWorld(
 
   strokeRoad(ctx, level);
   drawObstacles(ctx, level);
+  drawHouses(ctx, level);
   drawWarehouses(ctx, level, visited);
 
   for (const ghost of ghosts) {
@@ -212,6 +272,10 @@ export function renderWorld(
   drawCargoChain(ctx, cargoBoxes);
   drawTruck(ctx, truck);
   drawNameLabel(ctx, truck.pos, "you");
+
+  // The big weekly map is easy to get lost on, so guide the player to the next
+  // objective.
+  if (level.kind === "weekly") drawGuidanceArrow(ctx, truck, level, visited);
 
   ctx.restore();
 }
@@ -256,6 +320,14 @@ export function renderMinimap(
     ctx.closePath();
     ctx.fillStyle = level.palette.mud;
     ctx.fill();
+  }
+
+  if (level.houses.length > 0) {
+    ctx.fillStyle = level.palette.house;
+    const hs = 8 / scale;
+    for (const house of level.houses) {
+      ctx.fillRect(house.pos.x - hs / 2, house.pos.y - hs / 2, hs, hs);
+    }
   }
 
   for (const wh of level.warehouses) {

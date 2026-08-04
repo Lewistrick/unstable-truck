@@ -5,16 +5,25 @@ const STORAGE_PREFIX = "unstable-truck:pb:";
 // from float seconds to integer ticks) so old, unreadable entries get
 // discarded instead of misinterpreted.
 const STORAGE_VERSION = 2;
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Daily bests match the 7-day browse window; weekly bests are kept about a year
+// so a personal-best ghost is still available for any browsable past week.
+const DAILY_MAX_AGE_MS = 7 * DAY_MS;
+const WEEKLY_MAX_AGE_MS = 53 * 7 * DAY_MS;
+
+/** Weekly seeds look like "2026-W31"; daily seeds like "2026-08-03". */
+function maxAgeForSeed(seed: string): number {
+  return seed.includes("-W") ? WEEKLY_MAX_AGE_MS : DAILY_MAX_AGE_MS;
+}
 
 interface StoredPersonalBest extends GhostRecording {
   version: number;
-  /** Date.now() at save time, used to prune entries older than a week. */
+  /** Date.now() at save time, used to prune entries past their retention age. */
   savedAt: number;
 }
 
-function isFresh(savedAt: unknown): boolean {
-  return typeof savedAt === "number" && Date.now() - savedAt <= MAX_AGE_MS;
+function isFresh(savedAt: unknown, maxAgeMs: number): boolean {
+  return typeof savedAt === "number" && Date.now() - savedAt <= maxAgeMs;
 }
 
 function isValid(parsed: Partial<StoredPersonalBest>): parsed is StoredPersonalBest {
@@ -37,7 +46,7 @@ export function loadPersonalBest(seed: string): GhostRecording | null {
     return null;
   }
 
-  if (!isValid(parsed) || !isFresh(parsed.savedAt)) {
+  if (!isValid(parsed) || !isFresh(parsed.savedAt, maxAgeForSeed(seed))) {
     localStorage.removeItem(key);
     return null;
   }
@@ -54,11 +63,11 @@ export function savePersonalBestIfBetter(recording: GhostRecording): boolean {
   return true;
 }
 
-/** Removes every stored personal best older than a week, across all seeds -
- * not just whichever ones happen to be loaded via loadPersonalBest() (the
- * home screen only ever loads the last 3 days, so anything older would
- * otherwise sit in localStorage forever). Also clears out anything saved in
- * an older, incompatible format. Call once at startup. */
+/** Removes every stored personal best past its retention age (a week for daily
+ * seeds, about a year for weekly ones), across all seeds - not just whichever
+ * ones happen to be loaded via loadPersonalBest(), so old entries can't sit in
+ * localStorage forever. Also clears out anything saved in an older,
+ * incompatible format. Call once at startup. */
 export function pruneOldPersonalBests(): void {
   const staleKeys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -73,7 +82,8 @@ export function pruneOldPersonalBests(): void {
       parsed = null;
     }
 
-    if (!parsed || !isValid(parsed) || !isFresh(parsed.savedAt)) {
+    const seed = key.slice(STORAGE_PREFIX.length);
+    if (!parsed || !isValid(parsed) || !isFresh(parsed.savedAt, maxAgeForSeed(seed))) {
       staleKeys.push(key);
     }
   }
