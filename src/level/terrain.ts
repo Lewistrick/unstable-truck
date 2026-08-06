@@ -19,11 +19,18 @@ export interface TruckPose {
 // visibly enters and leaves the patch.
 const TRUCK_HALF_LENGTH = 16;
 const TRUCK_HALF_WIDTH = 11;
+// Negative padding (mirroring the rock ROCK_FORGIVE and warehouse COLLECT_PAD):
+// the probed body is a touch smaller than the drawn one, so mud registers only
+// once the truck has visibly sunk into the patch - it looks like you almost
+// drive through the edge rather than slowing the instant a corner grazes it.
+const MUD_FORGIVE = 2;
+const PROBE_HALF_LENGTH = TRUCK_HALF_LENGTH - MUD_FORGIVE;
+const PROBE_HALF_WIDTH = TRUCK_HALF_WIDTH - MUD_FORGIVE;
 const TRUCK_BODY_CORNERS: Array<[number, number]> = [
-  [TRUCK_HALF_LENGTH, TRUCK_HALF_WIDTH],
-  [TRUCK_HALF_LENGTH, -TRUCK_HALF_WIDTH],
-  [-TRUCK_HALF_LENGTH, TRUCK_HALF_WIDTH],
-  [-TRUCK_HALF_LENGTH, -TRUCK_HALF_WIDTH],
+  [PROBE_HALF_LENGTH, PROBE_HALF_WIDTH],
+  [PROBE_HALF_LENGTH, -PROBE_HALF_WIDTH],
+  [-PROBE_HALF_LENGTH, PROBE_HALF_WIDTH],
+  [-PROBE_HALF_LENGTH, -PROBE_HALF_WIDTH],
 ];
 
 function pointInPolygon(p: Vec2, polygon: Vec2[]): boolean {

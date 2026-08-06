@@ -54,14 +54,20 @@ check("small box not over-collected from a distance", truckTouchesWarehouse(truc
 // hit here (32 < 20 + 14), which is exactly the "too unforgiving" case.
 check("rock alongside the body just clears", resolveRockCollision(rockTruck(0), { x: 0, y: 32 }, 20), false);
 
-// Head-on: a rock 33 ahead overlaps the nose (33 < 16 + 20) and is pushed out.
+// Head-on: a rock 33 ahead overlaps the nose. The collider shrinks the rock's
+// radius by ROCK_FORGIVE (2), so the effective radius is 18: 33 < 16 + 18 hits.
 {
   const t = rockTruck(0);
   const hit = resolveRockCollision(t, { x: 33, y: 0 }, 20);
   check("rock ahead of the nose collides", hit, true);
-  // Nose at +16, rock radius 20 -> truck must sit at x = 33 - 36 = -3.
-  check("rock collision pushes the truck clear", Math.abs(t.pos.x - -3) < 1e-6, true);
+  // Nose at +16, effective radius 18 -> truck must sit at x = 33 - 34 = -1,
+  // leaving it overlapping the drawn rock by ROCK_FORGIVE.
+  check("rock collision pushes the truck to the forgiving contact", Math.abs(t.pos.x - -1) < 1e-6, true);
 }
+
+// Forgiveness: a rock 35 ahead grazes the nose by 1 (35 < 16 + 20) but clears
+// the shrunk collider (35 >= 16 + 18), so the truck drives through the graze.
+check("rock grazing the nose is forgiven", resolveRockCollision(rockTruck(0), { x: 35, y: 0 }, 20), false);
 
 // Rotated 90 degrees: the body's short axis now faces world +x, so a rock 33
 // out along it clears (proving the box rotates with the heading; a length-based
@@ -79,10 +85,16 @@ const mudSquare = [
 ];
 const mudLevel = { roads: [], muds: [{ pos: { x: 20, y: 0 }, radius: 16, points: mudSquare }] };
 
-// Truck center at (5, 0) is outside the polygon (x < 10), but its front corner
-// reaches (21, 11), which is inside - so the body-aware test registers mud. The
-// old center-point test would have said "not in mud" here.
+// Truck center at (5, 0) is outside the polygon (x < 10), but its (inset) front
+// corner reaches (19, 9), which is well inside - so the body-aware test
+// registers mud. The old center-point test would have said "not in mud" here.
 check("mud registers when a body corner is over it", sampleTerrain({ pos: { x: 5, y: 0 }, heading: 0 }, mudLevel).inMud, true);
+
+// Forgiveness: at x = -5 the full 16-long body corner would reach x = 11 (just
+// inside the patch, edge at x = 10), but the inset probe corner (14 long) only
+// reaches x = 9, so mud does not register - the truck's edge grazes the patch
+// without slowing.
+check("mud edge graze is forgiven", sampleTerrain({ pos: { x: -5, y: 0 }, heading: 0 }, mudLevel).inMud, false);
 
 // Well clear of the patch: not in mud.
 check("mud clear when the whole body is outside", sampleTerrain({ pos: { x: -30, y: 0 }, heading: 0 }, mudLevel).inMud, false);

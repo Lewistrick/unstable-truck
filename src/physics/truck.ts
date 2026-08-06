@@ -98,6 +98,12 @@ export function updateTruck(
 const TRUCK_HALF_LENGTH = 16;
 const TRUCK_HALF_WIDTH = 11;
 
+// A little negative padding, mirroring the warehouse COLLECT_PAD but the other
+// way: the collider is a hair smaller than the drawn rock so contact registers
+// only once the truck has visibly bitten into the stone. Keeps rocks from
+// feeling unforgiving - it looks like you almost drive through them.
+const ROCK_FORGIVE = 2;
+
 /** Resolves a collision between the truck's (oriented) rectangular body and a
  * circular rock: pushes the truck out along the contact normal and kills most
  * of its speed. Returns true if a collision occurred, so the caller can trigger
@@ -107,6 +113,9 @@ export function resolveRockCollision(
   rockPos: Vec2,
   rockRadius: number,
 ): boolean {
+  // Shrink the rock's effective radius so the truck overlaps it slightly before
+  // it counts as a hit (see ROCK_FORGIVE).
+  const radius = Math.max(0, rockRadius - ROCK_FORGIVE);
   // Rock center in the truck's local frame, where the body is the axis-aligned
   // rectangle [-HALF_LENGTH, HALF_LENGTH] x [-HALF_WIDTH, HALF_WIDTH]. Local x
   // runs along the heading (forward), local y across it.
@@ -130,10 +139,10 @@ export function resolveRockCollision(
     const ex = lx - nearX;
     const ey = ly - nearY;
     const d = Math.hypot(ex, ey) || 0.0001;
-    if (d >= rockRadius) return false;
+    if (d >= radius) return false;
     pushX = -ex / d;
     pushY = -ey / d;
-    gap = rockRadius - d;
+    gap = radius - d;
   } else {
     // Rock center is inside the body (deep overlap): eject along the shallowest
     // axis so the truck pops out the nearest face.
@@ -142,11 +151,11 @@ export function resolveRockCollision(
     if (penX < penY) {
       pushX = lx > 0 ? -1 : 1;
       pushY = 0;
-      gap = penX + rockRadius;
+      gap = penX + radius;
     } else {
       pushX = 0;
       pushY = ly > 0 ? -1 : 1;
-      gap = penY + rockRadius;
+      gap = penY + radius;
     }
   }
 

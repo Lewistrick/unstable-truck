@@ -69,7 +69,10 @@ What's implemented:
   hitting 0 ends the run. Obstacle hitboxes use the truck's actual body: rocks
   collide against its (heading-oriented) rectangle rather than a bounding
   circle, and a mud patch counts once any body corner is over it - so both line
-  up with what's drawn instead of a fixed circle around the truck's center. Pickups are grouped five to a box: each collected
+  up with what's drawn instead of a fixed circle around the truck's center. Both
+  are tuned a couple of pixels forgiving (like the warehouse pickup pad, but
+  negative), so it looks like the truck just grazes a rock or the edge of the
+  mud rather than stopping short. Pickups are grouped five to a box: each collected
   warehouse adds a fifth of a box's length to the current box, and once it's
   full a new box starts trailing behind it (so a long weekly route pulls a few
   growing boxes rather than a huge chain of one-per-pickup).
