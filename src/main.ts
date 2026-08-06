@@ -93,29 +93,6 @@ function formatTime(seconds: number): string {
   return `${seconds.toFixed(2)}s`;
 }
 
-/** Local start (midnight, or Monday midnight for weeks) of the period at a
- * given mode+offset. */
-function periodStart(mode: Mode, offset: number): Date {
-  const d = new Date();
-  if (mode === "weekly") {
-    d.setDate(d.getDate() + offset * 7);
-    const mondayOffset = (d.getDay() + 6) % 7; // days since Monday (Mon=0)
-    d.setDate(d.getDate() - mondayOffset);
-  } else {
-    d.setDate(d.getDate() + offset);
-  }
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-/** The champion tier only becomes available halfway through a period (12h for
- * daily, 3.5 days for weekly). Past periods are fully elapsed, so it's always
- * available for them. */
-function isChampionActive(mode: Mode, offset: number): boolean {
-  const halfMs = (mode === "weekly" ? 3.5 : 0.5) * 24 * 60 * 60 * 1000;
-  return Date.now() >= periodStart(mode, offset).getTime() + halfMs;
-}
-
 let mode: Mode = "daily";
 let viewedOffset = 0;
 let viewed: Playable = getPlayable(mode, 0);
@@ -262,11 +239,11 @@ let leaderboardTop: LeaderboardEntry[] = [];
 let leaderboardContext: LeaderboardEntry[] = [];
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
 
-/** Champion threshold for the currently viewed level, or null if the tier is
- * not available yet (before the period's halfway point) or no record beats the
- * gold time. Uses the current #1 time from the loaded leaderboard. */
+/** Champion threshold for the currently viewed level, or null if no leaderboard
+ * record beats the gold time yet. The tier unlocks as soon as someone sets a
+ * gold time (a #1 faster than gold); uses the current #1 from the loaded
+ * leaderboard. */
 function currentChampionTime(): number | null {
-  if (!isChampionActive(mode, viewedOffset)) return null;
   return championTime(viewed.pars.gold, leaderboardTop[0]?.time ?? null);
 }
 
