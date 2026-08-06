@@ -20,9 +20,13 @@ What's implemented:
   moon…) while still varying within the biome, and paints a subtle repeating
   ground texture (dunes, furrows, craters, city grid, speckle…). The texture is
   drawn once to an offscreen tile and painted as a cached pattern, so it costs
-  no more than the flat grass fill. A few calendar dates get a fitting theme as
-  a seasonal easter egg (e.g. snow around Christmas). The chosen biome's name is
-  shown next to the date on the home screen. Themes only change appearance —
+  no more than the flat grass fill. Holidays override the biome as a seasonal
+  easter egg — snow around Christmas, autumn around Halloween, plus dedicated
+  Easter and New Year's biomes (the latter two are seasonal-only, never in the
+  random pool). Overrides apply to both daily maps (the exact dates, Easter
+  computed each year) and weekly maps (any week the holiday falls in). The
+  chosen biome's name is shown next to the date on the home screen. Themes only
+  change appearance —
   they never affect road/warehouse/obstacle placement, so per-seed leaderboards
   stay comparable.
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much

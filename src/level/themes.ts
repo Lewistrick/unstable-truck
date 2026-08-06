@@ -21,7 +21,9 @@ export type ThemeId =
   | "savanna"
   | "volcanic"
   | "swamp"
-  | "candy";
+  | "candy"
+  | "easter"
+  | "newyear";
 
 /** A range for one HSL channel; the palette samples uniformly within it. Hue
  * ranges may wrap past 360 (min > max) - the palette normalises that. */
@@ -37,6 +39,9 @@ export interface Theme {
   id: ThemeId;
   /** Human-readable name, shown as a teaser on the home screen. */
   name: string;
+  /** Seasonal themes are used only via holiday date overrides, never in the
+   * random daily/weekly pool. */
+  seasonal?: boolean;
   texture: TextureStyle;
   /** Ground (grass) color range - the theme's dominant identity. */
   ground: HslRange;
@@ -190,34 +195,109 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([330, 366], [36, 52], [64, 74]),
     house: band([320, 350], [40, 56], [66, 78]),
   },
+  // --- Seasonal-only (holiday overrides, excluded from the random pool) -----
+  easter: {
+    id: "easter",
+    name: "Easter",
+    seasonal: true,
+    texture: "dots",
+    ground: band([80, 150], [30, 50], [80, 88]),
+    road: band([80, 140], [10, 18], [36, 46]),
+    rock: band([80, 140], [10, 18], [26, 34]),
+    mud: band([28, 42], [30, 44], [30, 38]),
+    house: band([300, 340], [35, 50], [70, 80]),
+  },
+  newyear: {
+    id: "newyear",
+    name: "New Year's",
+    seasonal: true,
+    texture: "speckle",
+    ground: band([225, 250], [30, 48], [30, 40]),
+    road: band([225, 245], [8, 16], [46, 56]),
+    rock: band([225, 245], [10, 20], [34, 44]),
+    mud: band([265, 290], [28, 44], [38, 48]),
+    house: band([45, 55], [75, 90], [58, 68]),
+  },
 };
 
-/** Certain calendar dates always get a fitting theme (seeds are dates, so this
- * is a cheap seasonal easter egg). Keyed by the MM-DD part of a daily seed. */
-const DATE_OVERRIDES: Record<string, ThemeId> = {
-  "12-24": "snow",
-  "12-25": "snow",
-  "12-26": "snow",
-  "10-31": "autumn",
-};
+// --- Seasonal holiday overrides --------------------------------------------
+// Seeds are dates, so a handful of holidays always get a fitting theme (a cheap
+// seasonal easter egg). Fixed-date holidays are matched by month/day; Easter is
+// computed. Both daily seeds and weekly seeds are covered: a weekly seed themes
+// if the holiday falls anywhere in that ISO week.
 
-function dateOverride(seed: string): ThemeId | null {
-  const match = seed.match(/^\d{4}-(\d{2}-\d{2})$/);
-  if (!match) return null; // weekly seeds (YYYY-Www) never override
-  return DATE_OVERRIDES[match[1]!] ?? null;
+/** Easter Sunday for a Gregorian year (anonymous Gregorian "Computus"). */
+function easterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 3 = March, 4 = April
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
 }
+
+/** The holiday theme covering a single calendar date, or null. */
+function holidayThemeForDate(date: Date): ThemeId | null {
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  if (month === 12 && day >= 24 && day <= 26) return "snow"; // Christmas
+  if (month === 10 && day === 31) return "autumn"; // Halloween
+  if ((month === 12 && day === 31) || (month === 1 && day === 1)) return "newyear";
+  // Easter weekend: Good Friday (Sunday - 2) through Easter Monday (Sunday + 1).
+  const daysFromEaster = Math.round((date.getTime() - easterSunday(date.getFullYear()).getTime()) / 86_400_000);
+  if (daysFromEaster >= -2 && daysFromEaster <= 1) return "easter";
+  return null;
+}
+
+/** Monday (local midnight) of a given ISO week-numbering year and week. */
+function isoWeekMonday(isoYear: number, week: number): Date {
+  const jan4 = new Date(isoYear, 0, 4); // ISO week 1 always contains Jan 4
+  const jan4Weekday = (jan4.getDay() + 6) % 7; // Mon = 0 .. Sun = 6
+  return new Date(isoYear, 0, 4 - jan4Weekday + (week - 1) * 7);
+}
+
+/** Holiday theme for a seed, or null. Daily seeds (YYYY-MM-DD) check that date;
+ * weekly seeds (YYYY-Www) check every day of the ISO week. */
+function holidayOverride(seed: string): ThemeId | null {
+  const daily = seed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (daily) {
+    return holidayThemeForDate(new Date(Number(daily[1]), Number(daily[2]) - 1, Number(daily[3])));
+  }
+  const weekly = seed.match(/^(\d{4})-W(\d{2})$/);
+  if (weekly) {
+    const monday = isoWeekMonday(Number(weekly[1]), Number(weekly[2]));
+    for (let i = 0; i < 7; i++) {
+      const theme = holidayThemeForDate(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
+      if (theme) return theme;
+    }
+  }
+  return null;
+}
+
+// The random pool excludes seasonal-only themes and keeps a stable order, so
+// adding seasonal themes never reshuffles existing (non-holiday) seeds.
+const RANDOM_POOL: ThemeId[] = (Object.keys(THEMES) as ThemeId[]).filter((id) => !THEMES[id].seasonal);
 
 export function getTheme(id: ThemeId): Theme {
   return THEMES[id];
 }
 
-/** Deterministic theme for a seed. Uses a hash independent of the main level
- * rng stream so adding themes never shifts hub/road/warehouse/obstacle
- * generation - only the palette and texture change for existing seeds. */
+/** Deterministic theme for a seed. Holidays win; otherwise a hash independent
+ * of the main level rng stream picks from the random pool, so adding themes
+ * never shifts hub/road/warehouse/obstacle generation - only palette and
+ * texture change for existing seeds. */
 export function pickTheme(seed: string): Theme {
-  const override = dateOverride(seed);
+  const override = holidayOverride(seed);
   if (override) return THEMES[override];
-  const ids = Object.keys(THEMES) as ThemeId[];
-  const idx = seedFromString(`${seed}#theme`) % ids.length;
-  return THEMES[ids[idx]!]!;
+  const idx = seedFromString(`${seed}#theme`) % RANDOM_POOL.length;
+  return THEMES[RANDOM_POOL[idx]!]!;
 }
