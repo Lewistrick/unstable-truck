@@ -16,7 +16,6 @@ import {
 } from "./game/storage.js";
 import {
   championTime,
-  CHAMPION_COLOR,
   computeMedalPars,
   medalFor,
   MEDAL_ICON,
@@ -252,7 +251,7 @@ function currentChampionTime(): number | null {
 }
 
 /** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
- * always, plus the red Champion tier at the top when it's available. */
+ * always, plus the Champion tier at the top when it's available. */
 function renderMedalTrack(): void {
   const pars = viewed.pars;
   const champion = currentChampionTime();
@@ -266,7 +265,6 @@ function renderMedalTrack(): void {
   for (const { medal, time } of tiers) {
     const row = document.createElement("div");
     row.className = "medal-row";
-    if (medal === "champion") row.style.color = CHAMPION_COLOR;
 
     const name = document.createElement("span");
     name.className = "medal-name";
@@ -462,7 +460,6 @@ let lastShareText: string | null = null;
  * for the next tier up. */
 function showMedal(medal: Medal | null, pars: MedalPars, champion: number | null): void {
   resultsMedal.classList.remove("hidden");
-  resultsMedal.style.color = medal === "champion" ? CHAMPION_COLOR : "";
   if (!medal) {
     resultsMedal.textContent = `No medal - Bronze under ${formatTime(pars.bronze)}`;
     return;

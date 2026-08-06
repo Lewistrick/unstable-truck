@@ -50,7 +50,7 @@ What's implemented:
   thresholds derived purely from its geometry (the ideal
   base → pickups → destination route length, inflated for road curvature and
   divided by an assumed good-driving speed), so they're identical for every
-  player and work fully offline. Above gold sits a leaderboard-driven red
+  player and work fully offline. Above gold sits a leaderboard-driven
   Champion tier at `gold - 3*(gold - top)/4` (three quarters of the way from
   the gold time down to the current #1 time); it unlocks as soon as someone
   sets a gold time (a leaderboard #1 faster than gold). The home screen shows a

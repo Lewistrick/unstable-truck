@@ -26,9 +26,6 @@ export const MEDAL_LABEL: Record<Medal, string> = {
   bronze: "Bronze",
 };
 
-/** The champion tier is shown in red; the rest use the default text color. */
-export const CHAMPION_COLOR = "#ef3b2a";
-
 /** Champion threshold from the gold time `g` and the current top (#1) time
  * `t`: three quarters of the way from gold down to the record,
  * `g - 3*(g - t)/4` = `(g + 3*t)/4`. Returns null when there's no record
