@@ -673,15 +673,17 @@ canvas.addEventListener("pointerdown", () => setMenuOpen(false));
 // with a toggle to reveal the full guide.
 const helpSummary = document.getElementById("help-summary")!;
 const helpFull = document.getElementById("help-full")!;
-const helpDetailToggle = document.getElementById("help-detail-toggle") as HTMLButtonElement;
+const helpDetailCheckbox = document.getElementById("help-detail-checkbox") as HTMLInputElement;
 let helpOpen = false;
 
+// The switch is off (unchecked) for the summary, on for the full guide; only
+// one body is shown at a time.
 function setHelpDetail(showFull: boolean): void {
   helpSummary.classList.toggle("hidden", showFull);
   helpFull.classList.toggle("hidden", !showFull);
-  helpDetailToggle.textContent = showFull ? "Show summary" : "Show full guide";
+  helpDetailCheckbox.checked = showFull;
 }
-helpDetailToggle.addEventListener("click", () => setHelpDetail(helpFull.classList.contains("hidden")));
+helpDetailCheckbox.addEventListener("change", () => setHelpDetail(helpDetailCheckbox.checked));
 
 function openHelp(): void {
   helpOpen = true;
