@@ -673,10 +673,23 @@ menuHomeBtn.addEventListener("click", () => {
 // Steering (a press on the canvas) dismisses an open menu.
 canvas.addEventListener("pointerdown", () => setMenuOpen(false));
 
-// Help overlay, opened from the home screen.
+// Help overlay, opened from the home screen. Shows a brief summary by default,
+// with a toggle to reveal the full guide.
+const helpSummary = document.getElementById("help-summary")!;
+const helpFull = document.getElementById("help-full")!;
+const helpDetailToggle = document.getElementById("help-detail-toggle") as HTMLButtonElement;
 let helpOpen = false;
+
+function setHelpDetail(showFull: boolean): void {
+  helpSummary.classList.toggle("hidden", showFull);
+  helpFull.classList.toggle("hidden", !showFull);
+  helpDetailToggle.textContent = showFull ? "Show summary" : "Show full guide";
+}
+helpDetailToggle.addEventListener("click", () => setHelpDetail(helpFull.classList.contains("hidden")));
+
 function openHelp(): void {
   helpOpen = true;
+  setHelpDetail(false); // always reopen on the summary
   helpScreen.classList.remove("hidden");
 }
 function closeHelp(): void {

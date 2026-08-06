@@ -77,10 +77,20 @@
       <div class="panel help-panel">
         <h1>How to Play</h1>
         <p class="muted">A daily, competitive, one-thumb parcel-delivery game.</p>
-        <div class="help-body">
+        <div class="help-body" id="help-summary">
+          <p><strong>The goal.</strong> Pick up cargo from every
+            <span class="tag tag-pickup">W</span> warehouse, then deliver it all to the
+            <span class="tag tag-destination">D</span> drop-off as fast as you can — without
+            letting your cargo fall off.</p>
+          <p><strong>Controls.</strong> The truck always curves left on its own. Hold to steer
+            right; release to drift back left. Tap and hold anywhere on screen (mobile), or hold
+            spacebar or the mouse button (desktop). That's the only input.</p>
+        </div>
+        <button id="help-detail-toggle" class="btn-secondary" type="button">Show full guide</button>
+        <div class="help-body hidden" id="help-full">
           <p><strong>The job.</strong> You're a truck driver on the clock: your boss wants every
             parcel delivered, and fast. Start at the base, pick up cargo from each
-            <span class="tag tag-pickup">P</span> warehouse, then bring it all to the
+            <span class="tag tag-pickup">W</span> warehouse, then bring it all to the
             <span class="tag tag-destination">D</span> drop-off.</p>
           <p><strong>How you win.</strong> Two things decide your time: finding the most efficient
             route that visits every warehouse before the drop-off, and driving that route cleanly.
