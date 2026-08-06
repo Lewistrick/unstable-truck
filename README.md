@@ -10,9 +10,9 @@ What's implemented:
 
 - Deterministic daily level generation (Mulberry32 PRNG seeded from
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
-  few branching dead ends, 4-10 warehouses per level (one base, one
-  destination, the rest pickups that must all be visited before delivery),
-  rock/mud obstacles, and a seeded color palette.
+  few branching dead ends, 4-10 warehouses per level (one base marked `B`, one
+  destination marked `D`, the rest pickups marked `W` that must all be visited
+  before delivery), rock/mud obstacles, and a seeded color palette.
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
@@ -39,21 +39,22 @@ What's implemented:
 - Global leaderboard, backed by a Postgres + Express server: each successful
   run is submitted under a nickname (auto-generated on first visit, editable)
   and only overwrites your prior score for that seed if it's faster. The home
-  screen shows the viewed day's top 10; clicking a leaderboard row races that
-  player's ghost too (up to two ghosts race at once: your personal best and a
-  selected leaderboard player, each labeled in a small muted tag - "you",
-  "pb", or their nickname). The game is fully playable offline/without the
+  screen shows the viewed day's top 10; once you've set a time of your own on
+  that level, clicking a leaderboard row races that player's ghost too (up to
+  two ghosts race at once: your personal best and a selected leaderboard
+  player, each labeled in a small muted tag - "you", "pb", or their nickname).
+  The game is fully playable offline/without the
   backend — score submission and the leaderboard just silently no-op if the
   server is unreachable.
 - Medal targets: each level has deterministic gold/silver/bronze finish-time
   thresholds derived purely from its geometry (the ideal
   base → pickups → destination route length, inflated for road curvature and
   divided by an assumed good-driving speed), so they're identical for every
-  player and work fully offline. Above gold sits a leaderboard-driven red
+  player and work fully offline. Above gold sits a leaderboard-driven
   Champion tier at `gold - 3*(gold - top)/4` (three quarters of the way from
-  the gold time down to the current #1 time); it only unlocks halfway through
-  the period (12h into a day, 3.5 days into a week) and only when a record
-  actually beats gold. The home screen shows a medal-time track (Champion when
+  the gold time down to the current #1 time); it unlocks as soon as someone
+  sets a gold time (a leaderboard #1 faster than gold). The home screen shows a
+  medal-time track (Champion when
   available, then Gold/Silver/Bronze) for both the daily and weekly boards, and
   the results screen shows the medal earned plus the next tier up.
 - Daily streak and a recent-days calendar on the home screen: delivering a day
@@ -62,7 +63,9 @@ What's implemented:
   a row of dots (one per navigable day, today highlighted) fills in for the
   days you've completed.
 - Shareable result card: after a delivery, a Share button copies a spoiler-free
-  summary (day, medal, time, cargo %, streak — no map details) to the clipboard.
+  summary (day, finish time, earned medal, and a link back to the game — no map
+  details) to the clipboard. The link is the page's own hosted URL, falling
+  back to the public address for local/dev play.
   The home screen also has a Share button next to today's "Best" time that
   copies the same kind of summary for your stored personal best (today only).
 - Start screen shows one day at a time (today by default), with prev/next

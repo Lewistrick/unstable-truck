@@ -16,7 +16,6 @@ import {
 } from "./game/storage.js";
 import {
   championTime,
-  CHAMPION_COLOR,
   computeMedalPars,
   medalFor,
   MEDAL_ICON,
@@ -93,29 +92,6 @@ function formatTime(seconds: number): string {
   return `${seconds.toFixed(2)}s`;
 }
 
-/** Local start (midnight, or Monday midnight for weeks) of the period at a
- * given mode+offset. */
-function periodStart(mode: Mode, offset: number): Date {
-  const d = new Date();
-  if (mode === "weekly") {
-    d.setDate(d.getDate() + offset * 7);
-    const mondayOffset = (d.getDay() + 6) % 7; // days since Monday (Mon=0)
-    d.setDate(d.getDate() - mondayOffset);
-  } else {
-    d.setDate(d.getDate() + offset);
-  }
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-/** The champion tier only becomes available halfway through a period (12h for
- * daily, 3.5 days for weekly). Past periods are fully elapsed, so it's always
- * available for them. */
-function isChampionActive(mode: Mode, offset: number): boolean {
-  const halfMs = (mode === "weekly" ? 3.5 : 0.5) * 24 * 60 * 60 * 1000;
-  return Date.now() >= periodStart(mode, offset).getTime() + halfMs;
-}
-
 let mode: Mode = "daily";
 let viewedOffset = 0;
 let viewed: Playable = getPlayable(mode, 0);
@@ -158,6 +134,7 @@ const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElem
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
+const ghostHint = document.getElementById("ghost-hint")!;
 const streakBadge = document.getElementById("streak-badge")!;
 const dayDots = document.getElementById("day-dots")!;
 const progressStrip = document.getElementById("progress-strip")!;
@@ -188,11 +165,14 @@ function refreshViewedUi(): void {
     pbGhostToggle.checked = true;
     pbGhostLabel.textContent = `Race personal best ghost (${formatTime(viewed.personalBest.time)})`;
     hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
+    ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
   } else {
     pbGhostToggle.disabled = true;
     pbGhostToggle.checked = false;
     pbGhostLabel.textContent = "No personal best yet";
     hudPb.textContent = "";
+    // Racing others' ghosts unlocks only once you've set a time of your own.
+    ghostHint.textContent = "Set your own time here first to race other players' ghosts.";
   }
 
   // Show the level's medal times immediately on navigation; the leaderboard
@@ -262,16 +242,16 @@ let leaderboardTop: LeaderboardEntry[] = [];
 let leaderboardContext: LeaderboardEntry[] = [];
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
 
-/** Champion threshold for the currently viewed level, or null if the tier is
- * not available yet (before the period's halfway point) or no record beats the
- * gold time. Uses the current #1 time from the loaded leaderboard. */
+/** Champion threshold for the currently viewed level, or null if no leaderboard
+ * record beats the gold time yet. The tier unlocks as soon as someone sets a
+ * gold time (a #1 faster than gold); uses the current #1 from the loaded
+ * leaderboard. */
 function currentChampionTime(): number | null {
-  if (!isChampionActive(mode, viewedOffset)) return null;
   return championTime(viewed.pars.gold, leaderboardTop[0]?.time ?? null);
 }
 
 /** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
- * always, plus the red Champion tier at the top when it's available. */
+ * always, plus the Champion tier at the top when it's available. */
 function renderMedalTrack(): void {
   const pars = viewed.pars;
   const champion = currentChampionTime();
@@ -285,7 +265,6 @@ function renderMedalTrack(): void {
   for (const { medal, time } of tiers) {
     const row = document.createElement("div");
     row.className = "medal-row";
-    if (medal === "champion") row.style.color = CHAMPION_COLOR;
 
     const name = document.createElement("span");
     name.className = "medal-name";
@@ -343,6 +322,9 @@ function renderLeaderboardList(): void {
  * the personal-best ghost; clicking the same row again deselects it. Only
  * one leaderboard player can be selected at a time. */
 async function toggleLeaderboardGhost(clickedNickname: string): Promise<void> {
+  // Racing another player's ghost is only available once you've set a time of
+  // your own on the viewed level.
+  if (!viewed.personalBest) return;
   if (selectedGhostEntry?.nickname === clickedNickname) {
     selectedGhostEntry = null;
     renderLeaderboardList();
@@ -405,6 +387,34 @@ navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
 modeDailyBtn.addEventListener("click", () => switchMode("daily"));
 modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 
+// Swipe navigation over the map thumbnail: swipe right -> previous period,
+// swipe left -> next. Pointer events unify mouse-drag (desktop) and touch
+// (mobile). A recognised swipe sets `swipeConsumed` so the minimap's tap-to-
+// play click (which fires right after pointerup) is skipped for that gesture.
+const thumbnailNav = document.getElementById("thumbnail-nav")!;
+const SWIPE_THRESHOLD = 45; // px of horizontal travel to count as a swipe
+let swipeStartX = 0;
+let swipeStartY = 0;
+let swipeTracking = false;
+let swipeConsumed = false;
+thumbnailNav.addEventListener("pointerdown", (e) => {
+  swipeStartX = e.clientX;
+  swipeStartY = e.clientY;
+  swipeTracking = true;
+  swipeConsumed = false;
+});
+// Bound to window so a drag that lifts off the thumbnail still resolves.
+window.addEventListener("pointerup", (e) => {
+  if (!swipeTracking) return;
+  swipeTracking = false;
+  const dx = e.clientX - swipeStartX;
+  const dy = e.clientY - swipeStartY;
+  if (Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    swipeConsumed = true;
+    navigateTo(viewedOffset + (dx > 0 ? -1 : 1));
+  }
+});
+
 // -----------------------------------------------------------------------
 
 function resizeCanvas(): void {
@@ -450,7 +460,6 @@ let lastShareText: string | null = null;
  * for the next tier up. */
 function showMedal(medal: Medal | null, pars: MedalPars, champion: number | null): void {
   resultsMedal.classList.remove("hidden");
-  resultsMedal.style.color = medal === "champion" ? CHAMPION_COLOR : "";
   if (!medal) {
     resultsMedal.textContent = `No medal - Bronze under ${formatTime(pars.bronze)}`;
     return;
@@ -464,19 +473,34 @@ function showMedal(medal: Medal | null, pars: MedalPars, champion: number | null
   resultsMedal.textContent = text;
 }
 
+/** Public URL used in share text when the game is opened from a real site,
+ * hosted address (not localhost or a bare file). */
+const FALLBACK_GAME_URL = "https://lewistrick.com/unstable-truck";
+
+/** The link to include in shared results: the page's own address when it's a
+ * hosted http(s) URL (sub-path deploys included, minus any query/hash), or the
+ * canonical public URL for local/dev contexts where the address isn't
+ * shareable. */
+function gameUrl(): string {
+  const { protocol, hostname, origin, pathname } = window.location;
+  const hosted =
+    (protocol === "https:" || protocol === "http:") &&
+    hostname !== "" &&
+    hostname !== "localhost" &&
+    hostname !== "127.0.0.1";
+  return hosted ? origin + pathname : FALLBACK_GAME_URL;
+}
+
 /** Spoiler-free result summary for the clipboard - no route/map details, just
- * the day, medal, time, cargo condition, and current streak. */
-function buildShareText(playable: Playable, time: number, stability: number, medal: Medal | null): string {
-  const medalPart = medal ? `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}` : "No medal";
-  const lines = [
-    `Unstable Truck \u{1F69A} ${playable.seed}`,
-    `${medalPart} · ${formatTime(time)} · \u{1F4E6} ${Math.round(stability)}%`,
-  ];
-  if (playable.level.kind === "daily") {
-    const streak = currentStreak(loadCompletedDays());
-    if (streak > 1) lines.push(`\u{1F525} ${streak}-day streak`);
-  }
-  return lines.join("\n");
+ * the day, finish time, earned medal, and a link to play. */
+function buildShareText(playable: Playable, time: number, medal: Medal | null): string {
+  const medalEmoji = medal ? ` ${MEDAL_ICON[medal]}` : "";
+  return [
+    `\u{1F69A} Unstable Truck - ${playable.seed}`,
+    `I finished in a time of ${formatTime(time)}${medalEmoji}`,
+    "Can you beat my time? #unstabletruck",
+    gameUrl(),
+  ].join("\n");
 }
 
 /** Spoiler-free summary of the currently-viewed day's stored best time, or
@@ -484,7 +508,7 @@ function buildShareText(playable: Playable, time: number, stability: number, med
 function currentBestShareText(): string | null {
   const best = viewed.personalBest;
   if (!best) return null;
-  return buildShareText(viewed, best.time, best.stability, medalFor(best.time, viewed.pars));
+  return buildShareText(viewed, best.time, medalFor(best.time, viewed.pars));
 }
 
 /** Wires a Share button to copy text (from `getText`) on click, flashing a
@@ -568,7 +592,7 @@ function endRun(): void {
       recordCompletion(active.seed);
       renderProgressStrip();
     }
-    lastShareText = buildShareText(active, session.elapsed, session.stability, medal);
+    lastShareText = buildShareText(active, session.elapsed, medal);
     shareBtn.textContent = "Share";
     shareBtn.classList.remove("hidden");
 
@@ -645,10 +669,25 @@ menuHomeBtn.addEventListener("click", () => {
 // Steering (a press on the canvas) dismisses an open menu.
 canvas.addEventListener("pointerdown", () => setMenuOpen(false));
 
-// Help overlay, opened from the home screen.
+// Help overlay, opened from the home screen. Shows a brief summary by default,
+// with a toggle to reveal the full guide.
+const helpSummary = document.getElementById("help-summary")!;
+const helpFull = document.getElementById("help-full")!;
+const helpDetailCheckbox = document.getElementById("help-detail-checkbox") as HTMLInputElement;
 let helpOpen = false;
+
+// The switch is off (unchecked) for the summary, on for the full guide; only
+// one body is shown at a time.
+function setHelpDetail(showFull: boolean): void {
+  helpSummary.classList.toggle("hidden", showFull);
+  helpFull.classList.toggle("hidden", !showFull);
+  helpDetailCheckbox.checked = showFull;
+}
+helpDetailCheckbox.addEventListener("change", () => setHelpDetail(helpDetailCheckbox.checked));
+
 function openHelp(): void {
   helpOpen = true;
+  setHelpDetail(false); // always reopen on the summary
   helpScreen.classList.remove("hidden");
 }
 function closeHelp(): void {
@@ -664,7 +703,15 @@ helpScreen.addEventListener("click", (e) => {
 
 attachShareHandler(shareBtn, () => lastShareText);
 attachShareHandler(bestShareBtn, currentBestShareText);
-minimapCanvas.addEventListener("click", () => beginRun(viewed));
+minimapCanvas.addEventListener("click", () => {
+  // A swipe gesture ends in a synthetic click on the map; don't treat it as
+  // tap-to-play.
+  if (swipeConsumed) {
+    swipeConsumed = false;
+    return;
+  }
+  beginRun(viewed);
+});
 minimapCanvas.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
