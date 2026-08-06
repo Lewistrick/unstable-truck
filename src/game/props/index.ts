@@ -13,6 +13,7 @@ import { drawCharredtree } from "./charredtree.js";
 import { drawCow } from "./cow.js";
 import { drawCyclist } from "./cyclist.js";
 import { drawDeadbush } from "./deadbush.js";
+import { drawDeer } from "./deer.js";
 import { drawEgg } from "./egg.js";
 import { drawFirework } from "./firework.js";
 import { drawFlag } from "./flag.js";
@@ -23,6 +24,7 @@ import { drawHaybale } from "./haybale.js";
 import { drawLavacrack } from "./lavacrack.js";
 import { drawLeaves } from "./leaves.js";
 import { drawLilypad } from "./lilypad.js";
+import { drawLog } from "./log.js";
 import { drawLollipop } from "./lollipop.js";
 import { drawMushroom } from "./mushroom.js";
 import { drawObsidian } from "./obsidian.js";
@@ -58,6 +60,7 @@ const DRAWERS: Record<string, PropDrawer> = {
   cow: drawCow,
   cyclist: drawCyclist,
   deadbush: drawDeadbush,
+  deer: drawDeer,
   egg: drawEgg,
   firework: drawFirework,
   flag: drawFlag,
@@ -68,6 +71,7 @@ const DRAWERS: Record<string, PropDrawer> = {
   lavacrack: drawLavacrack,
   leaves: drawLeaves,
   lilypad: drawLilypad,
+  log: drawLog,
   lollipop: drawLollipop,
   mushroom: drawMushroom,
   obsidian: drawObsidian,

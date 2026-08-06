@@ -179,6 +179,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "pine", weight: 3, minScale: 4.5, maxScale: 7.5 },
       { kind: "mushroom", weight: 2, minScale: 1.2, maxScale: 2 },
+      { kind: "log", weight: 1, minScale: 2, maxScale: 3 },
+      { kind: "deer", weight: 1, minScale: 2, maxScale: 2.8 },
     ],
   },
   farmland: {
