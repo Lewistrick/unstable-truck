@@ -39,10 +39,11 @@ What's implemented:
 - Global leaderboard, backed by a Postgres + Express server: each successful
   run is submitted under a nickname (auto-generated on first visit, editable)
   and only overwrites your prior score for that seed if it's faster. The home
-  screen shows the viewed day's top 10; clicking a leaderboard row races that
-  player's ghost too (up to two ghosts race at once: your personal best and a
-  selected leaderboard player, each labeled in a small muted tag - "you",
-  "pb", or their nickname). The game is fully playable offline/without the
+  screen shows the viewed day's top 10; once you've set a time of your own on
+  that level, clicking a leaderboard row races that player's ghost too (up to
+  two ghosts race at once: your personal best and a selected leaderboard
+  player, each labeled in a small muted tag - "you", "pb", or their nickname).
+  The game is fully playable offline/without the
   backend — score submission and the leaderboard just silently no-op if the
   server is unreachable.
 - Medal targets: each level has deterministic gold/silver/bronze finish-time

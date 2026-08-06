@@ -135,6 +135,7 @@ const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElem
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
+const ghostHint = document.getElementById("ghost-hint")!;
 const streakBadge = document.getElementById("streak-badge")!;
 const dayDots = document.getElementById("day-dots")!;
 const progressStrip = document.getElementById("progress-strip")!;
@@ -165,11 +166,14 @@ function refreshViewedUi(): void {
     pbGhostToggle.checked = true;
     pbGhostLabel.textContent = `Race personal best ghost (${formatTime(viewed.personalBest.time)})`;
     hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
+    ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
   } else {
     pbGhostToggle.disabled = true;
     pbGhostToggle.checked = false;
     pbGhostLabel.textContent = "No personal best yet";
     hudPb.textContent = "";
+    // Racing others' ghosts unlocks only once you've set a time of your own.
+    ghostHint.textContent = "Set your own time here first to race other players' ghosts.";
   }
 
   // Show the level's medal times immediately on navigation; the leaderboard
@@ -320,6 +324,9 @@ function renderLeaderboardList(): void {
  * the personal-best ghost; clicking the same row again deselects it. Only
  * one leaderboard player can be selected at a time. */
 async function toggleLeaderboardGhost(clickedNickname: string): Promise<void> {
+  // Racing another player's ghost is only available once you've set a time of
+  // your own on the viewed level.
+  if (!viewed.personalBest) return;
   if (selectedGhostEntry?.nickname === clickedNickname) {
     selectedGhostEntry = null;
     renderLeaderboardList();
