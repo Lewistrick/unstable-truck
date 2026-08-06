@@ -1,4 +1,6 @@
 import { distance } from "../util/vec2.js";
+import { mulberry32, randRange, seedFromString, type Rng } from "../util/rng.js";
+import { getTheme, type TextureStyle } from "../level/themes.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import type { Level, Warehouse } from "../level/types.js";
@@ -231,6 +233,157 @@ function viewZoom(canvasW: number, canvasH: number): number {
   return Math.min(1, Math.min(canvasW, canvasH) / MIN_VIEW_SPAN);
 }
 
+// --- Ground texture --------------------------------------------------------
+// Each theme paints a subtle repeating texture over the flat grass fill. The
+// texture is drawn once onto a small offscreen tile, cached as a CanvasPattern
+// per level, then painted with a single fillRect per frame - so it costs no
+// more than the grass fill it sits on. Overlays are low-alpha black/white, so
+// they read correctly on any seeded ground color without needing the palette.
+
+const TILE = 128;
+const texturePatternCache = new WeakMap<Level, CanvasPattern | null>();
+
+/** Draws `render` at (x, y) plus its 8 wrapped neighbours, so a mark near a
+ * tile edge appears seamlessly on the opposite edge when the pattern repeats. */
+function stampWrapped(ctx: CanvasRenderingContext2D, x: number, y: number, render: () => void): void {
+  for (let dx = -TILE; dx <= TILE; dx += TILE) {
+    for (let dy = -TILE; dy <= TILE; dy += TILE) {
+      ctx.save();
+      ctx.translate(x + dx, y + dy);
+      render();
+      ctx.restore();
+    }
+  }
+}
+
+function dot(ctx: CanvasRenderingContext2D, r: number, fill: string): void {
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function paintTile(ctx: CanvasRenderingContext2D, style: TextureStyle, rng: Rng): void {
+  const DARK = "rgba(0, 0, 0, 0.05)";
+  const LIGHT = "rgba(255, 255, 255, 0.06)";
+  switch (style) {
+    case "mottle": {
+      // Organic scattered soft blobs, mostly darkening.
+      for (let i = 0; i < 26; i++) {
+        const x = rng() * TILE;
+        const y = rng() * TILE;
+        const r = randRange(rng, 7, 20);
+        const fill = rng() < 0.65 ? DARK : LIGHT;
+        stampWrapped(ctx, x, y, () => dot(ctx, r, fill));
+      }
+      break;
+    }
+    case "speckle": {
+      // Fine sparkle: lots of tiny light flecks, a few dark ones.
+      for (let i = 0; i < 110; i++) {
+        const x = rng() * TILE;
+        const y = rng() * TILE;
+        const light = rng() < 0.8;
+        stampWrapped(ctx, x, y, () =>
+          dot(ctx, randRange(rng, 0.6, 1.8), light ? "rgba(255, 255, 255, 0.5)" : DARK),
+        );
+      }
+      break;
+    }
+    case "craters": {
+      // Shaded pits: a dark disc with a light rim offset to one side.
+      for (let i = 0; i < 11; i++) {
+        const x = rng() * TILE;
+        const y = rng() * TILE;
+        const r = randRange(rng, 5, 16);
+        stampWrapped(ctx, x, y, () => {
+          dot(ctx, r, "rgba(0, 0, 0, 0.07)");
+          ctx.beginPath();
+          ctx.arc(-r * 0.25, -r * 0.25, r * 0.7, 0, Math.PI * 2);
+          ctx.strokeStyle = LIGHT;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        });
+      }
+      break;
+    }
+    case "dots": {
+      // Confetti/petals: medium soft dots in a loose scatter.
+      for (let i = 0; i < 20; i++) {
+        const x = rng() * TILE;
+        const y = rng() * TILE;
+        const r = randRange(rng, 3, 6);
+        const fill = rng() < 0.5 ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.05)";
+        stampWrapped(ctx, x, y, () => dot(ctx, r, fill));
+      }
+      break;
+    }
+    case "rows": {
+      // Tilled furrows: evenly spaced horizontal bands (16 divides 128).
+      for (let y = 0; y < TILE; y += 16) {
+        ctx.fillStyle = DARK;
+        ctx.fillRect(0, y, TILE, 8);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
+        ctx.fillRect(0, y + 8, TILE, 8);
+      }
+      break;
+    }
+    case "dunes": {
+      // Wavy horizontal ripples; two full sine cycles across the width keeps
+      // them seamless left-to-right, even spacing keeps them seamless top-to-
+      // bottom.
+      ctx.strokeStyle = LIGHT;
+      ctx.lineWidth = 1.5;
+      for (let y0 = 0; y0 < TILE; y0 += 16) {
+        ctx.beginPath();
+        for (let x = 0; x <= TILE; x++) {
+          const yy = y0 + Math.sin((x / TILE) * Math.PI * 4) * 3;
+          if (x === 0) ctx.moveTo(x, yy);
+          else ctx.lineTo(x, yy);
+        }
+        ctx.stroke();
+      }
+      break;
+    }
+    case "grid": {
+      // City block lines (32 divides 128; skip the far edges to avoid a double
+      // line where tiles meet).
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.06)";
+      ctx.lineWidth = 2;
+      for (let p = 0; p < TILE; p += 32) {
+        ctx.beginPath();
+        ctx.moveTo(p, 0);
+        ctx.lineTo(p, TILE);
+        ctx.moveTo(0, p);
+        ctx.lineTo(TILE, p);
+        ctx.stroke();
+      }
+      break;
+    }
+  }
+}
+
+/** The ground-texture pattern for a level, built once and cached. Null if the
+ * platform can't create the pattern (then the flat grass fill stands alone). */
+function texturePattern(ctx: CanvasRenderingContext2D, level: Level): CanvasPattern | null {
+  const cached = texturePatternCache.get(level);
+  if (cached !== undefined) return cached;
+
+  const tile = document.createElement("canvas");
+  tile.width = TILE;
+  tile.height = TILE;
+  const tileCtx = tile.getContext("2d");
+  let pattern: CanvasPattern | null = null;
+  if (tileCtx) {
+    // A texture-only rng, independent of the level's generation stream.
+    const rng = mulberry32(seedFromString(`${level.seed}#tex`));
+    paintTile(tileCtx, getTheme(level.theme).texture, rng);
+    pattern = ctx.createPattern(tile, "repeat");
+  }
+  texturePatternCache.set(level, pattern);
+  return pattern;
+}
+
 export function renderWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
@@ -257,6 +410,13 @@ export function renderWorld(
 
   ctx.fillStyle = level.palette.grass;
   ctx.fillRect(0, 0, level.width, level.height);
+
+  // Subtle themed ground texture over the flat grass (one cached pattern fill).
+  const texture = texturePattern(ctx, level);
+  if (texture) {
+    ctx.fillStyle = texture;
+    ctx.fillRect(0, 0, level.width, level.height);
+  }
 
   strokeRoad(ctx, level);
   drawObstacles(ctx, level);

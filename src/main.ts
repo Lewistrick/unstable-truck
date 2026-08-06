@@ -23,6 +23,7 @@ import {
   type Medal,
   type MedalPars,
 } from "./game/medals.js";
+import { getTheme } from "./level/themes.js";
 import type { Level } from "./level/types.js";
 
 type Mode = "daily" | "weekly";
@@ -152,7 +153,7 @@ nicknameInput.addEventListener("change", () => {
 });
 
 function refreshViewedUi(): void {
-  viewedDateEl.textContent = `${describeOffset(mode, viewedOffset)} · ${viewed.seed}`;
+  viewedDateEl.textContent = `${describeOffset(mode, viewedOffset)} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
   viewedBestEl.textContent = viewed.personalBest ? `Best: ${formatTime(viewed.personalBest.time)}` : "Best: -";
 
   // Sharing the best time is offered only for today, and only once there's a

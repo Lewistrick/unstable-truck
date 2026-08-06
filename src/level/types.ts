@@ -1,3 +1,4 @@
+import type { ThemeId } from "./themes.js";
 import type { Vec2 } from "../util/vec2.js";
 
 export interface Hub {
@@ -68,6 +69,8 @@ export interface Level {
   /** "daily" is the standard small map; "weekly" is the larger map with
    * decorative houses and the on-screen guidance arrow. */
   kind: LevelKind;
+  /** Biome that drives the palette and ground texture (and, later, scenery). */
+  theme: ThemeId;
   width: number;
   height: number;
   hubs: Hub[];

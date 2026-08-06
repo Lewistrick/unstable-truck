@@ -13,6 +13,18 @@ What's implemented:
   few branching dead ends, 4-10 warehouses per level (one base marked `B`, one
   destination marked `D`, the rest pickups marked `W` that must all be visited
   before delivery), rock/mud obstacles, and a seeded color palette.
+- Biome themes: each level is deterministically assigned one of many biomes
+  (grassland, desert, town, city, moon, snow, beach, forest, farmland, autumn,
+  savanna, volcanic, swamp, candyland) from its seed. The theme biases the
+  seeded palette so the day reads as that biome (sandy desert, white snow, grey
+  moon…) while still varying within the biome, and paints a subtle repeating
+  ground texture (dunes, furrows, craters, city grid, speckle…). The texture is
+  drawn once to an offscreen tile and painted as a cached pattern, so it costs
+  no more than the flat grass fill. A few calendar dates get a fitting theme as
+  a seasonal easter egg (e.g. snow around Christmas). The chosen biome's name is
+  shown next to the date on the home screen. Themes only change appearance —
+  they never affect road/warehouse/obstacle placement, so per-seed leaderboards
+  stay comparable.
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
@@ -189,7 +201,8 @@ Close button, Escape, or by tapping the backdrop).
 ```
 src/                frontend (compiles to dist/, loaded by the browser)
   util/     seeded RNG, value noise, vector math
-  level/    procedural generation (roads, warehouses, obstacles, palette) + terrain queries
+  level/    procedural generation (roads, warehouses, obstacles, palette,
+            biome themes) + terrain queries
   physics/  truck and cargo simulation, shared fixed-timestep constant
   game/     input handling, canvas rendering, game session/state machine,
             API client, medal thresholds, localStorage (personal bests,

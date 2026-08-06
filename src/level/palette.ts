@@ -1,52 +1,41 @@
-import { type Rng, randInt, randRange } from "../util/rng.js";
+import { type Rng, randRange } from "../util/rng.js";
+import type { HslRange, Theme } from "./themes.js";
 import type { Palette } from "./types.js";
 
 const hsl = (h: number, s: number, l: number, a = 1): string =>
   a === 1 ? `hsl(${h.toFixed(0)} ${s.toFixed(0)}% ${l.toFixed(0)}%)` : `hsl(${h.toFixed(0)} ${s.toFixed(0)}% ${l.toFixed(0)}% / ${a})`;
 
-/** Daily palette: grass, road, rock, and mud each get an independently
- * seeded hue, so a day's theme can land anywhere on the color wheel (grass
- * might be blue or pink, not just green) while still respecting their
- * material's brightness: grass always stays light/pastel, road/rock/mud
- * always stay dark with just a clearly visible tint. Independent hues (
- * rather than one shared tint) keep obstacles reading as distinct from the
- * road even when the same day's palette leans toward one part of the wheel.
- * Warehouse colors stay fixed so their gameplay meaning is always readable. */
-export function generatePalette(rng: Rng): Palette {
-  const grassHue = randInt(rng, 0, 360);
-  const grassSat = randRange(rng, 15, 40);
-  const grassLight = randRange(rng, 75, 90);
+/** Samples one HSL channel triple from a theme's range. Hue ranges may wrap
+ * past 360 (min > max), so the hue is taken modulo 360. */
+function sample(rng: Rng, range: HslRange): { h: number; s: number; l: number } {
+  const [hMin, hMax] = range.h;
+  const h = randRange(rng, hMin, hMax < hMin ? hMax + 360 : hMax) % 360;
+  return { h, s: randRange(rng, range.s[0], range.s[1]), l: randRange(rng, range.l[0], range.l[1]) };
+}
 
-  const roadHue = randInt(rng, 0, 360);
-  const roadSat = randRange(rng, 12, 28);
-  const roadLight = randRange(rng, 28, 42);
-
-  const rockHue = randInt(rng, 0, 360);
-  const rockSat = randRange(rng, 12, 28);
-  const rockLight = randRange(rng, 22, 32);
-
-  const mudHue = randInt(rng, 0, 360);
-  const mudSat = randRange(rng, 20, 42);
-  const mudLight = randRange(rng, 24, 34);
-
-  // Decorative houses (weekly maps): a muted mid-tone so they read as neutral
-  // scenery, distinct from the light grass, the dark road, and the fixed
-  // primary-colored warehouses. Drawn last so grass/road/rock/mud keep the
-  // exact same seeded values they had before houses existed.
-  const houseHue = randInt(rng, 0, 360);
-  const houseSat = randRange(rng, 10, 22);
-  const houseLight = randRange(rng, 46, 60);
+/** Daily/weekly palette, biased by the level's theme. Each material (grass,
+ * road, rock, mud, house) samples an independent color within the theme's
+ * range, so every day within a biome still looks unique while reading as that
+ * biome. Warehouse colors stay fixed so their gameplay meaning is always
+ * readable. Sampled last in level generation, so tweaking this never shifts
+ * hub/road/warehouse/obstacle placement. */
+export function generatePalette(rng: Rng, theme: Theme): Palette {
+  const grass = sample(rng, theme.ground);
+  const road = sample(rng, theme.road);
+  const rock = sample(rng, theme.rock);
+  const mud = sample(rng, theme.mud);
+  const house = sample(rng, theme.house);
 
   return {
-    grass: hsl(grassHue, grassSat, grassLight),
-    grassAlt: hsl(grassHue, grassSat, grassLight - 6),
-    road: hsl(roadHue, roadSat, roadLight),
+    grass: hsl(grass.h, grass.s, grass.l),
+    grassAlt: hsl(grass.h, grass.s, Math.max(0, grass.l - 6)),
+    road: hsl(road.h, road.s, road.l),
     roadLine: "rgba(255, 255, 255, 0.55)",
     warehouseBase: hsl(212, 70, 45),
     warehousePickup: hsl(2, 72, 50),
     warehouseDestination: hsl(140, 55, 38),
-    rock: hsl(rockHue, rockSat, rockLight),
-    mud: hsl(mudHue, mudSat, mudLight),
-    house: hsl(houseHue, houseSat, houseLight),
+    rock: hsl(rock.h, rock.s, rock.l),
+    mud: hsl(mud.h, mud.s, mud.l),
+    house: hsl(house.h, house.s, house.l),
   };
 }
