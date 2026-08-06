@@ -119,31 +119,35 @@ const WAREHOUSE_COLOR: Record<string, PaletteColorKey> = {
 
 const WAREHOUSE_LABEL: Record<string, string> = { base: "B", pickup: "W", destination: "D" };
 
-const VISITED_OPACITY = 0.4;
-
 function drawWarehouses(
   ctx: CanvasRenderingContext2D,
   level: Level,
   visited: ReadonlySet<Warehouse>,
 ): void {
   for (const wh of level.warehouses) {
+    // Once collected, a pickup blends back into the scenery as a plain house
+    // (tan square, no label) so only the still-active objectives stand out.
     const isVisited = wh.kind === "pickup" && visited.has(wh);
 
     ctx.save();
-    ctx.globalAlpha = isVisited ? VISITED_OPACITY : 1;
     ctx.translate(wh.pos.x, wh.pos.y);
     ctx.rotate(wh.angle);
-    ctx.fillStyle = level.palette[WAREHOUSE_COLOR[wh.kind]!];
-    ctx.strokeStyle = "rgba(0,0,0,0.3)";
-    ctx.lineWidth = 2;
+    if (isVisited) {
+      ctx.fillStyle = level.palette.house;
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = 1.5;
+    } else {
+      ctx.fillStyle = level.palette[WAREHOUSE_COLOR[wh.kind]!];
+      ctx.strokeStyle = "rgba(0,0,0,0.3)";
+      ctx.lineWidth = 2;
+    }
     ctx.fillRect(-wh.width / 2, -wh.height / 2, wh.width, wh.height);
     ctx.strokeRect(-wh.width / 2, -wh.height / 2, wh.width, wh.height);
     ctx.restore();
 
-    const label = isVisited ? "✓" : WAREHOUSE_LABEL[wh.kind];
+    const label = isVisited ? undefined : WAREHOUSE_LABEL[wh.kind];
     if (label) {
       ctx.save();
-      ctx.globalAlpha = isVisited ? VISITED_OPACITY : 1;
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       ctx.font = "bold 16px system-ui, sans-serif";
       ctx.textAlign = "center";

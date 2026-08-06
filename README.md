@@ -12,7 +12,11 @@ What's implemented:
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
   few branching dead ends, 4-10 warehouses per level (one base marked `B`, one
   destination marked `D`, the rest pickups marked `W` that must all be visited
-  before delivery), rock/mud obstacles, and a seeded color palette.
+  before delivery), rock/mud obstacles, and a seeded color palette. A pickup is
+  collected when the truck actually overlaps the building (a rotated-rectangle
+  hitbox that accounts for each warehouse's size, rotation, and the truck's
+  radius, so collection matches what you see); once collected it turns into a
+  plain, unlabelled house that blends into the scenery.
 - Biome themes: each level is deterministically assigned one of many biomes
   (grassland, desert, town, city, moon, snow, beach, forest, farmland, autumn,
   savanna, volcanic, swamp, candyland) from its seed. The theme biases the

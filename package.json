@@ -10,7 +10,8 @@
     "build:server": "tsc -p server/tsconfig.json",
     "watch": "tsc --watch",
     "start": "node server/dist/index.js",
-    "serve": "python -m http.server 8123"
+    "serve": "python -m http.server 8123",
+    "test": "npm run build:client && node scripts/collision-check.mjs"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

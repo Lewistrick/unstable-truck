@@ -15,7 +15,9 @@ import type { Level, Warehouse } from "../level/types.js";
 
 export type GameStatus = "playing" | "success" | "fail";
 
-const PICKUP_DELIVER_RADIUS = 34;
+// A little forgiveness added to the truck's radius so grazing a building's edge
+// still counts as reaching it.
+const COLLECT_PAD = 4;
 const ROCK_IMPACT_STABILITY_HIT = 22;
 // Half the truck body length, used as the hitch point the first cargo box
 // trails behind.
@@ -25,6 +27,25 @@ function findWarehouse(level: Level, kind: Warehouse["kind"]): Warehouse {
   const wh = level.warehouses.find((w) => w.kind === kind);
   if (!wh) throw new Error(`Level is missing a "${kind}" warehouse`);
   return wh;
+}
+
+/** True when the truck's collision circle overlaps a warehouse's drawn
+ * (rotated) rectangle - the pickup/delivery trigger. Because it uses each
+ * building's real size, rotation, and the truck's radius, collection lines up
+ * with visibly touching the building rather than a fixed circle around its
+ * center. */
+export function truckTouchesWarehouse(truck: TruckState, wh: Warehouse): boolean {
+  // Truck center expressed in the warehouse's local (unrotated) frame.
+  const dx = truck.pos.x - wh.pos.x;
+  const dy = truck.pos.y - wh.pos.y;
+  const cos = Math.cos(wh.angle);
+  const sin = Math.sin(wh.angle);
+  const lx = dx * cos + dy * sin;
+  const ly = -dx * sin + dy * cos;
+  // Nearest point on the rectangle to the truck center, then a circle test.
+  const nx = Math.max(-wh.width / 2, Math.min(wh.width / 2, lx));
+  const ny = Math.max(-wh.height / 2, Math.min(wh.height / 2, ly));
+  return Math.hypot(lx - nx, ly - ny) <= truck.radius + COLLECT_PAD;
 }
 
 /** Owns one playthrough's mutable state (truck, cargo, objective progress,
@@ -124,7 +145,7 @@ export class GameSession {
     }
 
     for (const wh of this.pickups) {
-      if (!this.visited.has(wh) && distance(this.truck.pos, wh.pos) < PICKUP_DELIVER_RADIUS) {
+      if (!this.visited.has(wh) && truckTouchesWarehouse(this.truck, wh)) {
         this.visited.add(wh);
         this.loadPickup();
       }
@@ -144,7 +165,7 @@ export class GameSession {
       this.status = "fail";
       return;
     }
-    if (this.allPickedUp && distance(this.truck.pos, this.destination.pos) < PICKUP_DELIVER_RADIUS) {
+    if (this.allPickedUp && truckTouchesWarehouse(this.truck, this.destination)) {
       this.status = "success";
     }
   }
