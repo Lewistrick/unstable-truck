@@ -29,15 +29,20 @@ What's implemented:
   change appearance —
   they never affect road/warehouse/obstacle placement, so per-seed leaderboards
   stay comparable.
-- Biome scenery: themes scatter small, decorative, no-collision props across the
-  map (grassland cows and shrubs, desert cacti and dead bushes, snow penguins
-  and snowy pines, forest pines and mushrooms so far; more biomes to come). Like
-  the houses, props are purely visual — they never affect physics or the
-  leaderboard. Positions are precomputed deterministically from the seed (via an
-  independent rng stream) so they're replay-stable, and placed clear of roads,
-  warehouses, and obstacles so nothing sits on the drivable path. They're drawn
-  as small code-authored vector sprites, culled to the visible viewport so even
-  a dense weekly map only draws what's on screen.
+- Biome scenery: every theme scatters small, decorative, no-collision props that
+  suit its biome — grassland cows/shrubs, desert cacti/tumbleweeds, town
+  trees/cyclists, city buildings/cars, moon astronauts/flags, snow
+  penguins/pines, beach palms/umbrellas, forest pines/mushrooms, farmland
+  haybales/scarecrows, autumn bare-trees/pumpkins, savanna acacias/grass tufts,
+  volcanic charred-trees/smoke-vents, swamp reeds/lily-pads, candy
+  lollipops/candy-canes, plus the seasonal Easter eggs/bunnies and New Year's
+  fireworks/balloons. Like the houses, props are purely visual — they never
+  affect physics or the leaderboard. Positions are precomputed deterministically
+  from the seed (via an independent rng stream) so they're replay-stable, and
+  placed clear of roads, warehouses, and obstacles so nothing sits on the
+  drivable path. They're drawn as small code-authored vector sprites (trees
+  scaled up as landmarks), culled to the visible viewport so even a dense weekly
+  map only draws what's on screen.
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely

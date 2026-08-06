@@ -104,6 +104,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([210, 230], [6, 12], [26, 34]),
     mud: band([28, 42], [24, 38], [30, 40]),
     house: band([8, 30], [24, 40], [50, 64]),
+    props: [
+      { kind: "tree", weight: 2, minScale: 4.5, maxScale: 6.5 },
+      { kind: "cyclist", weight: 1, minScale: 1.8, maxScale: 2.4 },
+    ],
   },
   city: {
     id: "city",
@@ -114,6 +118,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([220, 240], [5, 12], [22, 30]),
     mud: band([30, 45], [18, 30], [30, 40]),
     house: band([205, 235], [10, 20], [46, 60]),
+    props: [
+      { kind: "building", weight: 2, minScale: 2.2, maxScale: 3.2 },
+      { kind: "car", weight: 2, minScale: 1.8, maxScale: 2.6 },
+    ],
   },
   moon: {
     id: "moon",
@@ -124,6 +132,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([220, 240], [2, 8], [30, 40]),
     mud: band([220, 240], [2, 6], [34, 44]),
     house: band([220, 240], [3, 8], [48, 60]),
+    props: [
+      { kind: "astronaut", weight: 1, minScale: 1.8, maxScale: 2.4 },
+      { kind: "flag", weight: 2, minScale: 1.8, maxScale: 2.6 },
+    ],
   },
   snow: {
     id: "snow",
@@ -148,6 +160,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([30, 46], [24, 40], [50, 62]),
     mud: band([38, 50], [30, 46], [40, 50]),
     house: band([30, 46], [30, 46], [60, 72]),
+    props: [
+      { kind: "palm", weight: 1, minScale: 4, maxScale: 6 },
+      { kind: "umbrella", weight: 2, minScale: 2, maxScale: 3 },
+    ],
   },
   forest: {
     id: "forest",
@@ -172,6 +188,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([70, 100], [10, 18], [24, 32]),
     mud: band([28, 42], [36, 52], [28, 36]),
     house: band([8, 28], [30, 46], [50, 62]),
+    props: [
+      { kind: "haybale", weight: 2, minScale: 2, maxScale: 3 },
+      { kind: "scarecrow", weight: 1, minScale: 2, maxScale: 2.8 },
+    ],
   },
   autumn: {
     id: "autumn",
@@ -182,6 +202,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([18, 34], [26, 42], [34, 44]),
     mud: band([20, 36], [36, 52], [28, 36]),
     house: band([10, 30], [34, 50], [48, 60]),
+    props: [
+      { kind: "baretree", weight: 2, minScale: 4.5, maxScale: 6.5 },
+      { kind: "pumpkin", weight: 2, minScale: 1.8, maxScale: 2.6 },
+    ],
   },
   savanna: {
     id: "savanna",
@@ -192,6 +216,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([28, 44], [26, 42], [40, 50]),
     mud: band([30, 44], [34, 50], [34, 44]),
     house: band([28, 44], [30, 46], [52, 64]),
+    props: [
+      { kind: "acacia", weight: 1, minScale: 4.5, maxScale: 6.5 },
+      { kind: "grasstuft", weight: 3, minScale: 1.6, maxScale: 2.6 },
+    ],
   },
   volcanic: {
     id: "volcanic",
@@ -202,6 +230,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([10, 26], [14, 26], [22, 30]),
     mud: band([0, 16], [50, 68], [36, 46]),
     house: band([10, 26], [16, 28], [40, 52]),
+    props: [
+      { kind: "charredtree", weight: 1, minScale: 4.5, maxScale: 6.5 },
+      { kind: "smokevent", weight: 2, minScale: 1.8, maxScale: 2.6 },
+    ],
   },
   swamp: {
     id: "swamp",
@@ -212,6 +244,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([74, 104], [10, 18], [22, 30]),
     mud: band([60, 90], [30, 46], [26, 34]),
     house: band([40, 70], [20, 34], [42, 54]),
+    props: [
+      { kind: "reeds", weight: 2, minScale: 2, maxScale: 3 },
+      { kind: "lilypad", weight: 2, minScale: 1.8, maxScale: 2.8 },
+    ],
   },
   candy: {
     id: "candy",
@@ -222,6 +258,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([190, 240], [24, 40], [56, 68]),
     mud: band([330, 366], [36, 52], [64, 74]),
     house: band([320, 350], [40, 56], [66, 78]),
+    props: [
+      { kind: "lollipop", weight: 2, minScale: 2, maxScale: 3 },
+      { kind: "candycane", weight: 2, minScale: 2, maxScale: 3 },
+    ],
   },
   // --- Seasonal-only (holiday overrides, excluded from the random pool) -----
   easter: {
@@ -234,6 +274,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([80, 140], [10, 18], [26, 34]),
     mud: band([28, 42], [30, 44], [30, 38]),
     house: band([300, 340], [35, 50], [70, 80]),
+    props: [
+      { kind: "egg", weight: 2, minScale: 1.8, maxScale: 2.6 },
+      { kind: "bunny", weight: 1, minScale: 2, maxScale: 2.6 },
+    ],
   },
   newyear: {
     id: "newyear",
@@ -245,6 +289,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([225, 245], [10, 20], [34, 44]),
     mud: band([265, 290], [28, 44], [38, 48]),
     house: band([45, 55], [75, 90], [58, 68]),
+    props: [
+      { kind: "firework", weight: 2, minScale: 3, maxScale: 4.5 },
+      { kind: "balloon", weight: 2, minScale: 2, maxScale: 3 },
+    ],
   },
 };
 

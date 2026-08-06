@@ -425,6 +425,10 @@ function triangle(ctx: CanvasRenderingContext2D, cx: number, apexY: number, half
 
 const SHRUB_FLOWERS = ["#e85d75", "#f2c14e", "#6fb1e0", "#f4f1ea"];
 const MUSHROOM_CAPS = ["#d64545", "#e0873c", "#b0553a", "#c94f8a"];
+const CAR_COLORS = ["#c0392b", "#2980b9", "#f1c40f", "#7f8c8d"];
+const CANDY_COLORS = ["#e8503a", "#f2c14e", "#6fb1e0", "#e88bb0"];
+const EGG_COLORS = ["#e88bb0", "#6fb1e0", "#f2c14e", "#8fd18f"];
+const FESTIVE_COLORS = ["#f2c14e", "#e8503a", "#6fb1e0", "#8fd18f"];
 
 /** Draws one prop in local space (already translated/scaled by the caller). */
 function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number): void {
@@ -536,8 +540,9 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
     }
     case "pine":
     case "snowpine": {
+      // Trunk starts above the foliage base (y = 3) so it connects, not floats.
       ctx.fillStyle = "#6b4a2f";
-      ctx.fillRect(-1.5, 5, 3, 4);
+      ctx.fillRect(-1.5, 2, 3, 7);
       ctx.fillStyle = kind === "snowpine" ? "#2f6d43" : "#2e6b3f";
       triangle(ctx, 0, -9, 6, 7);
       triangle(ctx, 0, -4, 8, 7);
@@ -563,6 +568,486 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
       ctx.arc(-2.5, -4, 1, 0, TAU);
       ctx.arc(2.5, -3, 1, 0, TAU);
       ctx.arc(0, -6, 1, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "tree": {
+      ctx.fillStyle = "#6b4a2f";
+      ctx.fillRect(-1.5, 2, 3, 7);
+      ctx.fillStyle = "#3f8f4e";
+      ctx.beginPath();
+      ctx.arc(0, -3, 7, 0, TAU);
+      ctx.arc(-4, 0, 5, 0, TAU);
+      ctx.arc(4, 0, 5, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "cyclist": {
+      ctx.strokeStyle = "#33373d";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(-4, 6, 3, 0, TAU);
+      ctx.moveTo(7, 6);
+      ctx.arc(4, 6, 3, 0, TAU);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-4, 6);
+      ctx.lineTo(0, 6);
+      ctx.lineTo(-1, 1);
+      ctx.lineTo(-4, 6);
+      ctx.moveTo(0, 6);
+      ctx.lineTo(3, 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#c23b3b";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-1, 1);
+      ctx.lineTo(1, -2);
+      ctx.lineTo(3, 2);
+      ctx.stroke();
+      ctx.fillStyle = "#e0b48c";
+      ctx.beginPath();
+      ctx.arc(1, -4, 1.6, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "car": {
+      ctx.fillStyle = CAR_COLORS[variant % CAR_COLORS.length]!;
+      roundedRect(ctx, -8, -1, 16, 6, 2);
+      ctx.fill();
+      roundedRect(ctx, -4.5, -5, 9, 5, 2);
+      ctx.fill();
+      ctx.fillStyle = "#bcd7e6";
+      roundedRect(ctx, -3, -4, 6, 3, 1);
+      ctx.fill();
+      ctx.fillStyle = "#26292e";
+      ctx.beginPath();
+      ctx.arc(-4.5, 5, 2, 0, TAU);
+      ctx.arc(4.5, 5, 2, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "building": {
+      const height = 14 + (variant % 3) * 5;
+      const top = 9 - height;
+      ctx.fillStyle = "#7a8494";
+      ctx.fillRect(-6, top, 12, height);
+      ctx.fillStyle = "#5f6875";
+      ctx.fillRect(-6, top, 12, 2);
+      ctx.fillStyle = "rgba(255, 236, 180, 0.85)";
+      for (let wy = top + 3; wy < 7; wy += 4) {
+        for (let wx = -4; wx <= 3; wx += 3.5) {
+          if ((wx + wy) % 2 < 1.2) ctx.fillRect(wx, wy, 1.8, 2);
+        }
+      }
+      break;
+    }
+    case "astronaut": {
+      ctx.fillStyle = "#eef1f4";
+      roundedRect(ctx, -4, -4, 8, 12, 3);
+      ctx.fill();
+      ctx.fillRect(-3.5, 8, 2.5, 2);
+      ctx.fillRect(1, 8, 2.5, 2);
+      ctx.beginPath();
+      ctx.arc(0, -6, 4, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#3a4a63";
+      ctx.beginPath();
+      ctx.arc(0, -6, 2.6, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "flag": {
+      ctx.strokeStyle = "#c9ccd2";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -9);
+      ctx.stroke();
+      ctx.fillStyle = "#c0392b";
+      ctx.beginPath();
+      ctx.moveTo(0, -9);
+      ctx.lineTo(8, -7);
+      ctx.lineTo(0, -4);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case "palm": {
+      ctx.strokeStyle = "#8a6a44";
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.quadraticCurveTo(-2, 0, 1, -6);
+      ctx.stroke();
+      ctx.strokeStyle = "#3f9e57";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 5; i++) {
+        const ang = -Math.PI / 2 + (i - 2) * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(1, -6);
+        ctx.quadraticCurveTo(1 + Math.cos(ang) * 5, -6 + Math.sin(ang) * 5, 1 + Math.cos(ang) * 10, -4 + Math.sin(ang) * 10);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#5a3a24";
+      ctx.beginPath();
+      ctx.arc(1, -5, 1.3, 0, TAU);
+      ctx.arc(-1.4, -5, 1.3, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "umbrella": {
+      ctx.strokeStyle = "#8a8a8a";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -4);
+      ctx.stroke();
+      ctx.fillStyle = "#e8503a";
+      ctx.beginPath();
+      ctx.moveTo(-8, -4);
+      ctx.quadraticCurveTo(0, -13, 8, -4);
+      ctx.quadraticCurveTo(4, -2, 2, -4);
+      ctx.quadraticCurveTo(0, -2, -2, -4);
+      ctx.quadraticCurveTo(-4, -2, -8, -4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.beginPath();
+      ctx.moveTo(-4, -5.5);
+      ctx.quadraticCurveTo(-2, -9, 0, -10.5);
+      ctx.quadraticCurveTo(-1, -6.5, -1.5, -4.3);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case "haybale": {
+      ctx.fillStyle = "#d8b45a";
+      roundedRect(ctx, -8, -2, 16, 11, 5);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(120, 90, 30, 0.5)";
+      ctx.lineWidth = 0.8;
+      for (const rx of [8, 5, 2.4]) {
+        ctx.beginPath();
+        ctx.ellipse(0, 3.5, rx, 6, 0, 0, TAU);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "scarecrow": {
+      ctx.strokeStyle = "#8a6a44";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -6);
+      ctx.moveTo(-6, -1);
+      ctx.lineTo(6, -1);
+      ctx.stroke();
+      ctx.fillStyle = "#7ea04a";
+      roundedRect(ctx, -4, -4, 8, 8, 2);
+      ctx.fill();
+      ctx.fillStyle = "#d9b46a";
+      ctx.beginPath();
+      ctx.arc(0, -7, 3, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#8a5a2a";
+      ctx.beginPath();
+      ctx.moveTo(-4, -8);
+      ctx.lineTo(4, -8);
+      ctx.lineTo(2, -12);
+      ctx.lineTo(-2, -12);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case "pumpkin": {
+      ctx.fillStyle = "#e07b28";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 7, 5.5, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "rgba(150, 80, 20, 0.4)";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 2.5, 5.3, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = "#5a7a2a";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(0, -1);
+      ctx.lineTo(0, -4);
+      ctx.stroke();
+      break;
+    }
+    case "grasstuft": {
+      ctx.strokeStyle = "#7ea04a";
+      ctx.lineWidth = 1.2;
+      ctx.lineCap = "round";
+      for (let i = -3; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * 1.2, 9);
+        ctx.quadraticCurveTo(i * 1.6, 3, i * 2.2, -2 + Math.abs(i));
+        ctx.stroke();
+      }
+      break;
+    }
+    case "smokevent": {
+      ctx.fillStyle = "#4a423f";
+      ctx.beginPath();
+      ctx.moveTo(-5, 9);
+      ctx.lineTo(5, 9);
+      ctx.lineTo(2, 2);
+      ctx.lineTo(-2, 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(230, 90, 40, 0.6)";
+      ctx.beginPath();
+      ctx.ellipse(0, 2.2, 2, 1, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "rgba(160, 160, 165, 0.45)";
+      ctx.beginPath();
+      ctx.arc(0, -1, 3, 0, TAU);
+      ctx.arc(2, -5, 2.4, 0, TAU);
+      ctx.arc(-1, -8, 2, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "reeds": {
+      const stalks: Array<[number, number]> = [
+        [-3, 0],
+        [0, 1],
+        [3, 0.5],
+      ];
+      for (const [x, ph] of stalks) {
+        ctx.strokeStyle = "#5f7d3a";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x, 9);
+        ctx.lineTo(x, -6 + ph);
+        ctx.stroke();
+        ctx.fillStyle = "#7a5230";
+        roundedRect(ctx, x - 1, -9 + ph, 2, 4, 1);
+        ctx.fill();
+      }
+      break;
+    }
+    case "lilypad": {
+      ctx.fillStyle = "#3f8f4e";
+      ctx.beginPath();
+      ctx.arc(0, 7, 6, 0.5, TAU - 0.5);
+      ctx.lineTo(0, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#e88bb0";
+      ctx.beginPath();
+      ctx.arc(-1, 6, 1.6, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "lollipop": {
+      ctx.strokeStyle = "#e8e2d6";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -2);
+      ctx.stroke();
+      ctx.fillStyle = CANDY_COLORS[variant % CANDY_COLORS.length]!;
+      ctx.beginPath();
+      ctx.arc(0, -5, 4.5, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let a = 0; a < TAU * 2; a += 0.3) {
+        const r = (a / (TAU * 2)) * 4.2;
+        const x = Math.cos(a) * r;
+        const y = -5 + Math.sin(a) * r;
+        if (a === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      break;
+    }
+    case "candycane": {
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#e8503a";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(2, 9);
+      ctx.lineTo(2, -4);
+      ctx.quadraticCurveTo(2, -9, -2, -8);
+      ctx.stroke();
+      ctx.strokeStyle = "#f4f1ea";
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(2, 9);
+      ctx.lineTo(2, -4);
+      ctx.quadraticCurveTo(2, -9, -2, -8);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      break;
+    }
+    case "egg": {
+      ctx.fillStyle = EGG_COLORS[variant % EGG_COLORS.length]!;
+      ctx.beginPath();
+      ctx.ellipse(0, 3, 4.5, 6, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = "#f4f1ea";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-4.2, 2);
+      ctx.lineTo(-2, 4);
+      ctx.lineTo(0, 2);
+      ctx.lineTo(2, 4);
+      ctx.lineTo(4.2, 2);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.beginPath();
+      ctx.arc(-1, -1, 0.8, 0, TAU);
+      ctx.arc(2, 0, 0.8, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "bunny": {
+      ctx.fillStyle = "#f0ece4";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 4.5, 5, 0, 0, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, -2, 3.2, 0, TAU);
+      ctx.fill();
+      roundedRect(ctx, -2.6, -11, 1.8, 7, 0.9);
+      ctx.fill();
+      roundedRect(ctx, 0.8, -11, 1.8, 7, 0.9);
+      ctx.fill();
+      ctx.fillStyle = "#e8b3c0";
+      roundedRect(ctx, -2.1, -10, 0.8, 5, 0.4);
+      ctx.fill();
+      roundedRect(ctx, 1.3, -10, 0.8, 5, 0.4);
+      ctx.fill();
+      ctx.fillStyle = "#4a423d";
+      ctx.beginPath();
+      ctx.arc(-1, -2, 0.6, 0, TAU);
+      ctx.arc(1, -2, 0.6, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#e8879c";
+      ctx.beginPath();
+      ctx.arc(0, -0.5, 0.7, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "firework": {
+      const color = FESTIVE_COLORS[variant % FESTIVE_COLORS.length]!;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -2);
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1.4;
+      ctx.lineCap = "round";
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * TAU;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * 2, -6 + Math.sin(a) * 2);
+        ctx.lineTo(Math.cos(a) * 7, -6 + Math.sin(a) * 7);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * 7.5, -6 + Math.sin(a) * 7.5, 0.9, 0, TAU);
+        ctx.fill();
+      }
+      break;
+    }
+    case "balloon": {
+      ctx.fillStyle = FESTIVE_COLORS[variant % FESTIVE_COLORS.length]!;
+      ctx.beginPath();
+      ctx.ellipse(0, -4, 4, 5, 0, 0, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-1, 1);
+      ctx.lineTo(1, 1);
+      ctx.lineTo(0, 2.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(120, 120, 120, 0.7)";
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(0, 2.5);
+      ctx.quadraticCurveTo(2, 6, 0, 9);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.beginPath();
+      ctx.ellipse(-1.3, -6, 1, 1.6, 0, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "baretree": {
+      ctx.strokeStyle = "#6b4a2f";
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -2);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-4, -5);
+      ctx.moveTo(0, -2);
+      ctx.lineTo(4, -6);
+      ctx.moveTo(0, 2);
+      ctx.lineTo(-5, -1);
+      ctx.stroke();
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-4, -5);
+      ctx.lineTo(-6, -8);
+      ctx.moveTo(4, -6);
+      ctx.lineTo(6, -9);
+      ctx.moveTo(0, -2);
+      ctx.lineTo(1, -8);
+      ctx.stroke();
+      ctx.fillStyle = "#d9822b";
+      for (const [x, y] of [[-6, -8], [6, -9], [1, -8], [-5, -1]] as Array<[number, number]>) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.4, 0, TAU);
+        ctx.fill();
+      }
+      break;
+    }
+    case "acacia": {
+      ctx.fillStyle = "#6b4a2f";
+      ctx.fillRect(-1.3, -1, 2.6, 10);
+      ctx.strokeStyle = "#6b4a2f";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -1);
+      ctx.lineTo(-5, -4);
+      ctx.moveTo(0, -1);
+      ctx.lineTo(5, -4);
+      ctx.stroke();
+      ctx.fillStyle = "#5a8f3c";
+      ctx.beginPath();
+      ctx.ellipse(0, -6, 10, 3.5, 0, 0, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, -8, 7, 2.5, 0, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "charredtree": {
+      ctx.strokeStyle = "#2e2724";
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -4);
+      ctx.moveTo(0, -1);
+      ctx.lineTo(-4, -6);
+      ctx.moveTo(0, -3);
+      ctx.lineTo(4, -7);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(230, 90, 40, 0.5)";
+      ctx.beginPath();
+      ctx.arc(0, 8, 3, 0, TAU);
       ctx.fill();
       break;
     }
