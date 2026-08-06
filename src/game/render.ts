@@ -424,11 +424,11 @@ function triangle(ctx: CanvasRenderingContext2D, cx: number, apexY: number, half
   ctx.fill();
 }
 
-/** Recursive fractal branch: draws a segment, then spawns children that start
- * anywhere along it (not just the tip), until `depth` reaches `maxDepth`. The
- * trunk (depth 0) forks into 2-5 branches, deeper levels into 0-3. Each child
- * is 0.8x the length and 0.5x the width of its parent. Shared by the bare and
- * charred trees - only the stroke color differs between those biomes. */
+/** Recursive fractal branch drawn as a tapered rectangle (broad base, thinner
+ * top). Children start in the top 25% of their parent and veer 20-50 degrees to
+ * either side; each is 0.9x the length and 0.5x the width of its parent, down to
+ * `maxDepth`. The trunk (depth 0) forks 2-5 ways, deeper levels 0-3. Shared by
+ * the bare and charred trees - only the fill color differs between those biomes. */
 function drawTreeBranch(
   ctx: CanvasRenderingContext2D,
   rng: Rng,
@@ -440,20 +440,35 @@ function drawTreeBranch(
   depth: number,
   maxDepth: number,
 ): void {
-  const ex = x + Math.cos(angle) * length;
-  const ey = y + Math.sin(angle) * length;
-  ctx.lineWidth = Math.max(0.5, width);
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const ex = x + dx * length;
+  const ey = y + dy * length;
+  const baseHalf = Math.max(0.4, width) / 2;
+  const topHalf = Math.max(0.3, width * 0.5) / 2;
+  const nx = -dy; // unit normal to the branch
+  const ny = dx;
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(ex, ey);
-  ctx.stroke();
+  ctx.moveTo(x + nx * baseHalf, y + ny * baseHalf);
+  ctx.lineTo(ex + nx * topHalf, ey + ny * topHalf);
+  ctx.lineTo(ex - nx * topHalf, ey - ny * topHalf);
+  ctx.lineTo(x - nx * baseHalf, y - ny * baseHalf);
+  ctx.closePath();
+  ctx.fill();
+  // Round the joint so angled children connect smoothly.
+  ctx.beginPath();
+  ctx.arc(x, y, baseHalf, 0, TAU);
+  ctx.fill();
+
   if (depth >= maxDepth) return;
   const children = depth === 0 ? randInt(rng, 2, 5) : randInt(rng, 0, 3);
   for (let i = 0; i < children; i++) {
-    const t = randRange(rng, 0, 1); // sub-branch starts anywhere along this branch
-    const sx = x + Math.cos(angle) * length * t;
-    const sy = y + Math.sin(angle) * length * t;
-    drawTreeBranch(ctx, rng, sx, sy, angle + randRange(rng, -0.9, 0.9), length * 0.8, width * 0.5, depth + 1, maxDepth);
+    const t = randRange(rng, 0.75, 1); // start in the top 25% of this branch
+    const sx = x + dx * length * t;
+    const sy = y + dy * length * t;
+    const deviation = (randRange(rng, 20, 50) * Math.PI) / 180; // 20-50 deg, either side
+    const childAngle = angle + (rng() < 0.5 ? -deviation : deviation);
+    drawTreeBranch(ctx, rng, sx, sy, childAngle, length * 0.9, width * 0.5, depth + 1, maxDepth);
   }
 }
 
@@ -1131,8 +1146,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "baretree": {
-      ctx.strokeStyle = "#6b4a2f";
-      ctx.lineCap = "round";
+      ctx.fillStyle = "#6b4a2f";
       drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 5);
       break;
     }
@@ -1158,8 +1172,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
     }
     case "charredtree": {
       // Same recursive tree as the autumn bare tree, only darker.
-      ctx.strokeStyle = "#2e2724";
-      ctx.lineCap = "round";
+      ctx.fillStyle = "#2e2724";
       drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 5);
       break;
     }
