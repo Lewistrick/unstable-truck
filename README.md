@@ -227,6 +227,8 @@ src/                frontend (compiles to dist/, loaded by the browser)
   game/     input handling, canvas rendering, game session/state machine,
             API client, medal thresholds, localStorage (personal bests,
             nickname, completion history)
+    props/  one file per scenery sprite (cow, palm, tractor, windmill, …),
+            with shared drawing helpers and a kind->drawer registry (index.ts)
   main.ts   DOM wiring and the render loop
 
 server/             backend (own tsconfig, compiles to server/dist/)

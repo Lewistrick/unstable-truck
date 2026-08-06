@@ -1,4 +1,4 @@
-import { randInt, randRange, type Rng } from "../util/rng.js";
+import { randInt, randRange, type Rng } from "../../util/rng.js";
 
 // Palm tree, drawn in local space with its base at y = 9 (the ground/shadow
 // line), growing upward. Its crown is built from filled, tapered leaf blades

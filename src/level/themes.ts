@@ -194,7 +194,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       { kind: "haybale", weight: 2, minScale: 1, maxScale: 1.5 },
       { kind: "scarecrow", weight: 1, minScale: 2, maxScale: 2.8 },
       { kind: "windmill", weight: 1, minScale: 3.5, maxScale: 5 },
-      { kind: "tractor", weight: 1, minScale: 2, maxScale: 2.8 },
+      { kind: "tractor", weight: 1, minScale: 4, maxScale: 5.6 },
     ],
   },
   autumn: {
