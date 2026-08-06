@@ -1,23 +1,23 @@
-import { distance } from "../util/vec2.js";
-import {
-  applyImpactStabilityHit,
-  CARGO_GAP,
-  CARGO_MAX_FILL,
-  CARGO_UNIT_LENGTH,
-  createCargo,
-  updateCargo,
-  type CargoLeader,
-  type CargoState,
-} from "../physics/cargo.js";
-import { createTruck, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
 import { sampleTerrain } from "../level/terrain.js";
 import type { Level, Warehouse } from "../level/types.js";
+import {
+    applyImpactStabilityHit,
+    CARGO_GAP,
+    CARGO_MAX_FILL,
+    CARGO_UNIT_LENGTH,
+    createCargo,
+    updateCargo,
+    type CargoLeader,
+    type CargoState,
+} from "../physics/cargo.js";
+import { createTruck, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
+import { distance } from "../util/vec2.js";
 
 export type GameStatus = "playing" | "success" | "fail";
 
 // A little forgiveness added to the truck's radius so grazing a building's edge
 // still counts as reaching it.
-const COLLECT_PAD = 4;
+const COLLECT_PAD = 2;
 const ROCK_IMPACT_STABILITY_HIT = 22;
 // Half the truck body length, used as the hitch point the first cargo box
 // trails behind.

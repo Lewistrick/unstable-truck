@@ -4,6 +4,7 @@ import { drawAstronaut } from "./astronaut.js";
 import { drawBalloon } from "./balloon.js";
 import { drawBaretree } from "./baretree.js";
 import { drawBeachball } from "./beachball.js";
+import { drawBench } from "./bench.js";
 import { drawBuilding } from "./building.js";
 import { drawBunny } from "./bunny.js";
 import { drawCactus } from "./cactus.js";
@@ -11,6 +12,7 @@ import { drawCandycane } from "./candycane.js";
 import { drawCar } from "./car.js";
 import { drawCharredtree } from "./charredtree.js";
 import { drawCow } from "./cow.js";
+import { drawCrater } from "./crater.js";
 import { drawCyclist } from "./cyclist.js";
 import { drawDeadbush } from "./deadbush.js";
 import { drawDeer } from "./deer.js";
@@ -18,9 +20,12 @@ import { drawEgg } from "./egg.js";
 import { drawFirework } from "./firework.js";
 import { drawFlag } from "./flag.js";
 import { drawFog } from "./fog.js";
+import { drawFrog } from "./frog.js";
+import { drawFrozenlake } from "./frozenlake.js";
 import { drawGrasstuft } from "./grasstuft.js";
 import { drawGumdrop } from "./gumdrop.js";
 import { drawHaybale } from "./haybale.js";
+import { drawHouse } from "./house.js";
 import { drawLavacrack } from "./lavacrack.js";
 import { drawLeaves } from "./leaves.js";
 import { drawLilypad } from "./lilypad.js";
@@ -37,6 +42,7 @@ import { drawScarecrow } from "./scarecrow.js";
 import type { PropDrawer } from "./shared.js";
 import { drawShrub } from "./shrub.js";
 import { drawSnowpine } from "./snowpine.js";
+import { drawTermitemound } from "./termitemound.js";
 import { drawTractor } from "./tractor.js";
 import { drawTrafficlight } from "./trafficlight.js";
 import { drawTree } from "./tree.js";
@@ -51,6 +57,7 @@ const DRAWERS: Record<string, PropDrawer> = {
   balloon: drawBalloon,
   baretree: drawBaretree,
   beachball: drawBeachball,
+  bench: drawBench,
   building: drawBuilding,
   bunny: drawBunny,
   cactus: drawCactus,
@@ -58,6 +65,7 @@ const DRAWERS: Record<string, PropDrawer> = {
   car: drawCar,
   charredtree: drawCharredtree,
   cow: drawCow,
+  crater: drawCrater,
   cyclist: drawCyclist,
   deadbush: drawDeadbush,
   deer: drawDeer,
@@ -65,9 +73,12 @@ const DRAWERS: Record<string, PropDrawer> = {
   firework: drawFirework,
   flag: drawFlag,
   fog: drawFog,
+  frog: drawFrog,
+  frozenlake: drawFrozenlake,
   grasstuft: drawGrasstuft,
   gumdrop: drawGumdrop,
   haybale: drawHaybale,
+  house: drawHouse,
   lavacrack: drawLavacrack,
   leaves: drawLeaves,
   lilypad: drawLilypad,
@@ -83,6 +94,7 @@ const DRAWERS: Record<string, PropDrawer> = {
   scarecrow: drawScarecrow,
   shrub: drawShrub,
   snowpine: drawSnowpine,
+  termitemound: drawTermitemound,
   tractor: drawTractor,
   trafficlight: drawTrafficlight,
   tree: drawTree,

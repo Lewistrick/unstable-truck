@@ -415,7 +415,7 @@ interface Bounds {
 }
 
 // Flat, ground-hugging props that shouldn't get the standing-prop drop shadow.
-const SHADOWLESS = new Set(["fog", "lavacrack", "lilypad", "leaves"]);
+const SHADOWLESS = new Set(["fog", "lavacrack", "lilypad", "leaves", "crater", "frozenlake"]);
 
 /** Draws the level's scenery, skipping anything outside the visible bounds. */
 function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {

@@ -106,7 +106,9 @@ export const THEMES: Record<ThemeId, Theme> = {
     house: band([8, 30], [24, 40], [50, 64]),
     props: [
       { kind: "tree", weight: 2, minScale: 4.5, maxScale: 6.5 },
-      { kind: "cyclist", weight: 1, minScale: 1.8, maxScale: 2.4 },
+      { kind: "house", weight: 2, minScale: 2.5, maxScale: 3.5 },
+      { kind: "cyclist", weight: 1, minScale: 3.6, maxScale: 4.8 },
+      { kind: "bench", weight: 1, minScale: 2, maxScale: 2.8 },
     ],
   },
   city: {
@@ -136,6 +138,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "astronaut", weight: 1, minScale: 1.8, maxScale: 2.4 },
       { kind: "flag", weight: 2, minScale: 1.8, maxScale: 2.6 },
+      { kind: "crater", weight: 2, minScale: 1.5, maxScale: 2.5 },
     ],
   },
   snow: {
@@ -150,6 +153,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "penguin", weight: 1, minScale: 1.8, maxScale: 2.4 },
       { kind: "snowpine", weight: 2, minScale: 4.5, maxScale: 7 },
+      { kind: "frozenlake", weight: 1, minScale: 2.5, maxScale: 4 },
     ],
   },
   beach: {
@@ -226,6 +230,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "acacia", weight: 1, minScale: 4.5, maxScale: 6.5 },
       { kind: "grasstuft", weight: 3, minScale: 1.6, maxScale: 2.6 },
+      { kind: "termitemound", weight: 1, minScale: 1.8, maxScale: 2.8 },
     ],
   },
   volcanic: {
@@ -256,6 +261,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       { kind: "reeds", weight: 2, minScale: 2, maxScale: 3 },
       { kind: "lilypad", weight: 2, minScale: 1.8, maxScale: 2.8 },
       { kind: "fog", weight: 1, minScale: 2.5, maxScale: 4 },
+      { kind: "frog", weight: 2, minScale: 1.5, maxScale: 2.2 },
     ],
   },
   candy: {
