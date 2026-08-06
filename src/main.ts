@@ -405,6 +405,34 @@ navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
 modeDailyBtn.addEventListener("click", () => switchMode("daily"));
 modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 
+// Swipe navigation over the map thumbnail: swipe right -> previous period,
+// swipe left -> next. Pointer events unify mouse-drag (desktop) and touch
+// (mobile). A recognised swipe sets `swipeConsumed` so the minimap's tap-to-
+// play click (which fires right after pointerup) is skipped for that gesture.
+const thumbnailNav = document.getElementById("thumbnail-nav")!;
+const SWIPE_THRESHOLD = 45; // px of horizontal travel to count as a swipe
+let swipeStartX = 0;
+let swipeStartY = 0;
+let swipeTracking = false;
+let swipeConsumed = false;
+thumbnailNav.addEventListener("pointerdown", (e) => {
+  swipeStartX = e.clientX;
+  swipeStartY = e.clientY;
+  swipeTracking = true;
+  swipeConsumed = false;
+});
+// Bound to window so a drag that lifts off the thumbnail still resolves.
+window.addEventListener("pointerup", (e) => {
+  if (!swipeTracking) return;
+  swipeTracking = false;
+  const dx = e.clientX - swipeStartX;
+  const dy = e.clientY - swipeStartY;
+  if (Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    swipeConsumed = true;
+    navigateTo(viewedOffset + (dx > 0 ? -1 : 1));
+  }
+});
+
 // -----------------------------------------------------------------------
 
 function resizeCanvas(): void {
@@ -664,7 +692,15 @@ helpScreen.addEventListener("click", (e) => {
 
 attachShareHandler(shareBtn, () => lastShareText);
 attachShareHandler(bestShareBtn, currentBestShareText);
-minimapCanvas.addEventListener("click", () => beginRun(viewed));
+minimapCanvas.addEventListener("click", () => {
+  // A swipe gesture ends in a synthetic click on the map; don't treat it as
+  // tap-to-play.
+  if (swipeConsumed) {
+    swipeConsumed = false;
+    return;
+  }
+  beginRun(viewed);
+});
 minimapCanvas.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();

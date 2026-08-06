@@ -100,6 +100,9 @@ html, body {
   justify-content: center;
   gap: 8px;
   width: 100%;
+  /* Let the browser keep vertical page scroll, but reserve horizontal drags
+     for our swipe-to-navigate handler. */
+  touch-action: pan-y;
 }
 
 .nav-arrow {
