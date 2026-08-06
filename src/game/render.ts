@@ -1,10 +1,10 @@
-import { distance } from "../util/vec2.js";
-import { mulberry32, randInt, randRange, seedFromString, shuffle, type Rng } from "../util/rng.js";
 import { getTheme, type TextureStyle } from "../level/themes.js";
-import { drawPalmV2 } from "./palm-variants.js";
+import type { Level, Warehouse } from "../level/types.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
-import type { Level, Warehouse } from "../level/types.js";
+import { mulberry32, randInt, randRange, seedFromString, shuffle, type Rng } from "../util/rng.js";
+import { distance } from "../util/vec2.js";
+import { drawPalmV2 } from "./palm-variants.js";
 
 function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
   for (const road of level.roads) {
@@ -466,9 +466,9 @@ function drawTreeBranch(
     const t = randRange(rng, 0.75, 1); // start in the top 25% of this branch
     const sx = x + dx * length * t;
     const sy = y + dy * length * t;
-    const deviation = (randRange(rng, 20, 50) * Math.PI) / 180; // 20-50 deg, either side
+    const deviation = (randRange(rng, 15, 40) * Math.PI) / 180; // 20-50 deg, either side
     const childAngle = angle + (rng() < 0.5 ? -deviation : deviation);
-    drawTreeBranch(ctx, rng, sx, sy, childAngle, length * 0.9, width * 0.5, depth + 1, maxDepth);
+    drawTreeBranch(ctx, rng, sx, sy, childAngle, length * 0.85, width * 0.65, depth + 1, maxDepth);
   }
 }
 
@@ -1147,7 +1147,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
     }
     case "baretree": {
       ctx.fillStyle = "#6b4a2f";
-      drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 5);
+      drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 6);
       break;
     }
     case "acacia": {
@@ -1173,7 +1173,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
     case "charredtree": {
       // Same recursive tree as the autumn bare tree, only darker.
       ctx.fillStyle = "#2e2724";
-      drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 5);
+      drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 6);
       break;
     }
   }
