@@ -114,7 +114,7 @@ const WAREHOUSE_COLOR: Record<string, PaletteColorKey> = {
   destination: "warehouseDestination",
 };
 
-const WAREHOUSE_LABEL: Record<string, string> = { base: "B", pickup: "P", destination: "D" };
+const WAREHOUSE_LABEL: Record<string, string> = { base: "B", pickup: "W", destination: "D" };
 
 const VISITED_OPACITY = 0.4;
 

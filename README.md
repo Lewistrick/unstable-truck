@@ -10,9 +10,9 @@ What's implemented:
 
 - Deterministic daily level generation (Mulberry32 PRNG seeded from
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
-  few branching dead ends, 4-10 warehouses per level (one base, one
-  destination, the rest pickups that must all be visited before delivery),
-  rock/mud obstacles, and a seeded color palette.
+  few branching dead ends, 4-10 warehouses per level (one base marked `B`, one
+  destination marked `D`, the rest pickups marked `W` that must all be visited
+  before delivery), rock/mud obstacles, and a seeded color palette.
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
