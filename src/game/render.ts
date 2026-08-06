@@ -1,5 +1,5 @@
 import { distance } from "../util/vec2.js";
-import { mulberry32, randInt, randRange, seedFromString, type Rng } from "../util/rng.js";
+import { mulberry32, randInt, randRange, seedFromString, shuffle, type Rng } from "../util/rng.js";
 import { getTheme, type TextureStyle } from "../level/themes.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
@@ -464,11 +464,13 @@ function drawFrond(ctx: CanvasRenderingContext2D, rng: Rng, x: number, y: number
   const ey = y + Math.sin(baseAngle) * length + droop * length;
   const cx = x + Math.cos(baseAngle) * length * 0.5;
   const cy = y + Math.sin(baseAngle) * length * 0.5;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.quadraticCurveTo(cx, cy, ex, ey);
   ctx.stroke();
   const leaflets = randInt(rng, 10, 20);
+  ctx.lineWidth = 0.6; // thin leaflets so the frond reads as feathery
   for (let i = 1; i <= leaflets; i++) {
     const t = i / (leaflets + 1);
     const px = (1 - t) * (1 - t) * x + 2 * (1 - t) * t * cx + t * t * ex;
@@ -477,7 +479,7 @@ function drawFrond(ctx: CanvasRenderingContext2D, rng: Rng, x: number, y: number
     const ty = 2 * (1 - t) * (cy - y) + 2 * t * (ey - cy);
     const tl = Math.hypot(tx, ty) || 1;
     const side = i % 2 === 0 ? 1 : -1;
-    const llen = 2.5 * (1 - t) + 1;
+    const llen = 3.6 * (1 - t) + 1.4;
     ctx.beginPath();
     ctx.moveTo(px, py);
     ctx.lineTo(px + (-ty / tl) * side * llen, py + (tx / tl) * side * llen);
@@ -772,11 +774,10 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       ctx.quadraticCurveTo(lean * 0.4 + randRange(rng, -2, 2), 2, topX, topY);
       ctx.stroke();
       ctx.strokeStyle = "#3f9e57";
-      ctx.lineWidth = 1.4;
       const fronds = randInt(rng, 4, 8);
       for (let i = 0; i < fronds; i++) {
         const ang = -Math.PI / 2 + (i / (fronds - 1) - 0.5) * 2.6 + randRange(rng, -0.15, 0.15);
-        drawFrond(ctx, rng, topX, topY, ang, randRange(rng, 5, 9));
+        drawFrond(ctx, rng, topX, topY, ang, randRange(rng, 8, 13));
       }
       ctx.fillStyle = "#5a3a24";
       const coconuts = randInt(rng, 1, 3);
@@ -789,8 +790,10 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
     }
     case "beachball": {
       const segs = 6;
+      // 2-4 random colors from the palette, cycled around the segments.
+      const colors = shuffle(rng, BEACHBALL_COLORS).slice(0, randInt(rng, 2, 4));
       for (let i = 0; i < segs; i++) {
-        ctx.fillStyle = BEACHBALL_COLORS[i % BEACHBALL_COLORS.length]!;
+        ctx.fillStyle = colors[i % colors.length]!;
         ctx.beginPath();
         ctx.moveTo(0, 3);
         ctx.arc(0, 3, 6, (i / segs) * TAU - Math.PI / 2, ((i + 1) / segs) * TAU - Math.PI / 2);
@@ -809,6 +812,10 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "umbrella": {
+      // Lean the whole umbrella -30..30 deg, pivoting where it meets the sand.
+      ctx.translate(0, 9);
+      ctx.rotate(randRange(rng, -Math.PI / 6, Math.PI / 6));
+      ctx.translate(0, -9);
       ctx.strokeStyle = "#8a8a8a";
       ctx.lineWidth = 1;
       ctx.beginPath();
