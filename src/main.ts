@@ -492,19 +492,15 @@ function gameUrl(): string {
 }
 
 /** Spoiler-free result summary for the clipboard - no route/map details, just
- * the day, medal, time, cargo condition, current streak, and a link to play. */
-function buildShareText(playable: Playable, time: number, stability: number, medal: Medal | null): string {
-  const medalPart = medal ? `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}` : "No medal";
-  const lines = [
-    `Unstable Truck \u{1F69A} ${playable.seed}`,
-    `${medalPart} · ${formatTime(time)} · \u{1F4E6} ${Math.round(stability)}%`,
-  ];
-  if (playable.level.kind === "daily") {
-    const streak = currentStreak(loadCompletedDays());
-    if (streak > 1) lines.push(`\u{1F525} ${streak}-day streak`);
-  }
-  lines.push(gameUrl());
-  return lines.join("\n");
+ * the day, finish time, earned medal, and a link to play. */
+function buildShareText(playable: Playable, time: number, medal: Medal | null): string {
+  const medalEmoji = medal ? ` ${MEDAL_ICON[medal]}` : "";
+  return [
+    `\u{1F69A} Unstable Truck - ${playable.seed}`,
+    `I finished in a time of ${formatTime(time)}${medalEmoji}`,
+    "Can you beat my time? #unstabletruck",
+    gameUrl(),
+  ].join("\n");
 }
 
 /** Spoiler-free summary of the currently-viewed day's stored best time, or
@@ -512,7 +508,7 @@ function buildShareText(playable: Playable, time: number, stability: number, med
 function currentBestShareText(): string | null {
   const best = viewed.personalBest;
   if (!best) return null;
-  return buildShareText(viewed, best.time, best.stability, medalFor(best.time, viewed.pars));
+  return buildShareText(viewed, best.time, medalFor(best.time, viewed.pars));
 }
 
 /** Wires a Share button to copy text (from `getText`) on click, flashing a
@@ -596,7 +592,7 @@ function endRun(): void {
       recordCompletion(active.seed);
       renderProgressStrip();
     }
-    lastShareText = buildShareText(active, session.elapsed, session.stability, medal);
+    lastShareText = buildShareText(active, session.elapsed, medal);
     shareBtn.textContent = "Share";
     shareBtn.classList.remove("hidden");
 
