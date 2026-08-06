@@ -4,7 +4,7 @@ import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import { mulberry32, randInt, randRange, seedFromString, shuffle, type Rng } from "../util/rng.js";
 import { distance } from "../util/vec2.js";
-import { drawPalmV2 } from "./palm-variants.js";
+import { drawPalm } from "./palm.js";
 
 function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
   for (const road of level.roads) {
@@ -747,7 +747,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "palm": {
-      drawPalmV2(ctx, rng);
+      drawPalm(ctx, rng);
       break;
     }
     case "beachball": {
