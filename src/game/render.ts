@@ -1,5 +1,5 @@
 import { distance } from "../util/vec2.js";
-import { mulberry32, randRange, seedFromString, type Rng } from "../util/rng.js";
+import { mulberry32, randInt, randRange, seedFromString, type Rng } from "../util/rng.js";
 import { getTheme, type TextureStyle } from "../level/themes.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
@@ -423,15 +423,76 @@ function triangle(ctx: CanvasRenderingContext2D, cx: number, apexY: number, half
   ctx.fill();
 }
 
+/** Recursive branch: draws a segment, then spawns children with halved length
+ * and thickness, until `depth` reaches `maxDepth`. The trunk (depth 0) forks
+ * into 1-5 branches, deeper levels into 1-4, per the seeded rng. */
+function drawBranch(
+  ctx: CanvasRenderingContext2D,
+  rng: Rng,
+  x: number,
+  y: number,
+  angle: number,
+  length: number,
+  thickness: number,
+  depth: number,
+  maxDepth: number,
+): void {
+  const ex = x + Math.cos(angle) * length;
+  const ey = y + Math.sin(angle) * length;
+  ctx.lineWidth = Math.max(0.4, thickness);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  if (depth >= maxDepth) return;
+  const children = depth === 0 ? randInt(rng, 1, 5) : randInt(rng, 1, 4);
+  for (let i = 0; i < children; i++) {
+    drawBranch(ctx, rng, ex, ey, angle + randRange(rng, -0.9, 0.9), length * 0.5, thickness * 0.5, depth + 1, maxDepth);
+  }
+}
+
+/** A palm frond: a drooping spine from (x, y) with 10-20 leaflet lines feathered
+ * along alternating sides. */
+function drawFrond(ctx: CanvasRenderingContext2D, rng: Rng, x: number, y: number, baseAngle: number, length: number): void {
+  const droop = randRange(rng, 0.3, 0.8);
+  const ex = x + Math.cos(baseAngle) * length;
+  const ey = y + Math.sin(baseAngle) * length + droop * length;
+  const cx = x + Math.cos(baseAngle) * length * 0.5;
+  const cy = y + Math.sin(baseAngle) * length * 0.5;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(cx, cy, ex, ey);
+  ctx.stroke();
+  const leaflets = randInt(rng, 10, 20);
+  for (let i = 1; i <= leaflets; i++) {
+    const t = i / (leaflets + 1);
+    const px = (1 - t) * (1 - t) * x + 2 * (1 - t) * t * cx + t * t * ex;
+    const py = (1 - t) * (1 - t) * y + 2 * (1 - t) * t * cy + t * t * ey;
+    const tx = 2 * (1 - t) * (cx - x) + 2 * t * (ex - cx);
+    const ty = 2 * (1 - t) * (cy - y) + 2 * t * (ey - cy);
+    const tl = Math.hypot(tx, ty) || 1;
+    const side = i % 2 === 0 ? 1 : -1;
+    const llen = 2.5 * (1 - t) + 1;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + (-ty / tl) * side * llen, py + (tx / tl) * side * llen);
+    ctx.stroke();
+  }
+}
+
 const SHRUB_FLOWERS = ["#e85d75", "#f2c14e", "#6fb1e0", "#f4f1ea"];
 const MUSHROOM_CAPS = ["#d64545", "#e0873c", "#b0553a", "#c94f8a"];
 const CAR_COLORS = ["#c0392b", "#2980b9", "#f1c40f", "#7f8c8d"];
 const CANDY_COLORS = ["#e8503a", "#f2c14e", "#6fb1e0", "#e88bb0"];
+const GUMDROP_COLORS = ["#e8503a", "#f2c14e", "#8fd18f", "#6fb1e0", "#e88bb0", "#b07de0"];
+const BEACHBALL_COLORS = ["#e8503a", "#f2c14e", "#3f9e57", "#6fb1e0", "#e88bb0", "#f4f1ea"];
 const EGG_COLORS = ["#e88bb0", "#6fb1e0", "#f2c14e", "#8fd18f"];
 const FESTIVE_COLORS = ["#f2c14e", "#e8503a", "#6fb1e0", "#8fd18f"];
 
-/** Draws one prop in local space (already translated/scaled by the caller). */
-function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number): void {
+/** Draws one prop in local space (already translated/scaled by the caller).
+ * `rng` is a deterministic per-instance stream for props with internal
+ * randomness; simpler props ignore it and key off `variant`. */
+function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, rng: Rng): void {
   switch (kind) {
     case "cow": {
       ctx.fillStyle = "#4a423d";
@@ -642,6 +703,25 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
       }
       break;
     }
+    case "trafficlight": {
+      ctx.strokeStyle = "#3a3f47";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -6);
+      ctx.stroke();
+      ctx.fillStyle = "#26292e";
+      roundedRect(ctx, -2.2, -12, 4.4, 8, 1.4);
+      ctx.fill();
+      const lights = ["#e8503a", "#f2c14e", "#3f9e57"];
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = lights[i]!;
+        ctx.beginPath();
+        ctx.arc(0, -10 + i * 2.6, 1.1, 0, TAU);
+        ctx.fill();
+      }
+      break;
+    }
     case "astronaut": {
       ctx.fillStyle = "#eef1f4";
       roundedRect(ctx, -4, -4, 8, 12, 3);
@@ -674,26 +754,51 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
       break;
     }
     case "palm": {
-      ctx.strokeStyle = "#8a6a44";
-      ctx.lineWidth = 2.5;
+      // Randomly curved trunk, 4-8 feathered fronds, 1-3 coconuts.
       ctx.lineCap = "round";
+      const lean = randRange(rng, -3.5, 3.5);
+      const topX = lean;
+      const topY = -randRange(rng, 6, 10);
+      ctx.strokeStyle = "#8a6a44";
+      ctx.lineWidth = 2.6;
       ctx.beginPath();
       ctx.moveTo(0, 9);
-      ctx.quadraticCurveTo(-2, 0, 1, -6);
+      ctx.quadraticCurveTo(lean * 0.4 + randRange(rng, -2, 2), 2, topX, topY);
       ctx.stroke();
       ctx.strokeStyle = "#3f9e57";
-      ctx.lineWidth = 2;
-      for (let i = 0; i < 5; i++) {
-        const ang = -Math.PI / 2 + (i - 2) * 0.7;
-        ctx.beginPath();
-        ctx.moveTo(1, -6);
-        ctx.quadraticCurveTo(1 + Math.cos(ang) * 5, -6 + Math.sin(ang) * 5, 1 + Math.cos(ang) * 10, -4 + Math.sin(ang) * 10);
-        ctx.stroke();
+      ctx.lineWidth = 1.4;
+      const fronds = randInt(rng, 4, 8);
+      for (let i = 0; i < fronds; i++) {
+        const ang = -Math.PI / 2 + (i / (fronds - 1) - 0.5) * 2.6 + randRange(rng, -0.15, 0.15);
+        drawFrond(ctx, rng, topX, topY, ang, randRange(rng, 5, 9));
       }
       ctx.fillStyle = "#5a3a24";
+      const coconuts = randInt(rng, 1, 3);
+      for (let i = 0; i < coconuts; i++) {
+        ctx.beginPath();
+        ctx.arc(topX + randRange(rng, -2.5, 2.5), topY + randRange(rng, 0, 2.5), 1.3, 0, TAU);
+        ctx.fill();
+      }
+      break;
+    }
+    case "beachball": {
+      const segs = 6;
+      for (let i = 0; i < segs; i++) {
+        ctx.fillStyle = BEACHBALL_COLORS[i % BEACHBALL_COLORS.length]!;
+        ctx.beginPath();
+        ctx.moveTo(0, 3);
+        ctx.arc(0, 3, 6, (i / segs) * TAU - Math.PI / 2, ((i + 1) / segs) * TAU - Math.PI / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
+      ctx.lineWidth = 0.6;
       ctx.beginPath();
-      ctx.arc(1, -5, 1.3, 0, TAU);
-      ctx.arc(-1.4, -5, 1.3, 0, TAU);
+      ctx.arc(0, 3, 6, 0, TAU);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.beginPath();
+      ctx.arc(-2, 1, 1.6, 0, TAU);
       ctx.fill();
       break;
     }
@@ -790,57 +895,101 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
       }
       break;
     }
-    case "smokevent": {
-      ctx.fillStyle = "#4a423f";
+    case "lavacrack": {
+      // Jagged glowing fissure across the ground.
+      const pts: Array<[number, number]> = [];
+      const steps = randInt(rng, 4, 6);
+      let cy = randRange(rng, 3, 7);
+      for (let i = 0; i <= steps; i++) {
+        pts.push([-8 + (16 / steps) * i, Math.max(0, Math.min(9, cy))]);
+        cy += randRange(rng, -3, 3);
+      }
+      const trace = (width: number, color: string) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+        ctx.stroke();
+      };
+      trace(3.6, "#2a1f1c");
+      trace(1.8, "#e8531f");
+      trace(0.7, "#ffc04a");
+      break;
+    }
+    case "obsidian": {
+      // Angular black glassy shard with a cool sheen facet.
+      const w = randRange(rng, 3, 5);
+      const h = randRange(rng, 6, 10);
+      ctx.fillStyle = "#1c1a22";
       ctx.beginPath();
-      ctx.moveTo(-5, 9);
-      ctx.lineTo(5, 9);
-      ctx.lineTo(2, 2);
-      ctx.lineTo(-2, 2);
+      ctx.moveTo(0, 9);
+      ctx.lineTo(-w, 4);
+      ctx.lineTo(-w * 0.4, 9 - h);
+      ctx.lineTo(w * 0.6, 9 - h * 0.8);
+      ctx.lineTo(w, 5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "rgba(230, 90, 40, 0.6)";
+      ctx.fillStyle = "rgba(150, 140, 190, 0.5)";
       ctx.beginPath();
-      ctx.ellipse(0, 2.2, 2, 1, 0, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = "rgba(160, 160, 165, 0.45)";
-      ctx.beginPath();
-      ctx.arc(0, -1, 3, 0, TAU);
-      ctx.arc(2, -5, 2.4, 0, TAU);
-      ctx.arc(-1, -8, 2, 0, TAU);
+      ctx.moveTo(-w * 0.1, 8);
+      ctx.lineTo(-w * 0.4, 10 - h);
+      ctx.lineTo(w * 0.1, 10 - h * 0.8);
+      ctx.closePath();
       ctx.fill();
       break;
     }
     case "reeds": {
-      const stalks: Array<[number, number]> = [
-        [-3, 0],
-        [0, 1],
-        [3, 0.5],
-      ];
-      for (const [x, ph] of stalks) {
+      // Random clump: varied count, positions, heights, sway, and head size.
+      const count = randInt(rng, 3, 7);
+      for (let i = 0; i < count; i++) {
+        const x = randRange(rng, -5, 5);
+        const top = -randRange(rng, 4, 9);
+        const sway = randRange(rng, -1.2, 1.2);
         ctx.strokeStyle = "#5f7d3a";
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = randRange(rng, 0.9, 1.5);
         ctx.beginPath();
         ctx.moveTo(x, 9);
-        ctx.lineTo(x, -6 + ph);
+        ctx.quadraticCurveTo(x + sway, (top + 9) / 2, x + sway, top);
         ctx.stroke();
         ctx.fillStyle = "#7a5230";
-        roundedRect(ctx, x - 1, -9 + ph, 2, 4, 1);
+        const hw = randRange(rng, 1.6, 2.4);
+        roundedRect(ctx, x + sway - hw / 2, top, hw, randRange(rng, 3.5, 5), hw / 2);
         ctx.fill();
       }
       break;
     }
     case "lilypad": {
+      // Round pad with a small notch at a random angle; flower size/place vary.
+      const r = randRange(rng, 4.5, 7);
+      const notch = randRange(rng, 0, TAU);
+      const gap = randRange(rng, 0.22, 0.42);
       ctx.fillStyle = "#3f8f4e";
       ctx.beginPath();
-      ctx.arc(0, 7, 6, 0.5, TAU - 0.5);
+      ctx.arc(0, 7, r, notch + gap, notch - gap + TAU);
       ctx.lineTo(0, 7);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#e88bb0";
-      ctx.beginPath();
-      ctx.arc(-1, 6, 1.6, 0, TAU);
-      ctx.fill();
+      if (rng() < 0.7) {
+        const fa = randRange(rng, 0, TAU);
+        const fd = randRange(rng, 0, r * 0.5);
+        ctx.fillStyle = rng() < 0.5 ? "#e88bb0" : "#f4f1ea";
+        ctx.beginPath();
+        ctx.arc(Math.cos(fa) * fd, 7 + Math.sin(fa) * fd, randRange(rng, 1.2, 2.2), 0, TAU);
+        ctx.fill();
+      }
+      break;
+    }
+    case "fog": {
+      // Soft translucent patch of overlapping puffs.
+      ctx.fillStyle = "rgba(232, 236, 239, 0.13)";
+      const puffs = randInt(rng, 4, 7);
+      for (let i = 0; i < puffs; i++) {
+        ctx.beginPath();
+        ctx.ellipse(randRange(rng, -8, 8), randRange(rng, -2, 6), randRange(rng, 5, 9), randRange(rng, 3, 5), 0, 0, TAU);
+        ctx.fill();
+      }
       break;
     }
     case "lollipop": {
@@ -869,21 +1018,38 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
     }
     case "candycane": {
       ctx.lineCap = "round";
+      const cane = () => {
+        ctx.beginPath();
+        ctx.moveTo(2, 9);
+        ctx.lineTo(2, -4);
+        ctx.quadraticCurveTo(2, -9, -2, -8);
+        ctx.stroke();
+      };
       ctx.strokeStyle = "#e8503a";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(2, 9);
-      ctx.lineTo(2, -4);
-      ctx.quadraticCurveTo(2, -9, -2, -8);
-      ctx.stroke();
+      ctx.lineWidth = 3.4;
+      cane();
+      // Thin, widely-gapped white stripes so red stays dominant.
       ctx.strokeStyle = "#f4f1ea";
-      ctx.setLineDash([2, 2]);
-      ctx.beginPath();
-      ctx.moveTo(2, 9);
-      ctx.lineTo(2, -4);
-      ctx.quadraticCurveTo(2, -9, -2, -8);
-      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([1.6, 3.2]);
+      cane();
       ctx.setLineDash([]);
+      break;
+    }
+    case "gumdrop": {
+      ctx.fillStyle = GUMDROP_COLORS[randInt(rng, 0, GUMDROP_COLORS.length - 1)]!;
+      ctx.beginPath();
+      ctx.moveTo(-4.5, 7);
+      ctx.quadraticCurveTo(-4.7, -2, 0, -2);
+      ctx.quadraticCurveTo(4.7, -2, 4.5, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.arc(randRange(rng, -3.5, 3.5), randRange(rng, -1, 6), 0.5, 0, TAU);
+        ctx.fill();
+      }
       break;
     }
     case "egg": {
@@ -1034,18 +1200,12 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
       break;
     }
     case "charredtree": {
+      // Recursive fractal: trunk forks 1-5 ways, deeper branches 1-4, to depth
+      // 5, each level halving in length and thickness.
       ctx.strokeStyle = "#2e2724";
-      ctx.lineWidth = 2.4;
       ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(0, 9);
-      ctx.lineTo(0, -4);
-      ctx.moveTo(0, -1);
-      ctx.lineTo(-4, -6);
-      ctx.moveTo(0, -3);
-      ctx.lineTo(4, -7);
-      ctx.stroke();
-      ctx.fillStyle = "rgba(230, 90, 40, 0.5)";
+      drawBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 6, 9), 2.4, 0, 5);
+      ctx.fillStyle = "rgba(230, 90, 40, 0.4)";
       ctx.beginPath();
       ctx.arc(0, 8, 3, 0, TAU);
       ctx.fill();
@@ -1060,6 +1220,9 @@ interface Bounds {
   maxX: number;
   maxY: number;
 }
+
+// Flat, ground-hugging props that shouldn't get the standing-prop drop shadow.
+const SHADOWLESS = new Set(["fog", "lavacrack", "lilypad"]);
 
 /** Draws the level's scenery, skipping anything outside the visible bounds. */
 function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
@@ -1077,11 +1240,13 @@ function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds
     ctx.translate(prop.pos.x, prop.pos.y);
     ctx.scale(prop.scale, prop.scale);
     if (prop.angle !== 0) ctx.rotate(prop.angle);
-    ctx.fillStyle = "rgba(0, 0, 0, 0.10)";
-    ctx.beginPath();
-    ctx.ellipse(0, 9, 8, 2.6, 0, 0, TAU);
-    ctx.fill();
-    drawProp(ctx, prop.kind, prop.variant);
+    if (!SHADOWLESS.has(prop.kind)) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.10)";
+      ctx.beginPath();
+      ctx.ellipse(0, 9, 8, 2.6, 0, 0, TAU);
+      ctx.fill();
+    }
+    drawProp(ctx, prop.kind, prop.variant, mulberry32(prop.seed));
     ctx.restore();
   }
 }

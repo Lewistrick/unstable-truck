@@ -32,11 +32,13 @@ What's implemented:
 - Biome scenery: every theme scatters small, decorative, no-collision props that
   suit its biome — grassland cows/shrubs, desert cacti/tumbleweeds, town
   trees/cyclists, city buildings/cars, moon astronauts/flags, snow
-  penguins/pines, beach palms/umbrellas, forest pines/mushrooms, farmland
-  haybales/scarecrows, autumn bare-trees/pumpkins, savanna acacias/grass tufts,
-  volcanic charred-trees/smoke-vents, swamp reeds/lily-pads, candy
-  lollipops/candy-canes, plus the seasonal Easter eggs/bunnies and New Year's
-  fireworks/balloons. Like the houses, props are purely visual — they never
+  penguins/pines, beach palms/umbrellas/beach-balls, forest pines/mushrooms,
+  farmland haybales/scarecrows, autumn bare-trees/pumpkins, savanna
+  acacias/grass tufts, volcanic charred-trees (recursive fractals)/lava-cracks/
+  obsidian, swamp reeds/lily-pads/fog, candy lollipops/candy-canes/gumdrops,
+  plus the seasonal Easter eggs/bunnies and New Year's fireworks/balloons. Props
+  can carry a per-instance seed for deterministic in-sprite randomness (branch
+  counts, leaf shapes, reed clumps, …). Like the houses, props are purely visual — they never
   affect physics or the leaderboard. Positions are precomputed deterministically
   from the seed (via an independent rng stream) so they're replay-stable, and
   placed clear of roads, warehouses, and obstacles so nothing sits on the

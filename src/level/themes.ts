@@ -119,8 +119,9 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([30, 45], [18, 30], [30, 40]),
     house: band([205, 235], [10, 20], [46, 60]),
     props: [
-      { kind: "building", weight: 2, minScale: 2.2, maxScale: 3.2 },
-      { kind: "car", weight: 2, minScale: 1.8, maxScale: 2.6 },
+      { kind: "building", weight: 3, minScale: 2.6, maxScale: 3.8 },
+      { kind: "car", weight: 3, minScale: 1.8, maxScale: 2.6 },
+      { kind: "trafficlight", weight: 1, minScale: 2, maxScale: 2.8 },
     ],
   },
   moon: {
@@ -163,6 +164,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "palm", weight: 1, minScale: 4, maxScale: 6 },
       { kind: "umbrella", weight: 2, minScale: 2, maxScale: 3 },
+      { kind: "beachball", weight: 1, minScale: 1.8, maxScale: 2.6 },
     ],
   },
   forest: {
@@ -232,7 +234,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     house: band([10, 26], [16, 28], [40, 52]),
     props: [
       { kind: "charredtree", weight: 1, minScale: 4.5, maxScale: 6.5 },
-      { kind: "smokevent", weight: 2, minScale: 1.8, maxScale: 2.6 },
+      { kind: "lavacrack", weight: 2, minScale: 2, maxScale: 3 },
+      { kind: "obsidian", weight: 2, minScale: 1.6, maxScale: 2.6 },
     ],
   },
   swamp: {
@@ -247,6 +250,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "reeds", weight: 2, minScale: 2, maxScale: 3 },
       { kind: "lilypad", weight: 2, minScale: 1.8, maxScale: 2.8 },
+      { kind: "fog", weight: 1, minScale: 2.5, maxScale: 4 },
     ],
   },
   candy: {
@@ -261,6 +265,7 @@ export const THEMES: Record<ThemeId, Theme> = {
     props: [
       { kind: "lollipop", weight: 2, minScale: 2, maxScale: 3 },
       { kind: "candycane", weight: 2, minScale: 2, maxScale: 3 },
+      { kind: "gumdrop", weight: 2, minScale: 1.8, maxScale: 2.8 },
     ],
   },
   // --- Seasonal-only (holiday overrides, excluded from the random pool) -----

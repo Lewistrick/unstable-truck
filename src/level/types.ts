@@ -47,6 +47,9 @@ export interface SceneryProp {
   scale: number;
   angle: number;
   variant: number;
+  /** Per-instance seed for deterministic in-sprite randomness (branch counts,
+   * leaf shapes, …), so a prop looks the same every frame and on replay. */
+  seed: number;
 }
 
 export interface RockObstacle {

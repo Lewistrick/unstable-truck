@@ -80,6 +80,7 @@ export function generateScenery(
       scale: randRange(rng, kind.minScale, kind.maxScale),
       angle: 0,
       variant: randInt(rng, 0, 3),
+      seed: randInt(rng, 0, 0x7fffffff),
     });
   }
 
