@@ -81,18 +81,31 @@ export function drawTreeBranch(
   }
 }
 
-/** Conifer body shared by the plain pine and the snow-dusted variant. */
-export function conifer(ctx: CanvasRenderingContext2D, snow: boolean): void {
+/** Conifer body shared by the plain pine and the snow-dusted variant: a stack
+ * of 2-5 triangular tiers, widest at the bottom and tapering to the top. When
+ * `snow` is set, each tier gets a small white cap at its peak. */
+export function conifer(ctx: CanvasRenderingContext2D, rng: Rng, snow: boolean): void {
   // Trunk starts above the foliage base (y = 3) so it connects, not floats.
   ctx.fillStyle = "#6b4a2f";
   ctx.fillRect(-1.5, 2, 3, 7);
+
+  const tiers = randInt(rng, 2, 5);
+  const maxHalf = 8; // bottom tier half-width
+  const widthStep = 1.4; // each tier up narrows by this much
+  const tierHeight = 7;
+  const apexSpacing = 4.5; // vertical rise between successive tier apexes
+  // The bottom tier's base sits at y = 3 (apex at 3 - tierHeight), so taller
+  // trees grow upward from a fixed, trunk-connected base.
+  const tierY = (i: number) => 3 - tierHeight - i * apexSpacing;
+  const tierHalf = (i: number) => maxHalf - i * widthStep;
+
+  // Green body first (largest tier at the bottom, up to the smallest on top)...
   ctx.fillStyle = snow ? "#2f6d43" : "#2e6b3f";
-  triangle(ctx, 0, -9, 6, 7);
-  triangle(ctx, 0, -4, 8, 7);
+  for (let i = 0; i < tiers; i++) triangle(ctx, 0, tierY(i), tierHalf(i), tierHeight);
+  // ...then the snow caps on top so they stay visible over the foliage.
   if (snow) {
     ctx.fillStyle = "#eef4f7";
-    triangle(ctx, 0, -9, 3.4, 3);
-    triangle(ctx, 0, -4, 4.5, 3);
+    for (let i = 0; i < tiers; i++) triangle(ctx, 0, tierY(i), tierHalf(i) * 0.56, 3);
   }
 }
 
