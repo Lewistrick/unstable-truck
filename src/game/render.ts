@@ -329,19 +329,28 @@ function paintTile(ctx: CanvasRenderingContext2D, style: TextureStyle, rng: Rng)
       break;
     }
     case "dunes": {
-      // Wavy horizontal ripples; two full sine cycles across the width keeps
-      // them seamless left-to-right, even spacing keeps them seamless top-to-
-      // bottom.
-      ctx.strokeStyle = LIGHT;
-      ctx.lineWidth = 1.5;
-      for (let y0 = 0; y0 < TILE; y0 += 16) {
+      // Wind ripples: closely spaced wavy lines, each a darker trough with a
+      // lighter crest just above so it reads as raised sand (the earlier faint
+      // white lines were near-invisible on light sandy ground). Two full sine
+      // cycles across the width keep them seamless left-to-right; the even 16px
+      // spacing (128 / 8) keeps them seamless top-to-bottom.
+      const amplitude = 5;
+      const wave = (y0: number, offset: number) => {
         ctx.beginPath();
         for (let x = 0; x <= TILE; x++) {
-          const yy = y0 + Math.sin((x / TILE) * Math.PI * 4) * 3;
+          const yy = y0 + offset + Math.sin((x / TILE) * Math.PI * 4) * amplitude;
           if (x === 0) ctx.moveTo(x, yy);
           else ctx.lineTo(x, yy);
         }
         ctx.stroke();
+      };
+      for (let y0 = 0; y0 < TILE; y0 += 16) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
+        ctx.lineWidth = 1.5;
+        wave(y0, -2);
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.10)";
+        ctx.lineWidth = 2;
+        wave(y0, 0);
       }
       break;
     }
