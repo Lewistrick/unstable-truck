@@ -1,7 +1,7 @@
 import { distance } from "../util/vec2.js";
 import { mulberry32, randInt, randRange, seedFromString, shuffle, type Rng } from "../util/rng.js";
 import { getTheme, type TextureStyle } from "../level/themes.js";
-import { drawPalmV1 } from "./palm-variants.js";
+import { drawPalmV2 } from "./palm-variants.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import type { Level, Warehouse } from "../level/types.js";
@@ -732,7 +732,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "palm": {
-      drawPalmV1(ctx, rng);
+      drawPalmV2(ctx, rng);
       break;
     }
     case "beachball": {

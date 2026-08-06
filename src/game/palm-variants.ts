@@ -159,14 +159,13 @@ function drawBlade(ctx: CanvasRenderingContext2D, rng: Rng, x: number, y: number
 
 export function drawPalmV2(ctx: CanvasRenderingContext2D, rng: Rng): void {
   const { topX, topY } = palmTrunk(ctx, rng);
-  underCrown(ctx, topX, topY, 7, 5);
   const fronds = randInt(rng, 6, 9);
-  const spread = 1.2;
+  const spread = 1.3;
   // Back layer (darker, drawn first) then front layer (lighter) for depth.
   for (const [layerFill, layerLen] of [["#2f7d47", 12] as const, ["#48a95e", 10] as const]) {
     for (let i = 0; i < fronds; i++) {
       const base = -Math.PI / 2 + (i / (fronds - 1) - 0.5) * 2 * spread;
-      drawBlade(ctx, rng, topX, topY, base + randRange(rng, -0.2, 0.2), layerLen + randRange(rng, -1.5, 1.5), layerFill);
+      drawBlade(ctx, rng, topX, topY, base + randRange(rng, -0.2, 0.2), layerLen + randRange(rng, -1.5, 1.5) + 5, layerFill);
     }
   }
   palmCoconuts(ctx, rng, topX, topY);
