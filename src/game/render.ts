@@ -682,16 +682,30 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "building": {
-      const height = 14 + (variant % 3) * 5;
-      const top = 9 - height;
+      // Size the building around a randomized window grid.
+      const cols = randInt(rng, 2, 4);
+      const rows = randInt(rng, 3, 7);
+      const winW = randRange(rng, 1.4, 2.4);
+      const winH = randRange(rng, 1.6, 2.8);
+      const gapX = randRange(rng, 1.4, 2.2);
+      const gapY = randRange(rng, 1.6, 2.4);
+      const sideMargin = 2;
+      const topMargin = 3; // clears the roof band
+      const bottomMargin = 2;
+      const bw = sideMargin * 2 + cols * winW + (cols - 1) * gapX;
+      const bh = topMargin + bottomMargin + rows * winH + (rows - 1) * gapY;
+      const left = -bw / 2;
+      const top = 9 - bh;
       ctx.fillStyle = "#7a8494";
-      ctx.fillRect(-6, top, 12, height);
+      ctx.fillRect(left, top, bw, bh);
       ctx.fillStyle = "#5f6875";
-      ctx.fillRect(-6, top, 12, 2);
-      ctx.fillStyle = "rgba(255, 236, 180, 0.85)";
-      for (let wy = top + 3; wy < 7; wy += 4) {
-        for (let wx = -4; wx <= 3; wx += 3.5) {
-          if ((wx + wy) % 2 < 1.2) ctx.fillRect(wx, wy, 1.8, 2);
+      ctx.fillRect(left, top, bw, 2);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const wx = left + sideMargin + c * (winW + gapX);
+          const wy = top + topMargin + r * (winH + gapY);
+          ctx.fillStyle = rng() < 0.68 ? "rgba(255, 236, 180, 0.9)" : "rgba(40, 48, 58, 0.9)";
+          ctx.fillRect(wx, wy, winW, winH);
         }
       }
       break;
@@ -706,11 +720,23 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       ctx.fillStyle = "#26292e";
       roundedRect(ctx, -2.2, -12, 4.4, 8, 1.4);
       ctx.fill();
+      // Panel spans y -12..-4; place the three lights centered so none spill off.
       const lights = ["#e8503a", "#f2c14e", "#3f9e57"];
+      const muted = ["#5a2a25", "#5a4e28", "#26402e"];
+      const on = randInt(rng, 0, 2);
       for (let i = 0; i < 3; i++) {
-        ctx.fillStyle = lights[i]!;
+        const cy = -10.4 + i * 2.4;
+        if (i === on) {
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = lights[i]!;
+          ctx.beginPath();
+          ctx.arc(0, cy, 2, 0, TAU);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = i === on ? lights[i]! : muted[i]!;
         ctx.beginPath();
-        ctx.arc(0, -10 + i * 2.6, 1.1, 0, TAU);
+        ctx.arc(0, cy, 1.1, 0, TAU);
         ctx.fill();
       }
       break;
@@ -1015,22 +1041,38 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
     }
     case "candycane": {
       ctx.lineCap = "round";
-      const cane = () => {
-        ctx.beginPath();
-        ctx.moveTo(2, 9);
-        ctx.lineTo(2, -4);
-        ctx.quadraticCurveTo(2, -9, -2, -8);
-        ctx.stroke();
-      };
+      ctx.lineJoin = "round";
+      // Centerline: straight stick, then the hooked top.
+      const pts: Array<[number, number]> = [];
+      for (let i = 0; i <= 8; i++) pts.push([2, 9 + (i / 8) * -13]); // (2,9) -> (2,-4)
+      for (let i = 1; i <= 6; i++) {
+        const t = i / 6;
+        const mt = 1 - t;
+        pts.push([mt * mt * 2 + 2 * mt * t * 2 + t * t * -2, mt * mt * -4 + 2 * mt * t * -9 + t * t * -8]);
+      }
+      // Red body.
       ctx.strokeStyle = "#e8503a";
       ctx.lineWidth = 3.4;
-      cane();
-      // Thin, widely-gapped white stripes so red stays dominant.
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+      ctx.stroke();
+      // Diagonal white stripes: short segments crossing the stick at a slant
+      // (tangent rotated ~63 deg), spaced along the length.
       ctx.strokeStyle = "#f4f1ea";
       ctx.lineWidth = 1.5;
-      ctx.setLineDash([1.6, 3.2]);
-      cane();
-      ctx.setLineDash([]);
+      const half = 1.9;
+      for (let i = 1; i < pts.length - 1; i += 2) {
+        const prev = pts[i - 1]!;
+        const next = pts[i + 1]!;
+        const cur = pts[i]!;
+        const ang = Math.atan2(next[1] - prev[1], next[0] - prev[0]) + Math.PI * 0.35;
+        const dx = Math.cos(ang);
+        const dy = Math.sin(ang);
+        ctx.beginPath();
+        ctx.moveTo(cur[0] - dx * half, cur[1] - dy * half);
+        ctx.lineTo(cur[0] + dx * half, cur[1] + dy * half);
+        ctx.stroke();
+      }
       break;
     }
     case "gumdrop": {
