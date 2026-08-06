@@ -566,7 +566,7 @@ interface Bounds {
 
 /** Draws the level's scenery, skipping anything outside the visible bounds. */
 function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
-  const margin = 40; // props extend a bit past their center point
+  const margin = 140; // props (esp. large trees) extend well past their center
   for (const prop of level.scenery) {
     if (
       prop.pos.x < bounds.minX - margin ||

@@ -77,8 +77,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([28, 42], [32, 46], [26, 34]),
     house: band([18, 38], [26, 40], [52, 64]),
     props: [
-      { kind: "cow", weight: 1, minScale: 1, maxScale: 1.3 },
-      { kind: "shrub", weight: 3, minScale: 0.7, maxScale: 1.2 },
+      { kind: "cow", weight: 1, minScale: 2, maxScale: 2.6 },
+      { kind: "shrub", weight: 3, minScale: 1.4, maxScale: 2.4 },
     ],
   },
   desert: {
@@ -91,8 +91,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([28, 40], [34, 50], [34, 44]),
     house: band([30, 44], [28, 44], [58, 70]),
     props: [
-      { kind: "cactus", weight: 2, minScale: 0.9, maxScale: 1.4 },
-      { kind: "deadbush", weight: 2, minScale: 0.7, maxScale: 1.1 },
+      { kind: "cactus", weight: 2, minScale: 1.8, maxScale: 2.8 },
+      { kind: "deadbush", weight: 2, minScale: 1.4, maxScale: 2.2 },
     ],
   },
   town: {
@@ -135,8 +135,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([205, 225], [10, 20], [62, 74]),
     house: band([205, 225], [10, 20], [70, 82]),
     props: [
-      { kind: "penguin", weight: 1, minScale: 0.9, maxScale: 1.2 },
-      { kind: "snowpine", weight: 2, minScale: 0.9, maxScale: 1.4 },
+      { kind: "penguin", weight: 1, minScale: 1.8, maxScale: 2.4 },
+      { kind: "snowpine", weight: 2, minScale: 4.5, maxScale: 7 },
     ],
   },
   beach: {
@@ -159,8 +159,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([28, 44], [34, 50], [24, 32]),
     house: band([18, 38], [28, 44], [46, 58]),
     props: [
-      { kind: "pine", weight: 3, minScale: 0.9, maxScale: 1.5 },
-      { kind: "mushroom", weight: 2, minScale: 0.6, maxScale: 1 },
+      { kind: "pine", weight: 3, minScale: 4.5, maxScale: 7.5 },
+      { kind: "mushroom", weight: 2, minScale: 1.2, maxScale: 2 },
     ],
   },
   farmland: {
