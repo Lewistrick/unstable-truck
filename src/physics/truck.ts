@@ -90,25 +90,69 @@ export function updateTruck(
   }
 }
 
-/** Resolves a circular collision with a rock: pushes the truck out along the
- * contact normal and kills most of its speed. Returns true if a collision
- * occurred, so the caller can trigger a cargo stability spike. */
+// The truck's collision box, mirroring the drawn body (a 32x22 rectangle, so
+// +/-16 along its heading and +/-11 across). Colliding as this rectangle rather
+// than a bounding circle matches what the player sees: you can slip past a rock
+// alongside the truck (only ~11 out, not the old ~14 circle) instead of being
+// stopped by phantom contact.
+const TRUCK_HALF_LENGTH = 16;
+const TRUCK_HALF_WIDTH = 11;
+
+/** Resolves a collision between the truck's (oriented) rectangular body and a
+ * circular rock: pushes the truck out along the contact normal and kills most
+ * of its speed. Returns true if a collision occurred, so the caller can trigger
+ * a cargo stability spike. */
 export function resolveRockCollision(
   truck: TruckState,
   rockPos: Vec2,
   rockRadius: number,
 ): boolean {
-  const dx = truck.pos.x - rockPos.x;
-  const dy = truck.pos.y - rockPos.y;
-  const dist = Math.hypot(dx, dy) || 0.0001;
-  const minDist = rockRadius + truck.radius;
-  if (dist >= minDist) return false;
+  // Rock center in the truck's local frame, where the body is the axis-aligned
+  // rectangle [-HALF_LENGTH, HALF_LENGTH] x [-HALF_WIDTH, HALF_WIDTH]. Local x
+  // runs along the heading (forward), local y across it.
+  const dx = rockPos.x - truck.pos.x;
+  const dy = rockPos.y - truck.pos.y;
+  const cos = Math.cos(truck.heading);
+  const sin = Math.sin(truck.heading);
+  const lx = dx * cos + dy * sin;
+  const ly = -dx * sin + dy * cos;
 
-  const nx = dx / dist;
-  const ny = dy / dist;
-  const overlap = minDist - dist;
-  truck.pos.x += nx * overlap;
-  truck.pos.y += ny * overlap;
+  // Closest point on the rectangle to the rock center.
+  const nearX = Math.max(-TRUCK_HALF_LENGTH, Math.min(TRUCK_HALF_LENGTH, lx));
+  const nearY = Math.max(-TRUCK_HALF_WIDTH, Math.min(TRUCK_HALF_WIDTH, ly));
+
+  // Local push direction for the truck (away from the rock) and how far.
+  let pushX: number;
+  let pushY: number;
+  let gap: number;
+  if (nearX !== lx || nearY !== ly) {
+    // Rock center is outside the body: the normal edge/corner case.
+    const ex = lx - nearX;
+    const ey = ly - nearY;
+    const d = Math.hypot(ex, ey) || 0.0001;
+    if (d >= rockRadius) return false;
+    pushX = -ex / d;
+    pushY = -ey / d;
+    gap = rockRadius - d;
+  } else {
+    // Rock center is inside the body (deep overlap): eject along the shallowest
+    // axis so the truck pops out the nearest face.
+    const penX = TRUCK_HALF_LENGTH - Math.abs(lx);
+    const penY = TRUCK_HALF_WIDTH - Math.abs(ly);
+    if (penX < penY) {
+      pushX = lx > 0 ? -1 : 1;
+      pushY = 0;
+      gap = penX + rockRadius;
+    } else {
+      pushX = 0;
+      pushY = ly > 0 ? -1 : 1;
+      gap = penY + rockRadius;
+    }
+  }
+
+  // Rotate the local push back into world space and apply it, then damp speed.
+  truck.pos.x += (pushX * cos - pushY * sin) * gap;
+  truck.pos.y += (pushX * sin + pushY * cos) * gap;
   truck.speed *= 0.15;
   truck.vel.x *= 0.15;
   truck.vel.y *= 0.15;

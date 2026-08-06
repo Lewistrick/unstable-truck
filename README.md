@@ -66,7 +66,10 @@ What's implemented:
   `requestAnimationFrame`), which is what makes ghost replay deterministic.
 - Cargo physics: cargo boxes trail behind the truck with lag, destabilizing on
   sharp turns and mud, and taking a stability hit on rock impacts. Stability
-  hitting 0 ends the run. Pickups are grouped five to a box: each collected
+  hitting 0 ends the run. Obstacle hitboxes use the truck's actual body: rocks
+  collide against its (heading-oriented) rectangle rather than a bounding
+  circle, and a mud patch counts once any body corner is over it - so both line
+  up with what's drawn instead of a fixed circle around the truck's center. Pickups are grouped five to a box: each collected
   warehouse adds a fifth of a box's length to the current box, and once it's
   full a new box starts trailing behind it (so a long weekly route pulls a few
   growing boxes rather than a huge chain of one-per-pickup).

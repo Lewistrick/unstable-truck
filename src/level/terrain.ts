@@ -7,6 +7,25 @@ export interface TerrainSample {
   mud: MudObstacle | null;
 }
 
+/** Just enough of the truck for terrain queries: its center and heading. */
+export interface TruckPose {
+  pos: Vec2;
+  heading: number;
+}
+
+// Truck body half-extents, mirroring the drawn 32x22 body (and its rock
+// collider in physics/truck.ts). Mud is tested against the whole body rather
+// than just the center point, so the effect kicks in and lets go when the truck
+// visibly enters and leaves the patch.
+const TRUCK_HALF_LENGTH = 16;
+const TRUCK_HALF_WIDTH = 11;
+const TRUCK_BODY_CORNERS: Array<[number, number]> = [
+  [TRUCK_HALF_LENGTH, TRUCK_HALF_WIDTH],
+  [TRUCK_HALF_LENGTH, -TRUCK_HALF_WIDTH],
+  [-TRUCK_HALF_LENGTH, TRUCK_HALF_WIDTH],
+  [-TRUCK_HALF_LENGTH, -TRUCK_HALF_WIDTH],
+];
+
 function pointInPolygon(p: Vec2, polygon: Vec2[]): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -29,14 +48,27 @@ export function isOnRoad(pos: Vec2, level: Level): boolean {
   return false;
 }
 
-export function sampleTerrain(pos: Vec2, level: Level): TerrainSample {
-  const onRoad = isOnRoad(pos, level);
+export function sampleTerrain(truck: TruckPose, level: Level): TerrainSample {
+  const onRoad = isOnRoad(truck.pos, level);
+
+  // Probe the truck's center plus its four body corners; the truck counts as in
+  // the mud if any of them fall inside a mud polygon. This makes an edge/wheel
+  // over the mud register, matching the drawn patch instead of waiting for the
+  // truck's center to cross in.
+  const cos = Math.cos(truck.heading);
+  const sin = Math.sin(truck.heading);
+  const probes: Vec2[] = [truck.pos];
+  for (const [ex, ey] of TRUCK_BODY_CORNERS) {
+    probes.push({ x: truck.pos.x + ex * cos - ey * sin, y: truck.pos.y + ex * sin + ey * cos });
+  }
+  // Broad-phase reach from the truck center out to its farthest corner.
+  const reach = Math.hypot(TRUCK_HALF_LENGTH, TRUCK_HALF_WIDTH);
 
   let inMud = false;
   let mud: MudObstacle | null = null;
   for (const m of level.muds) {
-    if (distance(pos, m.pos) > m.radius * 1.3) continue;
-    if (pointInPolygon(pos, m.points)) {
+    if (distance(truck.pos, m.pos) > m.radius * 1.3 + reach) continue;
+    if (probes.some((p) => pointInPolygon(p, m.points))) {
       inMud = true;
       mud = m;
       break;

@@ -134,7 +134,7 @@ export class GameSession {
     this.elapsed += dt;
     this.tick++;
 
-    const terrain = sampleTerrain(this.truck.pos, this.level);
+    const terrain = sampleTerrain(this.truck, this.level);
     updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height });
 
     for (const rock of this.level.rocks) {

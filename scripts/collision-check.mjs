@@ -1,16 +1,21 @@
-// Lightweight, framework-free checks for warehouse pickup/delivery collision.
-// The project has no test runner, so this runs against the compiled output the
-// same way scripts/screenshots.mjs does:
+// Lightweight, framework-free checks for the game's two collision shapes. The
+// project has no test runner, so this runs against the compiled output the same
+// way scripts/screenshots.mjs does:
 //   npm run build:client && node scripts/collision-check.mjs
 //
-// It guards the fix for the old bug where collection used a fixed 34-unit circle
-// around the warehouse *center* vs the truck's *center point*: large, elongated,
-// or rotated warehouses could be visibly driven over without ever collecting,
-// because the truck's center never got within 34 of the box center.
+// Warehouse pickup/delivery: guards the fix for the old bug where collection
+// used a fixed 34-unit circle around the warehouse *center* vs the truck's
+// *center point*, so large/elongated/rotated warehouses could be driven over
+// without collecting. Rock collision: guards the truck's oriented-rectangle vs
+// rock-circle test (it replaced a bounding circle, which hit alongside the
+// truck too eagerly).
 import { truckTouchesWarehouse } from "../dist/game/session.js";
+import { sampleTerrain } from "../dist/level/terrain.js";
+import { resolveRockCollision } from "../dist/physics/truck.js";
 
 const truck = (x, y) => ({ pos: { x, y }, radius: 14 });
 const box = (width, height, angle) => ({ kind: "pickup", pos: { x: 0, y: 0 }, width, height, angle });
+const rockTruck = (heading) => ({ pos: { x: 0, y: 0 }, vel: { x: 1, y: 1 }, heading, speed: 5, radius: 14 });
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -41,6 +46,46 @@ check("small box touched collects", truckTouchesWarehouse(truck(25, 0), box(30, 
 // truck body is ~20 units clear, so no collection. A fixed 34 radius would have
 // wrongly collected this from well before the truck reached the building.
 check("small box not over-collected from a distance", truckTouchesWarehouse(truck(0, 32), box(30, 22.5, 0)), false);
+
+// --- Rock collision (truck rectangle vs rock circle) ----------------------
+
+// Alongside the truck: with the body only 11 wide, a rock centered 32 out (gap
+// 32 - 11 = 21 > radius 20) is clear. The old bounding circle (14) would have
+// hit here (32 < 20 + 14), which is exactly the "too unforgiving" case.
+check("rock alongside the body just clears", resolveRockCollision(rockTruck(0), { x: 0, y: 32 }, 20), false);
+
+// Head-on: a rock 33 ahead overlaps the nose (33 < 16 + 20) and is pushed out.
+{
+  const t = rockTruck(0);
+  const hit = resolveRockCollision(t, { x: 33, y: 0 }, 20);
+  check("rock ahead of the nose collides", hit, true);
+  // Nose at +16, rock radius 20 -> truck must sit at x = 33 - 36 = -3.
+  check("rock collision pushes the truck clear", Math.abs(t.pos.x - -3) < 1e-6, true);
+}
+
+// Rotated 90 degrees: the body's short axis now faces world +x, so a rock 33
+// out along it clears (proving the box rotates with the heading; a length-based
+// 16 half-extent would instead have collided).
+check("rotated truck clears a rock off its side", resolveRockCollision(rockTruck(Math.PI / 2), { x: 33, y: 0 }, 20), false);
+
+// --- Mud terrain (truck body vs mud polygon) ------------------------------
+
+// A 20x24 mud square centered at (20, 0). Its bounding radius is ~15.6.
+const mudSquare = [
+  { x: 10, y: -12 },
+  { x: 30, y: -12 },
+  { x: 30, y: 12 },
+  { x: 10, y: 12 },
+];
+const mudLevel = { roads: [], muds: [{ pos: { x: 20, y: 0 }, radius: 16, points: mudSquare }] };
+
+// Truck center at (5, 0) is outside the polygon (x < 10), but its front corner
+// reaches (21, 11), which is inside - so the body-aware test registers mud. The
+// old center-point test would have said "not in mud" here.
+check("mud registers when a body corner is over it", sampleTerrain({ pos: { x: 5, y: 0 }, heading: 0 }, mudLevel).inMud, true);
+
+// Well clear of the patch: not in mud.
+check("mud clear when the whole body is outside", sampleTerrain({ pos: { x: -30, y: 0 }, heading: 0 }, mudLevel).inMud, false);
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
