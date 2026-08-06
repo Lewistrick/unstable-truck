@@ -33,8 +33,8 @@ What's implemented:
   suit its biome — grassland cows/shrubs, desert cacti/tumbleweeds, town
   trees/cyclists, city buildings/cars, moon astronauts/flags, snow
   penguins/pines, beach palms/umbrellas/beach-balls, forest pines/mushrooms,
-  farmland haybales/scarecrows, autumn bare-trees/pumpkins/leaf-patches, savanna
-  acacias/grass tufts, volcanic charred-trees (recursive fractals)/lava-cracks/
+  farmland haybales/scarecrows/windmills/tractors, autumn
+  bare-trees/pumpkins/leaf-patches, savanna acacias/grass tufts, volcanic charred-trees (recursive fractals)/lava-cracks/
   obsidian, swamp reeds/lily-pads/fog, candy lollipops/candy-canes/gumdrops,
   plus the seasonal Easter eggs/bunnies and New Year's fireworks/balloons. Props
   can carry a per-instance seed for deterministic in-sprite randomness (branch
