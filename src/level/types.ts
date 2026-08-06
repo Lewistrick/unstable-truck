@@ -37,6 +37,18 @@ export interface House {
   angle: number;
 }
 
+/** A scattered, purely-decorative scenery element (cactus, cow, tree, …). Like
+ * houses it has no collision and no gameplay value; the biome theme decides
+ * which kinds appear. `variant` selects between a prop's sub-shapes and `scale`
+ * / `angle` give per-instance variety. */
+export interface SceneryProp {
+  kind: string;
+  pos: Vec2;
+  scale: number;
+  angle: number;
+  variant: number;
+}
+
 export interface RockObstacle {
   pos: Vec2;
   radius: number;
@@ -77,6 +89,8 @@ export interface Level {
   roads: RoadSegment[];
   warehouses: Warehouse[];
   houses: House[];
+  /** Decorative, no-collision biome scenery (empty for themes without props). */
+  scenery: SceneryProp[];
   rocks: RockObstacle[];
   muds: MudObstacle[];
   palette: Palette;

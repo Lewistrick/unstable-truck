@@ -29,6 +29,15 @@ What's implemented:
   change appearance —
   they never affect road/warehouse/obstacle placement, so per-seed leaderboards
   stay comparable.
+- Biome scenery: themes scatter small, decorative, no-collision props across the
+  map (grassland cows and shrubs, desert cacti and dead bushes, snow penguins
+  and snowy pines, forest pines and mushrooms so far; more biomes to come). Like
+  the houses, props are purely visual — they never affect physics or the
+  leaderboard. Positions are precomputed deterministically from the seed (via an
+  independent rng stream) so they're replay-stable, and placed clear of roads,
+  warehouses, and obstacles so nothing sits on the drivable path. They're drawn
+  as small code-authored vector sprites, culled to the visible viewport so even
+  a dense weekly map only draws what's on screen.
 - Weekly board: a Daily/Weekly toggle on the home screen switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
@@ -206,7 +215,7 @@ Close button, Escape, or by tapping the backdrop).
 src/                frontend (compiles to dist/, loaded by the browser)
   util/     seeded RNG, value noise, vector math
   level/    procedural generation (roads, warehouses, obstacles, palette,
-            biome themes) + terrain queries
+            biome themes, decorative scenery) + terrain queries
   physics/  truck and cargo simulation, shared fixed-timestep constant
   game/     input handling, canvas rendering, game session/state machine,
             API client, medal thresholds, localStorage (personal bests,

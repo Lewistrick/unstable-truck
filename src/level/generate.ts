@@ -2,6 +2,7 @@ import { makeValueNoise2D, mulberry32, randInt, seedFromString } from "../util/r
 import { generateObstacles } from "./obstacles.js";
 import { generatePalette } from "./palette.js";
 import { generateBranches, generateHubs, generateRoads } from "./roads.js";
+import { generateScenery } from "./scenery.js";
 import { pickTheme } from "./themes.js";
 import type { Level } from "./types.js";
 import { generateWarehouses, generateWeeklyBuildings } from "./warehouses.js";
@@ -31,6 +32,7 @@ export function generateLevel(seed: string): Level {
   const { rocks, muds } = generateObstacles(rng, noise, WORLD_WIDTH, WORLD_HEIGHT, warehouses);
   const theme = pickTheme(seed);
   const palette = generatePalette(rng, theme);
+  const scenery = generateScenery(seed, theme, WORLD_WIDTH, WORLD_HEIGHT, roads, warehouses, [], rocks, muds);
 
   return {
     seed,
@@ -42,6 +44,7 @@ export function generateLevel(seed: string): Level {
     roads,
     warehouses,
     houses: [],
+    scenery,
     rocks,
     muds,
     palette,
@@ -77,6 +80,7 @@ export function generateWeeklyLevel(seed: string): Level {
   );
   const theme = pickTheme(seed);
   const palette = generatePalette(rng, theme);
+  const scenery = generateScenery(seed, theme, WEEKLY_WIDTH, WEEKLY_HEIGHT, roads, warehouses, houses, rocks, muds);
 
   return {
     seed,
@@ -88,6 +92,7 @@ export function generateWeeklyLevel(seed: string): Level {
     roads,
     warehouses,
     houses,
+    scenery,
     rocks,
     muds,
     palette,

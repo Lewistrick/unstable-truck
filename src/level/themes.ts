@@ -35,6 +35,15 @@ export interface HslRange {
   l: Band;
 }
 
+/** One kind of scenery a theme scatters. `kind` is drawn by render.ts's prop
+ * dispatcher; `weight` is its relative frequency; scale gives size variety. */
+export interface PropKind {
+  kind: string;
+  weight: number;
+  minScale: number;
+  maxScale: number;
+}
+
 export interface Theme {
   id: ThemeId;
   /** Human-readable name, shown as a teaser on the home screen. */
@@ -49,6 +58,9 @@ export interface Theme {
   rock: HslRange;
   mud: HslRange;
   house: HslRange;
+  /** Decorative scenery scattered across the map. Omitted themes get none yet
+   * (props are being filled in per biome across phases). */
+  props?: PropKind[];
 }
 
 const band = (h: Band, s: Band, l: Band): HslRange => ({ h, s, l });
@@ -64,6 +76,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([95, 135], [10, 18], [24, 32]),
     mud: band([28, 42], [32, 46], [26, 34]),
     house: band([18, 38], [26, 40], [52, 64]),
+    props: [
+      { kind: "cow", weight: 1, minScale: 1, maxScale: 1.3 },
+      { kind: "shrub", weight: 3, minScale: 0.7, maxScale: 1.2 },
+    ],
   },
   desert: {
     id: "desert",
@@ -74,6 +90,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([10, 26], [30, 48], [38, 48]),
     mud: band([28, 40], [34, 50], [34, 44]),
     house: band([30, 44], [28, 44], [58, 70]),
+    props: [
+      { kind: "cactus", weight: 2, minScale: 0.9, maxScale: 1.4 },
+      { kind: "deadbush", weight: 2, minScale: 0.7, maxScale: 1.1 },
+    ],
   },
   town: {
     id: "town",
@@ -114,6 +134,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([205, 225], [8, 16], [52, 64]),
     mud: band([205, 225], [10, 20], [62, 74]),
     house: band([205, 225], [10, 20], [70, 82]),
+    props: [
+      { kind: "penguin", weight: 1, minScale: 0.9, maxScale: 1.2 },
+      { kind: "snowpine", weight: 2, minScale: 0.9, maxScale: 1.4 },
+    ],
   },
   beach: {
     id: "beach",
@@ -134,6 +158,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     rock: band([100, 140], [10, 18], [22, 30]),
     mud: band([28, 44], [34, 50], [24, 32]),
     house: band([18, 38], [28, 44], [46, 58]),
+    props: [
+      { kind: "pine", weight: 3, minScale: 0.9, maxScale: 1.5 },
+      { kind: "mushroom", weight: 2, minScale: 0.6, maxScale: 1 },
+    ],
   },
   farmland: {
     id: "farmland",

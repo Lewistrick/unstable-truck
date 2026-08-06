@@ -393,6 +393,202 @@ function texturePattern(ctx: CanvasRenderingContext2D, level: Level): CanvasPatt
   return pattern;
 }
 
+// --- Scenery props ---------------------------------------------------------
+// Decorative, no-collision biome scenery. Positions are precomputed in
+// generation (deterministic, replay-safe); here they're drawn as small
+// code-authored vector sprites, culled to the visible viewport so even a dense
+// weekly map only draws what's on screen. Sprites are laid out upright (the
+// world isn't rotated) with their base near y = 9, over a shared soft shadow.
+
+const TAU = Math.PI * 2;
+
+/** Rounded-rect path helper (fill/stroke is the caller's job). */
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** Filled triangle with apex at (cx, apexY) and a base `height` below it. */
+function triangle(ctx: CanvasRenderingContext2D, cx: number, apexY: number, halfW: number, height: number): void {
+  ctx.beginPath();
+  ctx.moveTo(cx, apexY);
+  ctx.lineTo(cx - halfW, apexY + height);
+  ctx.lineTo(cx + halfW, apexY + height);
+  ctx.closePath();
+  ctx.fill();
+}
+
+const SHRUB_FLOWERS = ["#e85d75", "#f2c14e", "#6fb1e0", "#f4f1ea"];
+const MUSHROOM_CAPS = ["#d64545", "#e0873c", "#b0553a", "#c94f8a"];
+
+/** Draws one prop in local space (already translated/scaled by the caller). */
+function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number): void {
+  switch (kind) {
+    case "cow": {
+      ctx.fillStyle = "#4a423d";
+      ctx.fillRect(-6, 4, 2.5, 5);
+      ctx.fillRect(3.5, 4, 2.5, 5);
+      ctx.fillStyle = "#f4f1ea";
+      roundedRect(ctx, -8, -5, 16, 10, 5);
+      ctx.fill();
+      ctx.fillStyle = "#4a423d";
+      ctx.beginPath();
+      ctx.ellipse(-2, 0, 3, 2.6, 0, 0, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(4, -2, 2, 1.8, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#f4f1ea";
+      roundedRect(ctx, 6, -4, 7, 7, 3);
+      ctx.fill();
+      ctx.fillStyle = "#caa0a0";
+      roundedRect(ctx, 9.5, -1, 4, 3.5, 1.5);
+      ctx.fill();
+      break;
+    }
+    case "shrub": {
+      ctx.fillStyle = "#4b7a3a";
+      ctx.beginPath();
+      ctx.arc(-3, 3, 5, 0, TAU);
+      ctx.arc(3, 3, 5, 0, TAU);
+      ctx.arc(0, -1, 5.5, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = SHRUB_FLOWERS[variant % SHRUB_FLOWERS.length]!;
+      ctx.beginPath();
+      ctx.arc(-2, -1, 1.4, 0, TAU);
+      ctx.arc(2, 1, 1.4, 0, TAU);
+      ctx.arc(0, 3, 1.4, 0, TAU);
+      ctx.fill();
+      break;
+    }
+    case "cactus": {
+      ctx.fillStyle = "#3f8f4e";
+      roundedRect(ctx, -2.5, -9, 5, 18, 2.5);
+      ctx.fill();
+      if (variant === 0 || variant === 1) {
+        roundedRect(ctx, -7, -3, 3, 8, 1.5);
+        ctx.fill();
+        roundedRect(ctx, -7, -3, 4.5, 2.5, 1.2);
+        ctx.fill();
+      }
+      if (variant === 0 || variant === 2) {
+        roundedRect(ctx, 4, -6, 3, 8, 1.5);
+        ctx.fill();
+        roundedRect(ctx, 2.5, -6, 4.5, 2.5, 1.2);
+        ctx.fill();
+      }
+      break;
+    }
+    case "deadbush": {
+      ctx.strokeStyle = "#b08a53";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 3, 6, 0, TAU);
+      ctx.stroke();
+      for (let a = 0; a < 6; a++) {
+        const ang = (a / 6) * TAU;
+        ctx.beginPath();
+        ctx.moveTo(0, 3);
+        ctx.lineTo(Math.cos(ang) * 6, 3 + Math.sin(ang) * 6);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "penguin": {
+      ctx.fillStyle = "#2b2b30";
+      roundedRect(ctx, -5, -8, 10, 17, 5);
+      ctx.fill();
+      ctx.fillStyle = "#f4f1ea";
+      roundedRect(ctx, -3.5, -3, 7, 11, 3.5);
+      ctx.fill();
+      ctx.fillStyle = "#2b2b30";
+      ctx.beginPath();
+      ctx.arc(-1.8, -4, 0.9, 0, TAU);
+      ctx.arc(1.8, -4, 0.9, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#e8912f";
+      ctx.beginPath();
+      ctx.moveTo(-1.5, -2);
+      ctx.lineTo(1.5, -2);
+      ctx.lineTo(0, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(-3, 8, 2.5, 1.8);
+      ctx.fillRect(0.6, 8, 2.5, 1.8);
+      break;
+    }
+    case "pine":
+    case "snowpine": {
+      ctx.fillStyle = "#6b4a2f";
+      ctx.fillRect(-1.5, 5, 3, 4);
+      ctx.fillStyle = kind === "snowpine" ? "#2f6d43" : "#2e6b3f";
+      triangle(ctx, 0, -9, 6, 7);
+      triangle(ctx, 0, -4, 8, 7);
+      if (kind === "snowpine") {
+        ctx.fillStyle = "#eef4f7";
+        triangle(ctx, 0, -9, 3.4, 3);
+        triangle(ctx, 0, -4, 4.5, 3);
+      }
+      break;
+    }
+    case "mushroom": {
+      ctx.fillStyle = "#efe6d2";
+      roundedRect(ctx, -2, -1, 4, 9, 2);
+      ctx.fill();
+      ctx.fillStyle = MUSHROOM_CAPS[variant % MUSHROOM_CAPS.length]!;
+      ctx.beginPath();
+      ctx.moveTo(-7, -1);
+      ctx.quadraticCurveTo(0, -11, 7, -1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f4efe0";
+      ctx.beginPath();
+      ctx.arc(-2.5, -4, 1, 0, TAU);
+      ctx.arc(2.5, -3, 1, 0, TAU);
+      ctx.arc(0, -6, 1, 0, TAU);
+      ctx.fill();
+      break;
+    }
+  }
+}
+
+interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/** Draws the level's scenery, skipping anything outside the visible bounds. */
+function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
+  const margin = 40; // props extend a bit past their center point
+  for (const prop of level.scenery) {
+    if (
+      prop.pos.x < bounds.minX - margin ||
+      prop.pos.x > bounds.maxX + margin ||
+      prop.pos.y < bounds.minY - margin ||
+      prop.pos.y > bounds.maxY + margin
+    ) {
+      continue;
+    }
+    ctx.save();
+    ctx.translate(prop.pos.x, prop.pos.y);
+    ctx.scale(prop.scale, prop.scale);
+    if (prop.angle !== 0) ctx.rotate(prop.angle);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.10)";
+    ctx.beginPath();
+    ctx.ellipse(0, 9, 8, 2.6, 0, 0, TAU);
+    ctx.fill();
+    drawProp(ctx, prop.kind, prop.variant);
+    ctx.restore();
+  }
+}
+
 export function renderWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
@@ -430,6 +626,16 @@ export function renderWorld(
   strokeRoad(ctx, level);
   drawObstacles(ctx, level);
   drawHouses(ctx, level);
+  // Scenery sits on the grass (placed off-road), drawn under the warehouses so
+  // gameplay markers stay on top. Cull to the visible world rect.
+  const halfW = canvasW / 2 / zoom;
+  const halfH = canvasH / 2 / zoom;
+  drawScenery(ctx, level, {
+    minX: camera.x - halfW,
+    maxX: camera.x + halfW,
+    minY: camera.y - halfH,
+    maxY: camera.y + halfH,
+  });
   drawWarehouses(ctx, level, visited);
 
   for (const ghost of ghosts) {
