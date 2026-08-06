@@ -467,34 +467,46 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number):
       break;
     }
     case "cactus": {
+      // Every cactus has at least one arm; arms bend outward then up (saguaro).
+      const hasLeft = variant !== 2;
+      const hasRight = variant !== 1;
       ctx.fillStyle = "#3f8f4e";
-      roundedRect(ctx, -2.5, -9, 5, 18, 2.5);
+      roundedRect(ctx, -2.5, -9, 5, 18, 2.5); // trunk
       ctx.fill();
-      if (variant === 0 || variant === 1) {
-        roundedRect(ctx, -7, -3, 3, 8, 1.5);
+      if (hasLeft) {
+        roundedRect(ctx, -7, 1, 5.5, 2.5, 1.2); // elbow out to the left
         ctx.fill();
-        roundedRect(ctx, -7, -3, 4.5, 2.5, 1.2);
+        roundedRect(ctx, -7, -5, 3, 8, 1.5); // then up
         ctx.fill();
       }
-      if (variant === 0 || variant === 2) {
-        roundedRect(ctx, 4, -6, 3, 8, 1.5);
+      if (hasRight) {
+        roundedRect(ctx, 1.5, 3, 5.5, 2.5, 1.2); // elbow out to the right
         ctx.fill();
-        roundedRect(ctx, 2.5, -6, 4.5, 2.5, 1.2);
+        roundedRect(ctx, 4, -3, 3, 8, 1.5); // then up
         ctx.fill();
       }
       break;
     }
     case "deadbush": {
+      // Tangled ball of twigs: strands cross the interior at irregular (golden-
+      // angle) headings through off-center control points, so it reads as a
+      // tumbleweed rather than a spoked wheel.
       ctx.strokeStyle = "#b08a53";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(0, 3, 6, 0, TAU);
-      ctx.stroke();
-      for (let a = 0; a < 6; a++) {
-        const ang = (a / 6) * TAU;
+      ctx.lineWidth = 0.9;
+      ctx.lineCap = "round";
+      const cx = 0;
+      const cy = 3;
+      const radius = 6;
+      for (let i = 0; i < 9; i++) {
+        const a = i * 2.399963 + variant * 0.9; // golden angle avoids symmetry
+        const b = a + 1.7 + (i % 3) * 0.35;
+        const r1 = radius * (0.75 + 0.25 * Math.abs(Math.sin(a * 3)));
+        const r2 = radius * (0.75 + 0.25 * Math.abs(Math.sin(b * 2)));
+        const mx = cx + Math.cos((a + b) / 2) * radius * 0.25;
+        const my = cy + Math.sin((a + b) / 2) * radius * 0.25;
         ctx.beginPath();
-        ctx.moveTo(0, 3);
-        ctx.lineTo(Math.cos(ang) * 6, 3 + Math.sin(ang) * 6);
+        ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        ctx.quadraticCurveTo(mx, my, cx + Math.cos(b) * r2, cy + Math.sin(b) * r2);
         ctx.stroke();
       }
       break;
