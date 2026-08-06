@@ -473,8 +473,26 @@ function showMedal(medal: Medal | null, pars: MedalPars, champion: number | null
   resultsMedal.textContent = text;
 }
 
+/** Public URL used in share text when the game is opened from a real site,
+ * hosted address (not localhost or a bare file). */
+const FALLBACK_GAME_URL = "https://lewistrick.com/unstable-truck";
+
+/** The link to include in shared results: the page's own address when it's a
+ * hosted http(s) URL (sub-path deploys included, minus any query/hash), or the
+ * canonical public URL for local/dev contexts where the address isn't
+ * shareable. */
+function gameUrl(): string {
+  const { protocol, hostname, origin, pathname } = window.location;
+  const hosted =
+    (protocol === "https:" || protocol === "http:") &&
+    hostname !== "" &&
+    hostname !== "localhost" &&
+    hostname !== "127.0.0.1";
+  return hosted ? origin + pathname : FALLBACK_GAME_URL;
+}
+
 /** Spoiler-free result summary for the clipboard - no route/map details, just
- * the day, medal, time, cargo condition, and current streak. */
+ * the day, medal, time, cargo condition, current streak, and a link to play. */
 function buildShareText(playable: Playable, time: number, stability: number, medal: Medal | null): string {
   const medalPart = medal ? `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}` : "No medal";
   const lines = [
@@ -485,6 +503,7 @@ function buildShareText(playable: Playable, time: number, stability: number, med
     const streak = currentStreak(loadCompletedDays());
     if (streak > 1) lines.push(`\u{1F525} ${streak}-day streak`);
   }
+  lines.push(gameUrl());
   return lines.join("\n");
 }
 

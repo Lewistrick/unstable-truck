@@ -63,7 +63,9 @@ What's implemented:
   a row of dots (one per navigable day, today highlighted) fills in for the
   days you've completed.
 - Shareable result card: after a delivery, a Share button copies a spoiler-free
-  summary (day, medal, time, cargo %, streak — no map details) to the clipboard.
+  summary (day, medal, time, cargo %, streak, and a link back to the game — no
+  map details) to the clipboard. The link is the page's own hosted URL, falling
+  back to the public address for local/dev play.
   The home screen also has a Share button next to today's "Best" time that
   copies the same kind of summary for your stored personal best (today only).
 - Start screen shows one day at a time (today by default), with prev/next
