@@ -762,7 +762,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "palm": {
-      // Randomly curved trunk, 4-8 feathered fronds, 1-3 coconuts.
+      // Randomly curved trunk, an arched crown of fronds, 1-3 coconuts.
       ctx.lineCap = "round";
       const lean = randRange(rng, -3.5, 3.5);
       const topX = lean;
@@ -773,17 +773,26 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       ctx.moveTo(0, 9);
       ctx.quadraticCurveTo(lean * 0.4 + randRange(rng, -2, 2), 2, topX, topY);
       ctx.stroke();
+      // Dark under-crown for depth behind the fronds.
+      ctx.fillStyle = "rgba(28, 78, 44, 0.55)";
+      ctx.beginPath();
+      ctx.ellipse(topX, topY - 1, 5, 3.5, 0, 0, TAU);
+      ctx.fill();
+      // Fronds fan across an upward-biased spread (never below horizontal) with
+      // per-frond jitter so the crown isn't a mechanical even fan.
       ctx.strokeStyle = "#3f9e57";
-      const fronds = randInt(rng, 4, 8);
+      const fronds = randInt(rng, 5, 8);
+      const spread = 1.15;
       for (let i = 0; i < fronds; i++) {
-        const ang = -Math.PI / 2 + (i / (fronds - 1) - 0.5) * 2.6 + randRange(rng, -0.15, 0.15);
-        drawFrond(ctx, rng, topX, topY, ang, randRange(rng, 8, 13));
+        const base = -Math.PI / 2 + (i / (fronds - 1) - 0.5) * 2 * spread;
+        drawFrond(ctx, rng, topX, topY, base + randRange(rng, -0.22, 0.22), randRange(rng, 9, 13));
       }
+      // Coconut cluster at the crown base.
       ctx.fillStyle = "#5a3a24";
       const coconuts = randInt(rng, 1, 3);
       for (let i = 0; i < coconuts; i++) {
         ctx.beginPath();
-        ctx.arc(topX + randRange(rng, -2.5, 2.5), topY + randRange(rng, 0, 2.5), 1.3, 0, TAU);
+        ctx.arc(topX + randRange(rng, -2, 2), topY + randRange(rng, 0.5, 2.5), 1.3, 0, TAU);
         ctx.fill();
       }
       break;
