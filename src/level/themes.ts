@@ -206,7 +206,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     house: band([10, 30], [34, 50], [48, 60]),
     props: [
       { kind: "baretree", weight: 2, minScale: 4.5, maxScale: 6.5 },
-      { kind: "pumpkin", weight: 2, minScale: 1.8, maxScale: 2.6 },
+      { kind: "pumpkin", weight: 2, minScale: 2.7, maxScale: 3.9 },
+      { kind: "leaves", weight: 3, minScale: 2, maxScale: 3.5 },
     ],
   },
   savanna: {

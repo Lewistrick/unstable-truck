@@ -423,31 +423,36 @@ function triangle(ctx: CanvasRenderingContext2D, cx: number, apexY: number, half
   ctx.fill();
 }
 
-/** Recursive branch: draws a segment, then spawns children with halved length
- * and thickness, until `depth` reaches `maxDepth`. The trunk (depth 0) forks
- * into 1-5 branches, deeper levels into 1-4, per the seeded rng. */
-function drawBranch(
+/** Recursive fractal branch: draws a segment, then spawns children that start
+ * anywhere along it (not just the tip), until `depth` reaches `maxDepth`. The
+ * trunk (depth 0) forks into 2-5 branches, deeper levels into 0-3. Each child
+ * is 0.8x the length and 0.5x the width of its parent. Shared by the bare and
+ * charred trees - only the stroke color differs between those biomes. */
+function drawTreeBranch(
   ctx: CanvasRenderingContext2D,
   rng: Rng,
   x: number,
   y: number,
   angle: number,
   length: number,
-  thickness: number,
+  width: number,
   depth: number,
   maxDepth: number,
 ): void {
   const ex = x + Math.cos(angle) * length;
   const ey = y + Math.sin(angle) * length;
-  ctx.lineWidth = Math.max(0.4, thickness);
+  ctx.lineWidth = Math.max(0.5, width);
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(ex, ey);
   ctx.stroke();
   if (depth >= maxDepth) return;
-  const children = depth === 0 ? randInt(rng, 1, 5) : randInt(rng, 1, 4);
+  const children = depth === 0 ? randInt(rng, 2, 5) : randInt(rng, 0, 3);
   for (let i = 0; i < children; i++) {
-    drawBranch(ctx, rng, ex, ey, angle + randRange(rng, -0.9, 0.9), length * 0.5, thickness * 0.5, depth + 1, maxDepth);
+    const t = randRange(rng, 0, 1); // sub-branch starts anywhere along this branch
+    const sx = x + Math.cos(angle) * length * t;
+    const sy = y + Math.sin(angle) * length * t;
+    drawTreeBranch(ctx, rng, sx, sy, angle + randRange(rng, -0.9, 0.9), length * 0.8, width * 0.5, depth + 1, maxDepth);
   }
 }
 
@@ -486,6 +491,7 @@ const CAR_COLORS = ["#c0392b", "#2980b9", "#f1c40f", "#7f8c8d"];
 const CANDY_COLORS = ["#e8503a", "#f2c14e", "#6fb1e0", "#e88bb0"];
 const GUMDROP_COLORS = ["#e8503a", "#f2c14e", "#8fd18f", "#6fb1e0", "#e88bb0", "#b07de0"];
 const BEACHBALL_COLORS = ["#e8503a", "#f2c14e", "#3f9e57", "#6fb1e0", "#e88bb0", "#f4f1ea"];
+const AUTUMN_LEAF_COLORS = ["#8a4b2a", "#b5451f", "#d8722a", "#d9a72b"]; // brown/red/orange/yellow
 const EGG_COLORS = ["#e88bb0", "#6fb1e0", "#f2c14e", "#8fd18f"];
 const FESTIVE_COLORS = ["#f2c14e", "#e8503a", "#6fb1e0", "#8fd18f"];
 
@@ -866,6 +872,28 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       ctx.fill();
       break;
     }
+    case "leaves": {
+      // A patch of scattered fallen leaves, random count and autumn colors.
+      const count = randInt(rng, 6, 16);
+      for (let i = 0; i < count; i++) {
+        ctx.save();
+        ctx.translate(randRange(rng, -9, 9), randRange(rng, -3, 8));
+        ctx.rotate(randRange(rng, 0, TAU));
+        const len = randRange(rng, 1.6, 3);
+        ctx.fillStyle = AUTUMN_LEAF_COLORS[randInt(rng, 0, AUTUMN_LEAF_COLORS.length - 1)]!;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, len, len * 0.55, 0, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        ctx.moveTo(-len, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+      break;
+    }
     case "pumpkin": {
       ctx.fillStyle = "#e07b28";
       ctx.beginPath();
@@ -1150,33 +1178,8 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
     }
     case "baretree": {
       ctx.strokeStyle = "#6b4a2f";
-      ctx.lineWidth = 2.2;
       ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(0, 9);
-      ctx.lineTo(0, -2);
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-4, -5);
-      ctx.moveTo(0, -2);
-      ctx.lineTo(4, -6);
-      ctx.moveTo(0, 2);
-      ctx.lineTo(-5, -1);
-      ctx.stroke();
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(-4, -5);
-      ctx.lineTo(-6, -8);
-      ctx.moveTo(4, -6);
-      ctx.lineTo(6, -9);
-      ctx.moveTo(0, -2);
-      ctx.lineTo(1, -8);
-      ctx.stroke();
-      ctx.fillStyle = "#d9822b";
-      for (const [x, y] of [[-6, -8], [6, -9], [1, -8], [-5, -1]] as Array<[number, number]>) {
-        ctx.beginPath();
-        ctx.arc(x, y, 1.4, 0, TAU);
-        ctx.fill();
-      }
+      drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 5);
       break;
     }
     case "acacia": {
@@ -1200,15 +1203,10 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "charredtree": {
-      // Recursive fractal: trunk forks 1-5 ways, deeper branches 1-4, to depth
-      // 5, each level halving in length and thickness.
+      // Same recursive tree as the autumn bare tree, only darker.
       ctx.strokeStyle = "#2e2724";
       ctx.lineCap = "round";
-      drawBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 6, 9), 2.4, 0, 5);
-      ctx.fillStyle = "rgba(230, 90, 40, 0.4)";
-      ctx.beginPath();
-      ctx.arc(0, 8, 3, 0, TAU);
-      ctx.fill();
+      drawTreeBranch(ctx, rng, 0, 9, -Math.PI / 2, randRange(rng, 7, 10), 2.4, 0, 5);
       break;
     }
   }
@@ -1222,7 +1220,7 @@ interface Bounds {
 }
 
 // Flat, ground-hugging props that shouldn't get the standing-prop drop shadow.
-const SHADOWLESS = new Set(["fog", "lavacrack", "lilypad"]);
+const SHADOWLESS = new Set(["fog", "lavacrack", "lilypad", "leaves"]);
 
 /** Draws the level's scenery, skipping anything outside the visible bounds. */
 function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
