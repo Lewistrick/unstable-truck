@@ -1,6 +1,7 @@
 import { distance } from "../util/vec2.js";
 import { mulberry32, randInt, randRange, seedFromString, shuffle, type Rng } from "../util/rng.js";
 import { getTheme, type TextureStyle } from "../level/themes.js";
+import { drawPalmV1 } from "./palm-variants.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import type { Level, Warehouse } from "../level/types.js";
@@ -456,37 +457,6 @@ function drawTreeBranch(
   }
 }
 
-/** A palm frond: a drooping spine from (x, y) with 10-20 leaflet lines feathered
- * along alternating sides. */
-function drawFrond(ctx: CanvasRenderingContext2D, rng: Rng, x: number, y: number, baseAngle: number, length: number): void {
-  const droop = randRange(rng, 0.3, 0.8);
-  const ex = x + Math.cos(baseAngle) * length;
-  const ey = y + Math.sin(baseAngle) * length + droop * length;
-  const cx = x + Math.cos(baseAngle) * length * 0.5;
-  const cy = y + Math.sin(baseAngle) * length * 0.5;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.quadraticCurveTo(cx, cy, ex, ey);
-  ctx.stroke();
-  const leaflets = randInt(rng, 10, 20);
-  ctx.lineWidth = 0.6; // thin leaflets so the frond reads as feathery
-  for (let i = 1; i <= leaflets; i++) {
-    const t = i / (leaflets + 1);
-    const px = (1 - t) * (1 - t) * x + 2 * (1 - t) * t * cx + t * t * ex;
-    const py = (1 - t) * (1 - t) * y + 2 * (1 - t) * t * cy + t * t * ey;
-    const tx = 2 * (1 - t) * (cx - x) + 2 * t * (ex - cx);
-    const ty = 2 * (1 - t) * (cy - y) + 2 * t * (ey - cy);
-    const tl = Math.hypot(tx, ty) || 1;
-    const side = i % 2 === 0 ? 1 : -1;
-    const llen = 3.6 * (1 - t) + 1.4;
-    ctx.beginPath();
-    ctx.moveTo(px, py);
-    ctx.lineTo(px + (-ty / tl) * side * llen, py + (tx / tl) * side * llen);
-    ctx.stroke();
-  }
-}
-
 const SHRUB_FLOWERS = ["#e85d75", "#f2c14e", "#6fb1e0", "#f4f1ea"];
 const MUSHROOM_CAPS = ["#d64545", "#e0873c", "#b0553a", "#c94f8a"];
 const CAR_COLORS = ["#c0392b", "#2980b9", "#f1c40f", "#7f8c8d"];
@@ -762,39 +732,7 @@ function drawProp(ctx: CanvasRenderingContext2D, kind: string, variant: number, 
       break;
     }
     case "palm": {
-      // Randomly curved trunk, an arched crown of fronds, 1-3 coconuts.
-      ctx.lineCap = "round";
-      const lean = randRange(rng, -3.5, 3.5);
-      const topX = lean;
-      const topY = -randRange(rng, 6, 10);
-      ctx.strokeStyle = "#8a6a44";
-      ctx.lineWidth = 2.6;
-      ctx.beginPath();
-      ctx.moveTo(0, 9);
-      ctx.quadraticCurveTo(lean * 0.4 + randRange(rng, -2, 2), 2, topX, topY);
-      ctx.stroke();
-      // Dark under-crown for depth behind the fronds.
-      ctx.fillStyle = "rgba(28, 78, 44, 0.55)";
-      ctx.beginPath();
-      ctx.ellipse(topX, topY - 1, 5, 3.5, 0, 0, TAU);
-      ctx.fill();
-      // Fronds fan across an upward-biased spread (never below horizontal) with
-      // per-frond jitter so the crown isn't a mechanical even fan.
-      ctx.strokeStyle = "#3f9e57";
-      const fronds = randInt(rng, 5, 8);
-      const spread = 1.15;
-      for (let i = 0; i < fronds; i++) {
-        const base = -Math.PI / 2 + (i / (fronds - 1) - 0.5) * 2 * spread;
-        drawFrond(ctx, rng, topX, topY, base + randRange(rng, -0.22, 0.22), randRange(rng, 9, 13));
-      }
-      // Coconut cluster at the crown base.
-      ctx.fillStyle = "#5a3a24";
-      const coconuts = randInt(rng, 1, 3);
-      for (let i = 0; i < coconuts; i++) {
-        ctx.beginPath();
-        ctx.arc(topX + randRange(rng, -2, 2), topY + randRange(rng, 0.5, 2.5), 1.3, 0, TAU);
-        ctx.fill();
-      }
+      drawPalmV1(ctx, rng);
       break;
     }
     case "beachball": {
