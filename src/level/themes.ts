@@ -191,9 +191,9 @@ export const THEMES: Record<ThemeId, Theme> = {
     mud: band([28, 42], [36, 52], [28, 36]),
     house: band([8, 28], [30, 46], [50, 62]),
     props: [
-      { kind: "haybale", weight: 2, minScale: 1, maxScale: 1.5 },
+      { kind: "haybale", weight: 2, minScale: 2, maxScale: 3 },
       { kind: "scarecrow", weight: 1, minScale: 2, maxScale: 2.8 },
-      { kind: "windmill", weight: 1, minScale: 3.5, maxScale: 5 },
+      { kind: "windmill", weight: 1, minScale: 7, maxScale: 10 },
       { kind: "tractor", weight: 1, minScale: 4, maxScale: 5.6 },
     ],
   },
