@@ -234,48 +234,72 @@ html, body {
   border: 1px solid #3a4554;
 }
 
-/* Each dot is tinted by the best medal earned that day; no medal stays gray. */
+/* Each dot is tinted by the best medal earned that day; no medal stays gray.
+   Every medal carries a small resting glow in its own colour (via --glow, an
+   "r, g, b" triple) and pulses once, brighter, on hover - a light, replayable
+   flourish rather than a constant animation. */
+.day-dot.medal-bronze,
+.day-dot.medal-silver,
+.day-dot.medal-gold,
+.day-dot.medal-champion {
+  box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
+}
+
 .day-dot.medal-bronze {
   background: #c17a3f;
   border-color: #d99457;
+  --glow: 217, 148, 87;
 }
 
 .day-dot.medal-silver {
   background: #c3ccd6;
   border-color: #e2e8ef;
+  --glow: 226, 232, 239;
 }
 
 .day-dot.medal-gold {
   background: #f2c14e;
   border-color: #ffd873;
+  --glow: 255, 216, 115;
 }
 
-/* Champion: glowing rose-gold, gently pulsing so it stands apart from gold. */
+/* Champion: rose-gold, a touch stronger resting glow than the others. */
 .day-dot.medal-champion {
   background: #e7a7a0;
   border-color: #f4cabb;
   box-shadow: 0 0 5px 1px rgba(231, 167, 160, 0.75);
-  animation: champion-glow 1.9s ease-in-out infinite;
+  --glow: 244, 202, 187;
 }
 
-@keyframes champion-glow {
-  0%,
+/* A single pulse (ending back at the resting glow), driven by JS: mouse-enter
+   adds .pulsing, and it's removed on animationend so the pulse always runs to
+   completion even if the pointer has already left, and can fire again next
+   entry. --glow is on the same element (the medal class), so one rule covers
+   every colour. */
+.day-dot.pulsing {
+  animation: medal-pulse 0.9s ease-out;
+}
+
+@keyframes medal-pulse {
+  0% {
+    box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
+  }
+  35% {
+    box-shadow: 0 0 10px 4px rgba(var(--glow), 0.95);
+  }
   100% {
-    box-shadow: 0 0 4px 1px rgba(231, 167, 160, 0.55);
-  }
-  50% {
-    box-shadow: 0 0 9px 3px rgba(244, 202, 187, 0.95);
+    box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
   }
 }
 
-/* Outline (not box-shadow) so today's ring composes with the champion glow. */
+/* Outline (not box-shadow) so today's ring composes with the medal glow. */
 .day-dot.today {
   outline: 2px solid rgba(240, 162, 74, 0.7);
   outline-offset: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .day-dot.medal-champion {
+  .day-dot.pulsing {
     animation: none;
   }
 }

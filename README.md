@@ -112,8 +112,9 @@ What's implemented:
   successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
   consecutive delivered days (with a one-day grace before today's is done), and
   a row of dots (the most recent week, today highlighted) is tinted by the best
-  medal earned that day: gray for none, bronze/silver/gold, and a glowing
-  rose-gold for Champion.
+  medal earned that day: gray for none, bronze/silver/gold, and rose-gold for
+  Champion. Each medal dot carries a small resting glow in its own colour and
+  pulses once, brighter, when you hover it.
 - Shareable result card: after a delivery, a Share button copies a spoiler-free
   summary (day, finish time, earned medal, and a link back to the game — no map
   details) to the clipboard. The link is the page's own hosted URL, falling

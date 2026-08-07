@@ -271,7 +271,14 @@ function renderProgressStrip(): void {
 
     const dot = document.createElement("span");
     dot.className = "day-dot";
-    if (medal) dot.classList.add(`medal-${medal}`);
+    if (medal) {
+      dot.classList.add(`medal-${medal}`);
+      // Pulse once per mouse-enter. Driven here (not CSS :hover) so the pulse
+      // always finishes even if the pointer leaves mid-animation; removing the
+      // class on animationend lets it fire again on the next entry.
+      dot.addEventListener("mouseenter", () => dot.classList.add("pulsing"));
+      dot.addEventListener("animationend", () => dot.classList.remove("pulsing"));
+    }
     if (offset === 0) dot.classList.add("today");
     dot.title = medal ? `${seed} - ${MEDAL_LABEL[medal]}` : seed;
     dayDots.appendChild(dot);
