@@ -58,51 +58,9 @@ function obstacleRng(pos: Vec2): Rng {
   return mulberry32(seedFromString(`${Math.round(pos.x)}:${Math.round(pos.y)}`));
 }
 
-// Seamless rippled-water pattern, built once and reused for every puddle (like
-// the ground textures). Tint-neutral black/white so it reads on any mud color.
-const WATER_TILE = 80;
-let waterPatternCache: CanvasPattern | null | undefined;
-
-/** A tileable water texture: evenly spaced wavy lines, each a bright crest with
- * a soft dark trough beneath, so light glints off the ripples. Two sine cycles
- * across the tile and a 10px row pitch (80/8) keep it seamless in both axes;
- * per-line phase/amplitude jitter (from a fixed seed) makes it read as organic
- * water rather than mechanical stripes. */
-function waterPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
-  if (waterPatternCache !== undefined) return waterPatternCache;
-  const tile = document.createElement("canvas");
-  tile.width = WATER_TILE;
-  tile.height = WATER_TILE;
-  const t = tile.getContext("2d");
-  if (!t) return (waterPatternCache = null);
-
-  const rng = mulberry32(0x7a7e12); // fixed, so the tile is stable across runs
-  t.lineCap = "round";
-  const wave = (y0: number, phase: number, amp: number, color: string, lw: number, dy: number): void => {
-    t.beginPath();
-    for (let x = 0; x <= WATER_TILE; x++) {
-      // 2 whole cycles across the tile width -> ends match -> seamless in x.
-      const yy = y0 + dy + Math.sin((x / WATER_TILE) * TAU * 2 + phase) * amp;
-      if (x === 0) t.moveTo(x, yy);
-      else t.lineTo(x, yy);
-    }
-    t.strokeStyle = color;
-    t.lineWidth = lw;
-    t.stroke();
-  };
-  for (let y0 = 0; y0 < WATER_TILE; y0 += 10) {
-    const phase = rng() * TAU;
-    const amp = 2 + rng() * 1.6;
-    wave(y0, phase, amp, "rgba(0,0,0,0.12)", 1.8, 1.4); // trough shadow
-    wave(y0, phase, amp, "rgba(255,255,255,0.32)", 1.4, 0); // crest highlight
-  }
-  waterPatternCache = ctx.createPattern(tile, "repeat");
-  return waterPatternCache;
-}
-
 /** Mud as a rounded puddle: a smooth curved silhouette (rounding the physics
  * polygon's corners), a paler dried rim, a soft darker pool for depth, and a
- * seamless rippled-water pattern across the surface. */
+ * watery surface of several just-off-concentric ripple-ring groups. */
 function drawMud(ctx: CanvasRenderingContext2D, mud: MudObstacle, mudColor: string): void {
   const base = parseHsl(mudColor);
   const rng = obstacleRng(mud.pos);
@@ -149,38 +107,69 @@ function drawMud(ctx: CanvasRenderingContext2D, mud: MudObstacle, mudColor: stri
   ctx.fillStyle = hslStr(base.h - 6, base.s + 8, base.l - 13, 0.5);
   ctx.fill();
 
-  // The watery texture: the seamless ripple pattern, filled across the puddle.
-  // A per-patch offset (from this patch's RNG) shifts the pattern phase so
-  // neighbouring puddles don't share the exact same ripple alignment.
-  const water = waterPattern(ctx);
-  if (water) {
-    const ox = rng() * WATER_TILE;
-    const oy = rng() * WATER_TILE;
-    ctx.translate(-ox, -oy); // shift where the (clip-masked) pattern samples
-    ctx.fillStyle = water;
-    ctx.fillRect(cx - r - WATER_TILE + ox, cy - r - WATER_TILE + oy, r * 2 + WATER_TILE * 2, r * 2 + WATER_TILE * 2);
+  // The watery texture: several groups of just-off-concentric ripple rings, as
+  // if from drips landing on the surface. Group centers, ring counts and the
+  // per-ring wobble all come from this patch's RNG, so every puddle's ripples
+  // are unique but always read as concentric ring groups. Each ring is a bright
+  // crest over a faint dark halo so it glints like water.
+  ctx.lineCap = "round";
+  const groups = 1 + Math.floor(rng() * 2);
+  for (let g = 0; g < groups; g++) {
+    const gx = cx + (rng() - 0.5) * r * 1.3;
+    const gy = cy + (rng() - 0.5) * r * 1.3;
+    const rings = 7 + Math.floor(rng() * 4);
+    const gap = r * (0.09 + rng() * 0.06);
+    const rot = rng() * TAU;
+    const squash = 0.8 + rng() * 0.2;
+    for (let i = 1; i <= rings; i++) {
+      const rad = gap * i;
+      // "Just off": nudge each ring's center a touch so they aren't perfectly
+      // nested, like real ripples.
+      const jx = gx + (rng() - 0.5) * rad * 0.16;
+      const jy = gy + (rng() - 0.5) * rad * 0.16;
+      const fade = 1 - (i - 1) / (rings + 0.5); // inner rings brightest
+      ctx.beginPath();
+      ctx.ellipse(jx, jy, rad + 1, (rad + 1) * squash, rot, 0, TAU);
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = `rgba(0, 0, 0, ${(0.09 * fade).toFixed(3)})`;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(jx, jy, rad, rad * squash, rot, 0, TAU);
+      ctx.lineWidth = Math.max(0.9, r * 0.02);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${(0.3 * fade).toFixed(3)})`;
+      ctx.stroke();
+    }
   }
 
   ctx.restore();
 }
 
-/** Rock with a bumpy silhouette (the collision stays the circle underneath),
- * flat lit/shadow facets for volume, and standout accent veins and grit that
- * read even when the base rock color matches the surrounding ground. */
+// Every rock is lit from the same direction, so the light/dark terminator sits
+// at a constant angle on all of them - keeping the shading illusion consistent
+// across the map. Only its position (and the stone/facet shapes) vary per rock.
+// This unit vector points from the lit side toward the shadow side.
+const ROCK_SHADE_ANGLE = Math.PI * 0.25; // shadow toward lower-right (light from upper-left)
+const ROCK_SHADE_DIR = { x: Math.cos(ROCK_SHADE_ANGLE), y: Math.sin(ROCK_SHADE_ANGLE) };
+
+/** Rock with a random bumpy silhouette, a lit/shadow split whose terminator is
+ * at the shared global angle (only its offset varies per stone), a random inner
+ * facet, and standout accent veins/grit that read even when the base rock color
+ * matches the surrounding ground. */
 function drawRock(ctx: CanvasRenderingContext2D, rock: RockObstacle, rockColor: string): void {
   const base = parseHsl(rockColor);
   const rng = obstacleRng(rock.pos);
   const { x: cx, y: cy } = rock.pos;
   const r = rock.radius;
 
-  // Bumpy outline within ~0.9-1.08r, centered on the circular hitbox so it
-  // still lines up with the (unchanged) circle collision.
+  // Random bumpy outline (varied vertex count and per-vertex radius so stones
+  // differ), centered on the circular hitbox so it still lines up with the
+  // (unchanged) circle collision.
   const verts: Vec2[] = [];
-  const n = 10;
+  const n = 8 + Math.floor(rng() * 5); // 8-12 corners
   const start = rng() * TAU;
   for (let i = 0; i < n; i++) {
     const a = start + (i / n) * TAU;
-    const rad = r * (0.9 + rng() * 0.18);
+    const rad = r * (0.82 + rng() * 0.28); // 0.82-1.10
     verts.push({ x: cx + Math.cos(a) * rad, y: cy + Math.sin(a) * rad });
   }
   const outline = (): void => {
@@ -202,24 +191,52 @@ function drawRock(ctx: CanvasRenderingContext2D, rock: RockObstacle, rockColor: 
   ctx.save();
   ctx.clip();
 
-  // Shadow facet over the lower-right.
-  ctx.beginPath();
-  ctx.moveTo(cx - r, cy - r * 0.1);
-  ctx.lineTo(cx + r, cy - r * 0.35);
-  ctx.lineTo(cx + r, cy + r);
-  ctx.lineTo(cx - r, cy + r);
-  ctx.closePath();
+  // Light/dark split: the terminator line is perpendicular to ROCK_SHADE_DIR
+  // (same angle on every rock), through a point offset from center along that
+  // direction. Only the offset varies per rock, so some stones catch more light
+  // than others while the light appears to come from one place everywhere.
+  const dir = ROCK_SHADE_DIR;
+  const perp = { x: -dir.y, y: dir.x };
+  const offset = (rng() - 0.5) * r * 0.8; // -0.4r..0.4r along the light axis
+  const sx = cx + dir.x * offset;
+  const sy = cy + dir.y * offset;
+  const BIG = r * 2.4;
+  // Fill the half-plane on `side` (+1 = shadow side, -1 = lit side) of the line.
+  const halfPlane = (side: number): void => {
+    ctx.beginPath();
+    ctx.moveTo(sx + perp.x * BIG, sy + perp.y * BIG);
+    ctx.lineTo(sx - perp.x * BIG, sy - perp.y * BIG);
+    ctx.lineTo(sx - perp.x * BIG + dir.x * side * BIG, sy - perp.y * BIG + dir.y * side * BIG);
+    ctx.lineTo(sx + perp.x * BIG + dir.x * side * BIG, sy + perp.y * BIG + dir.y * side * BIG);
+    ctx.closePath();
+  };
+  halfPlane(1);
   ctx.globalAlpha = 0.5;
   ctx.fillStyle = shadow;
   ctx.fill();
+  halfPlane(-1);
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = lit;
+  ctx.fill();
+  ctx.globalAlpha = 1;
 
-  // Lit facet plane toward the top-left light.
+  // Inner facet ("the square"): a brighter angular plane on the lit side, with a
+  // random shape, size, and position per rock.
+  const fx = cx - dir.x * r * (0.15 + rng() * 0.28) + perp.x * (rng() - 0.5) * r * 0.5;
+  const fy = cy - dir.y * r * (0.15 + rng() * 0.28) + perp.y * (rng() - 0.5) * r * 0.5;
+  const fSize = r * (0.28 + rng() * 0.28);
+  const fRot = rng() * TAU;
   ctx.beginPath();
-  ctx.moveTo(cx - r * 0.85, cy - r * 0.25);
-  ctx.lineTo(cx + r * 0.1, cy - r * 0.85);
-  ctx.lineTo(cx + r * 0.25, cy - r * 0.05);
-  ctx.lineTo(cx - r * 0.35, cy + r * 0.3);
+  for (let k = 0; k < 4; k++) {
+    const a = fRot + k * (TAU / 4) + (rng() - 0.5) * 0.5; // jittered quad corners
+    const rr = fSize * (0.7 + rng() * 0.6);
+    const x = fx + Math.cos(a) * rr;
+    const y = fy + Math.sin(a) * rr;
+    if (k === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
   ctx.closePath();
+  ctx.globalAlpha = 0.5;
   ctx.fillStyle = lit;
   ctx.fill();
   ctx.globalAlpha = 1;

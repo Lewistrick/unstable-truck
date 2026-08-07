@@ -28,9 +28,9 @@ const { mulberry32, seedFromString } = await import("../dist/util/rng.js");
 const { GameSession } = await import("../dist/game/session.js");
 const { renderWorld } = await import("../dist/game/render.js");
 
-const WIDTH = 600;
-const HEIGHT = 400;
-const SEED = "2026-08-06"; // any seed; road/warehouse geometry is shared
+const WIDTH = 800;
+const HEIGHT = 600;
+const SEED = "2026-08-09"; // any seed; road/warehouse geometry is shared
 
 const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "images");
 mkdirSync(outDir, { recursive: true });

@@ -14,12 +14,15 @@ What's implemented:
   destination marked `D`, the rest pickups marked `W` that must all be visited
   before delivery), rock/mud obstacles, and a seeded color palette. Obstacles
   are textured off the seeded palette to sit against the detailed scenery -
-  rocks as bumpy stones with lit/shadow facets and standout accent veins, mud as
+  rocks as bumpy stones with a lit/shadow split, a random inner facet, and
+  standout accent veins - the stone shape, facet, and the split's position all
+  vary per rock, but the split's angle is a shared constant so every stone reads
+  as lit from the same direction; mud as
   rounded puddles (its polygon corners smoothed into a soft blob) with a drier
-  rim, a darker pooled core, and a seamless rippled-water pattern (a tiled
-  texture in the same vein as the ground textures) for the wet surface - all
-  purely visual, derived from each obstacle's position so it's replay-stable and
-  never shifts placement (the circle/polygon hitboxes are unchanged). A pickup is
+  rim, a darker pooled core, and a watery surface of several just-off-concentric
+  ripple-ring groups (bright crest over a faint dark halo, like drips landing) -
+  all purely visual, derived from each obstacle's position so it's replay-stable
+  and never shifts placement (the circle/polygon hitboxes are unchanged). A pickup is
   collected when the truck actually overlaps the building (a rotated-rectangle
   hitbox that accounts for each warehouse's size, rotation, and the truck's
   radius, so collection matches what you see); once collected it turns into a
