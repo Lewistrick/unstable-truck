@@ -106,6 +106,23 @@ export async function lowerChampionTime(seed: string, championTime: number): Pro
   return (result.rowCount ?? 0) > 0;
 }
 
+/** Sets a seed's champion threshold only if none is stored yet, then leaves it
+ * frozen (ON CONFLICT DO NOTHING never touches an existing row). Used to seed a
+ * threshold for a day whose record already beats gold but that never got one
+ * live - e.g. maps that predate this feature, or any past day being viewed for
+ * the first time. Because it only ever fills a gap, a later record on that day
+ * can't change the frozen value. Returns whether a row was created. */
+export async function backfillChampionTime(seed: string, championTime: number): Promise<boolean> {
+  const result = await pool.query(
+    `INSERT INTO champions (seed, champion_time)
+     VALUES ($1, $2)
+     ON CONFLICT (seed) DO NOTHING
+     RETURNING seed`,
+    [seed, championTime],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 /** The stored champion-medal threshold for a seed, or null if none is set
  * (no record has beaten the gold par yet). */
 export async function getChampionTime(seed: string): Promise<number | null> {

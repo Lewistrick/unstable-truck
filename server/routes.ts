@@ -1,5 +1,6 @@
 import { Router, type Request } from "express";
 import {
+  backfillChampionTime,
   getChampionTime,
   getChampionTimes,
   getScore,
@@ -91,6 +92,27 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
     await lowerChampionTime(seed, championCandidate);
   }
   res.json({ saved });
+});
+
+/** Seeds a seed's champion threshold if it doesn't have one yet (frozen once
+ * set). Lets a client freeze the threshold for a day whose record already beats
+ * gold but that never got one live - the client computes it from the level's
+ * gold par and the day's record. Never overwrites an existing value, so it
+ * can't move a frozen past-day threshold. */
+scoresRouter.post("/api/champions/:seed", async (req: Request<{ seed: string }>, res) => {
+  const { seed } = req.params;
+  if (!isValidSeed(seed)) {
+    res.status(400).json({ error: "seed must be YYYY-MM-DD or YYYY-Www" });
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  const championTime = body?.championTime;
+  if (typeof championTime !== "number" || !Number.isFinite(championTime) || championTime <= 0) {
+    res.status(400).json({ error: "championTime must be a positive number" });
+    return;
+  }
+  const created = await backfillChampionTime(seed, championTime);
+  res.json({ created });
 });
 
 /** Champion-medal thresholds for a comma-separated list of seeds, as a

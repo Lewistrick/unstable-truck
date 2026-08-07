@@ -1,6 +1,7 @@
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
 import { FIXED_DT } from "./physics/constants.js";
 import {
+  backfillChampionTime,
   fetchChampionTimes,
   fetchLeaderboard,
   fetchPlayerRecording,
@@ -308,12 +309,13 @@ let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null 
 let viewedChampionTime: number | null = null;
 const championTimeCache = new Map<string, number>();
 
-/** Champion threshold for the currently viewed level: the server's stored value
- * when known, otherwise derived from the loaded leaderboard's #1 so the tier
- * still shows offline / before the champions table is populated. Null when no
- * record beats the gold time yet. */
+/** Champion threshold for the currently viewed level - the single source of
+ * truth for whether a run earns the champion medal here. It's the server's
+ * stored (and frozen, once its day/week is over) value; refreshLeaderboard()
+ * seeds it from the day's record when the server has none yet. Null when no
+ * record beats the gold time, so there's no champion tier. */
 function currentChampionTime(): number | null {
-  return viewedChampionTime ?? championTime(viewed.pars.gold, leaderboardTop[0]?.time ?? null);
+  return viewedChampionTime;
 }
 
 /** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
@@ -422,13 +424,27 @@ async function restoreSelectedLeaderboardGhost(): Promise<void> {
 
 async function refreshLeaderboard(): Promise<void> {
   const requestedSeed = viewed.seed;
+  const gold = viewed.pars.gold;
   const data = await fetchLeaderboard(requestedSeed, nickname);
   // Guard against the view having moved on while the request was in flight.
   if (data && viewed.seed === requestedSeed) {
     leaderboardTop = data.top;
     leaderboardContext = data.context;
-    viewedChampionTime = data.championTime;
-    if (data.championTime != null) championTimeCache.set(requestedSeed, data.championTime);
+
+    // The champion threshold is the server's stored value. If it has none yet
+    // but the day's record already beats gold, derive it from that record and
+    // freeze it server-side (backfill), so the champion medal is beatable on
+    // this day - including past days from before champion times were stored.
+    let champion = data.championTime;
+    if (champion == null) {
+      const derived = championTime(gold, data.top[0]?.time ?? null);
+      if (derived != null) {
+        champion = derived;
+        void backfillChampionTime(requestedSeed, derived);
+      }
+    }
+    viewedChampionTime = champion;
+    if (champion != null) championTimeCache.set(requestedSeed, champion);
   }
   renderLeaderboardList();
 }

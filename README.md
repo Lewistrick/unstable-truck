@@ -94,18 +94,26 @@ What's implemented:
   thresholds derived purely from its geometry (the ideal
   base → pickups → destination route length, inflated for road curvature and
   divided by an assumed good-driving speed), so they're identical for every
-  player and work fully offline. Above gold sits a leaderboard-driven
-  Champion tier at `gold - 3*(gold - top)/4` (three quarters of the way from
-  the gold time down to the current #1 time); it unlocks as soon as someone
-  sets a gold time (a leaderboard #1 faster than gold). The home screen shows a
-  medal-time track (Champion when
-  available, then Gold/Silver/Bronze) for both the daily and weekly boards, and
-  the results screen shows the medal earned plus the next tier up.
+  player and work fully offline. Above gold sits a Champion tier at
+  `gold - 3*(gold - top)/4` (three quarters of the way from the gold time down
+  to the world record time); it unlocks as soon as someone sets a gold time (a record
+  faster than gold). Unlike the geometry-derived tiers, the Champion threshold
+  is a server-stored, per-seed value: while a day/week is the *current* period a
+  new world record ratchets it down (so a player can gain or lose Champion as it
+  moves), but once that period is over the threshold is frozen: a later record
+  on an old map updates the leaderboard, but not the medal. Anyone finishing at
+  or under a day's (frozen) threshold earns Champion, on past days too. Days
+  whose threshold was never captured live (e.g. from before this was stored) get
+  it backfilled from their record the first time they're viewed, then frozen.
+  The home screen shows a medal-time track (Champion when available, then
+  Gold/Silver/Bronze) for both boards, and the results screen shows the medal
+  earned plus the next tier up.
 - Daily streak and a recent-days calendar on the home screen: delivering a day
   successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
   consecutive delivered days (with a one-day grace before today's is done), and
-  a row of dots (one per navigable day, today highlighted) fills in for the
-  days you've completed.
+  a row of dots (the most recent week, today highlighted) is tinted by the best
+  medal earned that day: gray for none, bronze/silver/gold, and a glowing
+  rose-gold for Champion.
 - Shareable result card: after a delivery, a Share button copies a spoiler-free
   summary (day, finish time, earned medal, and a link back to the game — no map
   details) to the clipboard. The link is the page's own hosted URL, falling
@@ -141,7 +149,9 @@ This builds one image (compiling both the browser frontend and the backend)
 and starts two containers: `app` (Node/Express, listening on port `8003`,
 serving both the static frontend and the `/api/*` leaderboard endpoints) and
 `db` (Postgres, schema applied automatically from `db/init.sql` on first
-start). Open `http://localhost:8003`.
+start; the app also runs an idempotent `CREATE TABLE IF NOT EXISTS` at boot so
+tables added after a DB was first initialised — like `champions` — appear
+without a manual migration). Open `http://localhost:8003`.
 
 The app port is published on `127.0.0.1` only (not the host's public
 interface), which is enough for local testing and safe on a server where the
@@ -249,11 +259,13 @@ src/                frontend (compiles to dist/, loaded by the browser)
 
 server/             backend (own tsconfig, compiles to server/dist/)
   index.ts  Express app: serves the static frontend + mounts the API
-  routes.ts /api/scores/* handlers (submit, leaderboard, single recording)
-  db.ts     Postgres queries (pg)
+  routes.ts /api/scores/* and /api/champions handlers (submit, leaderboard,
+             single recording, champion-threshold read/backfill)
+  db.ts     Postgres queries (pg), incl. ensureSchema() run at startup
 
-db/init.sql          Postgres schema (scores table), applied automatically
-                      by the Postgres image on first container start
+db/init.sql          Postgres schema (scores + champions tables), applied
+                      automatically by the Postgres image on first container
+                      start; ensureSchema() backstops it for existing DBs
 ```
 
 No bundler for the frontend: `tsc` compiles TypeScript straight to ES

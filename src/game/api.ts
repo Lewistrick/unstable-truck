@@ -76,6 +76,21 @@ export async function fetchLeaderboard(seed: string, nickname?: string): Promise
   }
 }
 
+/** Freezes a seed's champion threshold if the server doesn't have one yet
+ * (no-op if it already does). Used to seed a past day's threshold from its
+ * record so the champion medal is beatable there. Best-effort. */
+export async function backfillChampionTime(seed: string, championTime: number): Promise<void> {
+  try {
+    await fetch(apiUrl(`api/champions/${seed}`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ championTime }),
+    });
+  } catch {
+    // Best-effort; the medal still shows locally from the derived value.
+  }
+}
+
 /** Champion-medal thresholds for several seeds at once, as a { seed: time }
  * map (seeds without a stored threshold are absent). Returns {} if the server
  * is unreachable. Used to colour the streak calendar's day dots. */
