@@ -113,9 +113,13 @@ What's implemented:
   The home screen also has a Share button next to today's "Best" time that
   copies the same kind of summary for your stored personal best (today only).
 - Start screen shows one day at a time (today by default), with prev/next
-  arrows beside the thumbnail to browse up to 7 days back - the date,
+  arrows beside the thumbnail to browse up to 30 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
-  together as you navigate. Clicking the thumbnail (or pressing Enter) jumps
+  together as you navigate. (The streak calendar strip still shows just the
+  most recent week of dots.) Ghost choices are remembered for the session: the
+  "race my own ghost" toggle is a global preference that follows you across
+  every level and mode, while a selected leaderboard opponent is remembered
+  per level and re-selected when you return to it. Clicking the thumbnail (or pressing Enter) jumps
   into a 3-2-1-GO countdown and starts whichever day is showing. There's no
   separate Start button. A results screen (showing your time against your
   personal best, with Retry and Home buttons) rounds it out. Escape quits a
@@ -212,7 +216,7 @@ the `serve`/`start` scripts) and try a different one. You can list currently
 reserved ranges with `netsh interface ipv4 show excludedportrange protocol=tcp`.
 
 Days are generated lazily and cached in memory as you navigate the home
-screen's prev/next arrows (up to 7 days back), so browsing around doesn't
+screen's prev/next arrows (up to 30 days back), so browsing around doesn't
 reload the page or regenerate a level you've already visited.
 
 ## Controls

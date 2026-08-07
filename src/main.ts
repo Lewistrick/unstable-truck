@@ -9,9 +9,14 @@ import {
   getOrCreateNickname,
   loadCompletedDays,
   loadPersonalBest,
+  loadRacePbGhostPref,
+  loadSelectedLeaderboardGhost,
+  pruneLeaderboardGhosts,
   pruneOldPersonalBests,
   recordCompletion,
+  saveRacePbGhostPref,
   savePersonalBestIfBetter,
+  saveSelectedLeaderboardGhost,
   setNickname,
 } from "./game/storage.js";
 import {
@@ -49,9 +54,21 @@ const todaysSeed = todaySeed();
 // a day (daily) or an ISO week (weekly), always anchored to the real calendar
 // so seeds never drift based on what's been played. Levels are generated
 // lazily and cached per mode so re-visiting doesn't regenerate them.
-const MAX_PAST_DAYS = 7;
+const MAX_PAST_DAYS = 30;
 const MAX_PAST_WEEKS = 52;
+// The streak calendar shows only the most recent week of dots (browsing and
+// score retention reach back MAX_PAST_DAYS, but 30+ dots would overflow the
+// strip and read as noise for an at-a-glance streak).
+const STREAK_STRIP_DAYS = 7;
 const playableCache: Record<Mode, Map<number, Playable>> = { daily: new Map(), weekly: new Map() };
+
+// Clear out remembered leaderboard-ghost selections for any map that's aged out
+// of the browsable window (all currently-browsable daily and weekly seeds are
+// "live"), so session storage doesn't accumulate old maps.
+const liveSeeds = new Set<string>();
+for (let o = -MAX_PAST_DAYS; o <= 0; o++) liveSeeds.add(shiftSeed(todaysSeed, o));
+for (let o = -MAX_PAST_WEEKS; o <= 0; o++) liveSeeds.add(weekSeed(o));
+pruneLeaderboardGhosts(liveSeeds);
 
 function seedFor(mode: Mode, offset: number): string {
   return mode === "weekly" ? weekSeed(offset) : shiftSeed(todaysSeed, offset);
@@ -152,6 +169,12 @@ nicknameInput.addEventListener("change", () => {
   renderLeaderboardList();
 });
 
+// The "race my own ghost" toggle is a global, session-remembered preference,
+// so flipping it here carries to every level (and mode) you browse next.
+pbGhostToggle.addEventListener("change", () => {
+  saveRacePbGhostPref(pbGhostToggle.checked);
+});
+
 function refreshViewedUi(): void {
   viewedDateEl.textContent = `${describeOffset(mode, viewedOffset)} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
   viewedBestEl.textContent = viewed.personalBest ? `Best: ${formatTime(viewed.personalBest.time)}` : "Best: -";
@@ -163,7 +186,9 @@ function refreshViewedUi(): void {
   if (canShareBest) bestShareBtn.textContent = "Share";
   if (viewed.personalBest) {
     pbGhostToggle.disabled = false;
-    pbGhostToggle.checked = true;
+    // Global, session-remembered preference - the choice follows you between
+    // levels and across daily/weekly instead of re-checking on every level.
+    pbGhostToggle.checked = loadRacePbGhostPref();
     pbGhostLabel.textContent = `Race personal best ghost (${formatTime(viewed.personalBest.time)})`;
     hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
     ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
@@ -218,15 +243,16 @@ function currentStreak(completed: Set<string>): number {
   return streak;
 }
 
-/** Renders the streak badge plus one dot per navigable day (oldest on the
- * left, today on the right), filled in for days that have been delivered. */
+/** Renders the streak badge plus one dot for each of the most recent
+ * STREAK_STRIP_DAYS days (oldest on the left, today on the right), filled in
+ * for days that have been delivered. */
 function renderProgressStrip(): void {
   const completed = loadCompletedDays();
   const streak = currentStreak(completed);
   streakBadge.textContent = streak > 0 ? `\u{1F525} ${streak}-day streak` : "";
 
   dayDots.replaceChildren();
-  for (let offset = -MAX_PAST_DAYS; offset <= 0; offset++) {
+  for (let offset = -STREAK_STRIP_DAYS; offset <= 0; offset++) {
     const seed = shiftSeed(todaysSeed, offset);
     const dot = document.createElement("span");
     dot.className = "day-dot";
@@ -328,12 +354,31 @@ async function toggleLeaderboardGhost(clickedNickname: string): Promise<void> {
   if (!viewed.personalBest) return;
   if (selectedGhostEntry?.nickname === clickedNickname) {
     selectedGhostEntry = null;
+    saveSelectedLeaderboardGhost(viewed.seed, null);
     renderLeaderboardList();
     return;
   }
   const recording = await fetchPlayerRecording(viewed.seed, clickedNickname);
-  if (recording) selectedGhostEntry = { nickname: clickedNickname, recording };
+  if (recording) {
+    selectedGhostEntry = { nickname: clickedNickname, recording };
+    saveSelectedLeaderboardGhost(viewed.seed, clickedNickname);
+  }
   renderLeaderboardList();
+}
+
+/** Re-selects the leaderboard opponent remembered for the viewed seed (if any),
+ * re-fetching its recording. Racing another player's ghost requires your own
+ * time on the level, matching toggleLeaderboardGhost. Guards against the view
+ * having moved on during the async fetch. */
+async function restoreSelectedLeaderboardGhost(): Promise<void> {
+  const seed = viewed.seed;
+  const remembered = loadSelectedLeaderboardGhost(seed);
+  if (!remembered || !viewed.personalBest) return;
+  const recording = await fetchPlayerRecording(seed, remembered);
+  if (recording && viewed.seed === seed) {
+    selectedGhostEntry = { nickname: remembered, recording };
+    renderLeaderboardList();
+  }
 }
 
 async function refreshLeaderboard(): Promise<void> {
@@ -356,13 +401,15 @@ function updateNavButtons(): void {
  * currently selected mode + offset. */
 function refreshViewedSelection(): void {
   viewed = getPlayable(mode, viewedOffset);
-  // A selected ghost is contextual to the exact seed it was fetched for.
+  // A selected ghost is contextual to the exact seed it was fetched for; clear
+  // it, then restore whichever opponent was remembered for this seed (if any).
   selectedGhostEntry = null;
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
   renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
   void refreshLeaderboard();
+  void restoreSelectedLeaderboardGhost();
 }
 
 function navigateTo(offset: number): void {
@@ -437,6 +484,7 @@ paintViewedTerrainTags();
 renderProgressStrip();
 renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
 void refreshLeaderboard();
+void restoreSelectedLeaderboardGhost();
 
 const input = createInput(canvas);
 

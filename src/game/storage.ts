@@ -6,9 +6,9 @@ const STORAGE_PREFIX = "unstable-truck:pb:";
 // discarded instead of misinterpreted.
 const STORAGE_VERSION = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Daily bests match the 7-day browse window; weekly bests are kept about a year
-// so a personal-best ghost is still available for any browsable past week.
-const DAILY_MAX_AGE_MS = 7 * DAY_MS;
+// Daily bests match the 30-day browse window; weekly bests are kept about a
+// year so a personal-best ghost is still available for any browsable past week.
+const DAILY_MAX_AGE_MS = 30 * DAY_MS;
 const WEEKLY_MAX_AGE_MS = 53 * 7 * DAY_MS;
 
 /** Weekly seeds look like "2026-W31"; daily seeds like "2026-08-03". */
@@ -31,8 +31,8 @@ function isValid(parsed: Partial<StoredPersonalBest>): parsed is StoredPersonalB
 }
 
 /** Loads the stored personal-best recording for a given day's seed, if any.
- * Discards (and removes) entries that are stale (older than a week) or in
- * an outdated, incompatible format. */
+ * Discards (and removes) entries that are stale (older than 30 days for daily
+ * seeds) or in an outdated, incompatible format. */
 export function loadPersonalBest(seed: string): GhostRecording | null {
   const key = STORAGE_PREFIX + seed;
   const raw = localStorage.getItem(key);
@@ -63,7 +63,7 @@ export function savePersonalBestIfBetter(recording: GhostRecording): boolean {
   return true;
 }
 
-/** Removes every stored personal best past its retention age (a week for daily
+/** Removes every stored personal best past its retention age (30 days for daily
  * seeds, about a year for weekly ones), across all seeds - not just whichever
  * ones happen to be loaded via loadPersonalBest(), so old entries can't sit in
  * localStorage forever. Also clears out anything saved in an older,
@@ -92,7 +92,7 @@ export function pruneOldPersonalBests(): void {
 
 const COMPLETED_KEY = "unstable-truck:completed";
 // Completion history feeds the streak counter, which can legitimately outlive
-// the 7-day personal-best window (play every day and the streak keeps
+// the 30-day personal-best window (play every day and the streak keeps
 // growing), so it's kept far longer - just bounded so it can't grow forever.
 const COMPLETED_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
 
@@ -145,4 +145,52 @@ export function getOrCreateNickname(): string {
 export function setNickname(name: string): void {
   const trimmed = name.trim().slice(0, MAX_NICKNAME_LENGTH);
   if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
+}
+
+// --- Ghost-race preferences (session-scoped) ------------------------------
+// These live in sessionStorage so a choice sticks while browsing between levels
+// in the same session, then resets on a fresh visit. The "race my own ghost"
+// toggle is one global preference (it follows you across every level and both
+// daily/weekly modes); the selected leaderboard opponent is remembered per
+// seed, since another player's ghost only makes sense on the level it was set.
+
+const RACE_PB_GHOST_KEY = "unstable-truck:race-pb-ghost";
+const LEADERBOARD_GHOST_PREFIX = "unstable-truck:lb-ghost:";
+
+/** Whether to race your own personal-best ghost. Global (not per level), and
+ * defaults to on so a first-time PB still shows its ghost. */
+export function loadRacePbGhostPref(): boolean {
+  return sessionStorage.getItem(RACE_PB_GHOST_KEY) !== "0";
+}
+
+/** Persists the global "race my own ghost" toggle for the rest of the session. */
+export function saveRacePbGhostPref(on: boolean): void {
+  sessionStorage.setItem(RACE_PB_GHOST_KEY, on ? "1" : "0");
+}
+
+/** The leaderboard opponent's nickname selected for a given seed, if any. */
+export function loadSelectedLeaderboardGhost(seed: string): string | null {
+  return sessionStorage.getItem(LEADERBOARD_GHOST_PREFIX + seed);
+}
+
+/** Remembers (or, with null, clears) the selected leaderboard opponent for a
+ * seed for the rest of the session. */
+export function saveSelectedLeaderboardGhost(seed: string, nickname: string | null): void {
+  const key = LEADERBOARD_GHOST_PREFIX + seed;
+  if (nickname) sessionStorage.setItem(key, nickname);
+  else sessionStorage.removeItem(key);
+}
+
+/** Drops remembered leaderboard-ghost selections for maps that are no longer
+ * browsable (their seed isn't in `liveSeeds`), so session storage can't pile up
+ * old maps over a long-lived session. The global PB toggle is a single key, so
+ * it needs no such pruning. */
+export function pruneLeaderboardGhosts(liveSeeds: Set<string>): void {
+  const staleKeys: string[] = [];
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    if (!key || !key.startsWith(LEADERBOARD_GHOST_PREFIX)) continue;
+    if (!liveSeeds.has(key.slice(LEADERBOARD_GHOST_PREFIX.length))) staleKeys.push(key);
+  }
+  for (const key of staleKeys) sessionStorage.removeItem(key);
 }
