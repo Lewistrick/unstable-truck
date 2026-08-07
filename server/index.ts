@@ -1,7 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDatabaseHealth } from "./db.js";
+import { checkDatabaseHealth, ensureSchema } from "./db.js";
 import { scoresRouter } from "./routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +34,14 @@ app.get("/api/health", async (_req, res) => {
 });
 
 const port = Number(process.env.PORT) || 8080;
+
+// Ensure newer tables exist (init.sql only runs on first DB init) before
+// serving. Best-effort: a DB hiccup here shouldn't stop the app from booting,
+// since scoring is already resilient to the DB being unreachable.
+ensureSchema().catch((err) => {
+  console.error("Schema check failed:", (err as Error).message);
+});
+
 app.listen(port, () => {
   console.log(`Unstable Truck server listening on port ${port}`);
 });

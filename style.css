@@ -234,13 +234,50 @@ html, body {
   border: 1px solid #3a4554;
 }
 
-.day-dot.done {
-  background: hsl(140 55% 42%);
-  border-color: hsl(140 55% 52%);
+/* Each dot is tinted by the best medal earned that day; no medal stays gray. */
+.day-dot.medal-bronze {
+  background: #c17a3f;
+  border-color: #d99457;
 }
 
+.day-dot.medal-silver {
+  background: #c3ccd6;
+  border-color: #e2e8ef;
+}
+
+.day-dot.medal-gold {
+  background: #f2c14e;
+  border-color: #ffd873;
+}
+
+/* Champion: glowing rose-gold, gently pulsing so it stands apart from gold. */
+.day-dot.medal-champion {
+  background: #e7a7a0;
+  border-color: #f4cabb;
+  box-shadow: 0 0 5px 1px rgba(231, 167, 160, 0.75);
+  animation: champion-glow 1.9s ease-in-out infinite;
+}
+
+@keyframes champion-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 4px 1px rgba(231, 167, 160, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 9px 3px rgba(244, 202, 187, 0.95);
+  }
+}
+
+/* Outline (not box-shadow) so today's ring composes with the champion glow. */
 .day-dot.today {
-  box-shadow: 0 0 0 2px rgba(240, 162, 74, 0.6);
+  outline: 2px solid rgba(240, 162, 74, 0.7);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-dot.medal-champion {
+    animation: none;
+  }
 }
 
 .hint {

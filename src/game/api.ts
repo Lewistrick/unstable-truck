@@ -9,6 +9,8 @@ export interface LeaderboardResponse {
   seed: string;
   top: LeaderboardEntry[];
   context: LeaderboardEntry[];
+  /** The champion-medal threshold for this seed, or null if none is set yet. */
+  championTime: number | null;
 }
 
 export interface RemoteRecording {
@@ -44,12 +46,14 @@ export async function submitScore(
   time: number,
   stability: number,
   inputLog: number[],
+  championCandidate: number | null,
+  isCurrentPeriod: boolean,
 ): Promise<boolean> {
   try {
     const res = await fetch(apiUrl(`api/scores/${seed}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nickname, time, stability, inputLog }),
+      body: JSON.stringify({ nickname, time, stability, inputLog, championCandidate, isCurrentPeriod }),
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { saved?: boolean };
@@ -69,6 +73,20 @@ export async function fetchLeaderboard(seed: string, nickname?: string): Promise
     return (await res.json()) as LeaderboardResponse;
   } catch {
     return null;
+  }
+}
+
+/** Champion-medal thresholds for several seeds at once, as a { seed: time }
+ * map (seeds without a stored threshold are absent). Returns {} if the server
+ * is unreachable. Used to colour the streak calendar's day dots. */
+export async function fetchChampionTimes(seeds: string[]): Promise<Record<string, number>> {
+  if (seeds.length === 0) return {};
+  try {
+    const res = await fetch(apiUrl(`api/champions?seeds=${encodeURIComponent(seeds.join(","))}`));
+    if (!res.ok) return {};
+    return (await res.json()) as Record<string, number>;
+  } catch {
+    return {};
   }
 }
 

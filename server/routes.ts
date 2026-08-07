@@ -1,5 +1,12 @@
 import { Router, type Request } from "express";
-import { getScore, getSeedLeaderboard, upsertScoreIfBetter } from "./db.js";
+import {
+  getChampionTime,
+  getChampionTimes,
+  getScore,
+  getSeedLeaderboard,
+  lowerChampionTime,
+  upsertScoreIfBetter,
+} from "./db.js";
 
 export const scoresRouter = Router();
 
@@ -10,12 +17,22 @@ const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
 const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
 const MAX_NICKNAME_LENGTH = 24;
 const TOP_N = 10;
+// Cap the batch champions lookup so a single request can't ask for an unbounded
+// number of seeds (the client only ever needs a month of daily seeds).
+const MAX_CHAMPION_SEEDS = 40;
 
 interface SubmitBody {
   nickname: string;
   time: number;
   stability: number;
   inputLog: number[];
+  /** The champion-medal threshold this run implies (gold + 3*time)/4, or null
+   * when the run is slower than gold so it can't lower the threshold. */
+  championCandidate: number | null;
+  /** Whether this seed is the submitting client's *current* day/week. Only then
+   * may the champion threshold move; past maps stay frozen. The client owns the
+   * notion of "current" because seeds are keyed to its local date. */
+  isCurrentPeriod: boolean;
 }
 
 function parseSubmission(body: unknown): SubmitBody | null {
@@ -34,7 +51,20 @@ function parseSubmission(body: unknown): SubmitBody | null {
   ) {
     return null;
   }
-  return { nickname, time: b.time, stability: b.stability, inputLog: b.inputLog };
+  // Champion fields are optional (older clients omit them); accept only a
+  // positive finite number as a candidate, anything else means "no update".
+  const championCandidate =
+    typeof b.championCandidate === "number" && Number.isFinite(b.championCandidate) && b.championCandidate > 0
+      ? b.championCandidate
+      : null;
+  return {
+    nickname,
+    time: b.time,
+    stability: b.stability,
+    inputLog: b.inputLog,
+    championCandidate,
+    isCurrentPeriod: b.isCurrentPeriod === true,
+  };
 }
 
 /** Submits a run's result. Only takes effect if it beats the player's
@@ -50,8 +80,29 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
     res.status(400).json({ error: "invalid submission" });
     return;
   }
-  const saved = await upsertScoreIfBetter({ seed, ...submission });
+  const { championCandidate, isCurrentPeriod, ...score } = submission;
+  const saved = await upsertScoreIfBetter({ seed, ...score });
+
+  // Move the champion threshold down toward this run only while the seed is the
+  // player's current period. lowerChampionTime() ignores candidates that aren't
+  // lower than what's stored, so a non-record run never raises it and only a
+  // genuine new world record ratchets it down.
+  if (isCurrentPeriod && championCandidate != null) {
+    await lowerChampionTime(seed, championCandidate);
+  }
   res.json({ saved });
+});
+
+/** Champion-medal thresholds for a comma-separated list of seeds, as a
+ * { seed: time } map. Powers the streak calendar's per-day medal colours. */
+scoresRouter.get("/api/champions", async (req: Request, res) => {
+  const raw = typeof req.query.seeds === "string" ? req.query.seeds : "";
+  const seeds = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && isValidSeed(s))
+    .slice(0, MAX_CHAMPION_SEEDS);
+  res.json(await getChampionTimes(seeds));
 });
 
 /** Top 10 for the seed, plus (if a nickname is given and isn't already in
@@ -65,7 +116,7 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
   }
   const nickname = typeof req.query.nickname === "string" ? req.query.nickname : null;
 
-  const all = await getSeedLeaderboard(seed);
+  const [all, championTime] = await Promise.all([getSeedLeaderboard(seed), getChampionTime(seed)]);
   const top = all.slice(0, TOP_N);
 
   let context: typeof all = [];
@@ -76,7 +127,7 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
     }
   }
 
-  res.json({ seed, top, context });
+  res.json({ seed, top, context, championTime });
 });
 
 /** A specific player's full recording for a seed, for racing their ghost. */

@@ -1,6 +1,13 @@
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
 import { FIXED_DT } from "./physics/constants.js";
-import { fetchLeaderboard, fetchPlayerRecording, submitScore, type LeaderboardEntry, type RemoteRecording } from "./game/api.js";
+import {
+  fetchChampionTimes,
+  fetchLeaderboard,
+  fetchPlayerRecording,
+  submitScore,
+  type LeaderboardEntry,
+  type RemoteRecording,
+} from "./game/api.js";
 import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
@@ -244,8 +251,10 @@ function currentStreak(completed: Set<string>): number {
 }
 
 /** Renders the streak badge plus one dot for each of the most recent
- * STREAK_STRIP_DAYS days (oldest on the left, today on the right), filled in
- * for days that have been delivered. */
+ * STREAK_STRIP_DAYS days (oldest on the left, today on the right). Each dot is
+ * tinted by the best medal earned that day - gray for none, bronze/silver/gold,
+ * and a glowing rose-gold for champion - from the local personal best against
+ * that day's pars and the (server-stored) champion threshold. */
 function renderProgressStrip(): void {
   const completed = loadCompletedDays();
   const streak = currentStreak(completed);
@@ -253,14 +262,38 @@ function renderProgressStrip(): void {
 
   dayDots.replaceChildren();
   for (let offset = -STREAK_STRIP_DAYS; offset <= 0; offset++) {
-    const seed = shiftSeed(todaysSeed, offset);
+    const playable = getPlayable("daily", offset);
+    const seed = playable.seed;
+    const best = playable.personalBest?.time ?? null;
+    const champion = championTimeCache.get(seed) ?? null;
+    const medal = best == null ? null : medalFor(best, playable.pars, champion);
+
     const dot = document.createElement("span");
     dot.className = "day-dot";
-    if (completed.has(seed)) dot.classList.add("done");
+    if (medal) dot.classList.add(`medal-${medal}`);
     if (offset === 0) dot.classList.add("today");
-    dot.title = seed;
+    dot.title = medal ? `${seed} - ${MEDAL_LABEL[medal]}` : seed;
     dayDots.appendChild(dot);
   }
+}
+
+/** Batch-fetches the champion thresholds for the days shown in the streak strip
+ * and, if anything changed, repaints it. Past days are frozen server-side so
+ * this mostly settles after the first call; today's can still move as records
+ * come in. Best-effort - offline just leaves the champion tint absent. */
+async function refreshStripChampionTimes(): Promise<void> {
+  const seeds: string[] = [];
+  for (let offset = -STREAK_STRIP_DAYS; offset <= 0; offset++) seeds.push(shiftSeed(todaysSeed, offset));
+  const times = await fetchChampionTimes(seeds);
+
+  let changed = false;
+  for (const [seed, time] of Object.entries(times)) {
+    if (championTimeCache.get(seed) !== time) {
+      championTimeCache.set(seed, time);
+      changed = true;
+    }
+  }
+  if (changed) renderProgressStrip();
 }
 
 // --- Leaderboard (for whichever day is currently viewed) -------------------
@@ -269,12 +302,18 @@ let leaderboardTop: LeaderboardEntry[] = [];
 let leaderboardContext: LeaderboardEntry[] = [];
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
 
-/** Champion threshold for the currently viewed level, or null if no leaderboard
- * record beats the gold time yet. The tier unlocks as soon as someone sets a
- * gold time (a #1 faster than gold); uses the current #1 from the loaded
- * leaderboard. */
+// Champion-medal threshold (finish at or under it to earn champion) for the
+// viewed seed, plus a per-seed cache used to colour the streak calendar. The
+// server persists and freezes these per period; null means none is set yet.
+let viewedChampionTime: number | null = null;
+const championTimeCache = new Map<string, number>();
+
+/** Champion threshold for the currently viewed level: the server's stored value
+ * when known, otherwise derived from the loaded leaderboard's #1 so the tier
+ * still shows offline / before the champions table is populated. Null when no
+ * record beats the gold time yet. */
 function currentChampionTime(): number | null {
-  return championTime(viewed.pars.gold, leaderboardTop[0]?.time ?? null);
+  return viewedChampionTime ?? championTime(viewed.pars.gold, leaderboardTop[0]?.time ?? null);
 }
 
 /** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
@@ -382,10 +421,14 @@ async function restoreSelectedLeaderboardGhost(): Promise<void> {
 }
 
 async function refreshLeaderboard(): Promise<void> {
-  const data = await fetchLeaderboard(viewed.seed, nickname);
-  if (data) {
+  const requestedSeed = viewed.seed;
+  const data = await fetchLeaderboard(requestedSeed, nickname);
+  // Guard against the view having moved on while the request was in flight.
+  if (data && viewed.seed === requestedSeed) {
     leaderboardTop = data.top;
     leaderboardContext = data.context;
+    viewedChampionTime = data.championTime;
+    if (data.championTime != null) championTimeCache.set(requestedSeed, data.championTime);
   }
   renderLeaderboardList();
 }
@@ -404,6 +447,9 @@ function refreshViewedSelection(): void {
   // A selected ghost is contextual to the exact seed it was fetched for; clear
   // it, then restore whichever opponent was remembered for this seed (if any).
   selectedGhostEntry = null;
+  // Seed the champion threshold from cache (frozen past days never change), so
+  // the medal track is right immediately; refreshLeaderboard() refines it.
+  viewedChampionTime = championTimeCache.get(viewed.seed) ?? null;
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
@@ -427,6 +473,10 @@ function switchMode(newMode: Mode): void {
   modeWeeklyBtn.setAttribute("aria-selected", String(mode === "weekly"));
   // The streak/calendar strip only applies to daily play.
   progressStrip.classList.toggle("hidden", mode !== "daily");
+  if (mode === "daily") {
+    renderProgressStrip();
+    void refreshStripChampionTimes();
+  }
   refreshViewedSelection();
 }
 
@@ -485,6 +535,9 @@ renderProgressStrip();
 renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
 void refreshLeaderboard();
 void restoreSelectedLeaderboardGhost();
+// Pull champion thresholds for the streak strip so its dots can show the
+// champion tint, then repaint.
+void refreshStripChampionTimes();
 
 const input = createInput(canvas);
 
@@ -666,10 +719,27 @@ function endRun(): void {
 
     // Best-effort sync to the shared leaderboard; works offline too since
     // submitScore() swallows network failures and the local PB above is
-    // already saved regardless.
+    // already saved regardless. The champion candidate this run implies
+    // (null if slower than gold) lets the server lower the seed's champion
+    // threshold, but only for the player's current day/week so past maps stay
+    // frozen.
     const submittedSeed = active.seed;
-    submitScore(submittedSeed, nickname, recording.time, recording.stability, recording.inputLog).then(() => {
+    const championCandidate = championTime(active.pars.gold, recording.time);
+    const isCurrentPeriod =
+      active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
+    submitScore(
+      submittedSeed,
+      nickname,
+      recording.time,
+      recording.stability,
+      recording.inputLog,
+      championCandidate,
+      isCurrentPeriod,
+    ).then(() => {
       if (submittedSeed === viewed.seed) void refreshLeaderboard();
+      // A new record today can lower the champion threshold; refresh the strip
+      // so the day's dot recolours (the player may gain or lose champion).
+      if (active.level.kind === "daily") void refreshStripChampionTimes();
     });
   } else {
     resultsTitle.textContent = "Cargo fell off!";
