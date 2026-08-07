@@ -12,7 +12,14 @@ What's implemented:
   `YYYY-MM-DD`): hub placement, a connected Bezier-curve road network with a
   few branching dead ends, 4-10 warehouses per level (one base marked `B`, one
   destination marked `D`, the rest pickups marked `W` that must all be visited
-  before delivery), rock/mud obstacles, and a seeded color palette. A pickup is
+  before delivery), rock/mud obstacles, and a seeded color palette. Obstacles
+  are textured off the seeded palette to sit against the detailed scenery -
+  rocks as bumpy stones with lit/shadow facets and standout accent veins, mud as
+  rounded puddles (its polygon corners smoothed into a soft blob) with a drier
+  rim, a darker pooled core, and a seamless rippled-water pattern (a tiled
+  texture in the same vein as the ground textures) for the wet surface - all
+  purely visual, derived from each obstacle's position so it's replay-stable and
+  never shifts placement (the circle/polygon hitboxes are unchanged). A pickup is
   collected when the truck actually overlaps the building (a rotated-rectangle
   hitbox that accounts for each warehouse's size, rotation, and the truck's
   radius, so collection matches what you see); once collected it turns into a

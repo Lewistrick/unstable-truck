@@ -1,9 +1,9 @@
 import { getTheme, type TextureStyle } from "../level/themes.js";
-import type { Level, Warehouse } from "../level/types.js";
+import type { Level, MudObstacle, RockObstacle, Warehouse } from "../level/types.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import { mulberry32, randRange, seedFromString, type Rng } from "../util/rng.js";
-import { distance } from "../util/vec2.js";
+import { distance, type Vec2 } from "../util/vec2.js";
 import { drawProp } from "./props/index.js";
 
 function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
@@ -29,25 +29,257 @@ function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
   }
 }
 
-function drawObstacles(ctx: CanvasRenderingContext2D, level: Level): void {
-  for (const mud of level.muds) {
+// --- Obstacle textures -----------------------------------------------------
+// Mud and rocks are textured to sit better against the detailed scenery. All of
+// it is purely visual: physics still treat a rock as its circle and mud as its
+// polygon. Every random detail is derived from the obstacle's position (see
+// obstacleRng), so it's identical each frame and on replay and never draws from
+// the level's generation RNG - obstacle placement, and per-seed leaderboards,
+// are unaffected.
+
+/** Parse an "hsl(H S% L%)" palette color into channels to derive tones from. */
+function parseHsl(color: string): { h: number; s: number; l: number } {
+  const m = color.match(/hsl\(\s*([\d.-]+)\s+([\d.]+)%\s+([\d.]+)%/);
+  return m ? { h: parseFloat(m[1]!), s: parseFloat(m[2]!), l: parseFloat(m[3]!) } : { h: 0, s: 0, l: 50 };
+}
+
+function hslStr(h: number, s: number, l: number, a = 1): string {
+  const H = ((h % 360) + 360) % 360;
+  const S = Math.max(0, Math.min(100, s));
+  const L = Math.max(0, Math.min(100, l));
+  return a === 1
+    ? `hsl(${H.toFixed(0)} ${S.toFixed(0)}% ${L.toFixed(0)}%)`
+    : `hsl(${H.toFixed(0)} ${S.toFixed(0)}% ${L.toFixed(0)}% / ${a})`;
+}
+
+/** Position-keyed RNG so an obstacle's texture is stable across frames/replays
+ * without consuming the level's generation RNG. */
+function obstacleRng(pos: Vec2): Rng {
+  return mulberry32(seedFromString(`${Math.round(pos.x)}:${Math.round(pos.y)}`));
+}
+
+// Seamless rippled-water pattern, built once and reused for every puddle (like
+// the ground textures). Tint-neutral black/white so it reads on any mud color.
+const WATER_TILE = 80;
+let waterPatternCache: CanvasPattern | null | undefined;
+
+/** A tileable water texture: evenly spaced wavy lines, each a bright crest with
+ * a soft dark trough beneath, so light glints off the ripples. Two sine cycles
+ * across the tile and a 10px row pitch (80/8) keep it seamless in both axes;
+ * per-line phase/amplitude jitter (from a fixed seed) makes it read as organic
+ * water rather than mechanical stripes. */
+function waterPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
+  if (waterPatternCache !== undefined) return waterPatternCache;
+  const tile = document.createElement("canvas");
+  tile.width = WATER_TILE;
+  tile.height = WATER_TILE;
+  const t = tile.getContext("2d");
+  if (!t) return (waterPatternCache = null);
+
+  const rng = mulberry32(0x7a7e12); // fixed, so the tile is stable across runs
+  t.lineCap = "round";
+  const wave = (y0: number, phase: number, amp: number, color: string, lw: number, dy: number): void => {
+    t.beginPath();
+    for (let x = 0; x <= WATER_TILE; x++) {
+      // 2 whole cycles across the tile width -> ends match -> seamless in x.
+      const yy = y0 + dy + Math.sin((x / WATER_TILE) * TAU * 2 + phase) * amp;
+      if (x === 0) t.moveTo(x, yy);
+      else t.lineTo(x, yy);
+    }
+    t.strokeStyle = color;
+    t.lineWidth = lw;
+    t.stroke();
+  };
+  for (let y0 = 0; y0 < WATER_TILE; y0 += 10) {
+    const phase = rng() * TAU;
+    const amp = 2 + rng() * 1.6;
+    wave(y0, phase, amp, "rgba(0,0,0,0.12)", 1.8, 1.4); // trough shadow
+    wave(y0, phase, amp, "rgba(255,255,255,0.32)", 1.4, 0); // crest highlight
+  }
+  waterPatternCache = ctx.createPattern(tile, "repeat");
+  return waterPatternCache;
+}
+
+/** Mud as a rounded puddle: a smooth curved silhouette (rounding the physics
+ * polygon's corners), a paler dried rim, a soft darker pool for depth, and a
+ * seamless rippled-water pattern across the surface. */
+function drawMud(ctx: CanvasRenderingContext2D, mud: MudObstacle, mudColor: string): void {
+  const base = parseHsl(mudColor);
+  const rng = obstacleRng(mud.pos);
+  const { x: cx, y: cy } = mud.pos;
+  const r = mud.radius;
+  const pts = mud.points;
+  const n = pts.length;
+
+  // Smooth, rounded silhouette through the polygon vertices: draw quadratic
+  // curves via edge midpoints, so the outline is a soft blob rather than an
+  // angular 12-gon. `scale` shrinks it toward the center (the physics polygon
+  // itself is unchanged). Slightly inside the polygon at corners, which reads as
+  // forgiving - matching the mud hitbox's own inset.
+  const roundedPath = (scale: number): void => {
+    const px = (i: number): number => cx + (pts[i]!.x - cx) * scale;
+    const py = (i: number): number => cy + (pts[i]!.y - cy) * scale;
     ctx.beginPath();
-    mud.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.moveTo((px(n - 1) + px(0)) / 2, (py(n - 1) + py(0)) / 2);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      ctx.quadraticCurveTo(px(i), py(i), (px(i) + px(j)) / 2, (py(i) + py(j)) / 2);
+    }
     ctx.closePath();
-    ctx.fillStyle = level.palette.mud;
-    ctx.globalAlpha = 0.75;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+  };
+
+  ctx.save();
+  ctx.globalAlpha = 0.82; // semi-transparent so the ground reads through
+
+  // Drier, paler rim, then the wet body inset over it.
+  roundedPath(1);
+  ctx.fillStyle = hslStr(base.h + 4, base.s * 0.75, base.l + 14);
+  ctx.fill();
+  roundedPath(0.86);
+  ctx.fillStyle = hslStr(base.h, base.s, base.l);
+  ctx.fill();
+
+  // Confine the depth and ripple pattern to the wet body.
+  roundedPath(0.86);
+  ctx.clip();
+
+  // A soft darker pool for depth (one shape, off-center - not scattered noise).
+  ctx.beginPath();
+  ctx.ellipse(cx + (rng() - 0.5) * r * 0.3, cy + (rng() - 0.5) * r * 0.3, r * 0.62, r * 0.5, rng() * TAU, 0, TAU);
+  ctx.fillStyle = hslStr(base.h - 6, base.s + 8, base.l - 13, 0.5);
+  ctx.fill();
+
+  // The watery texture: the seamless ripple pattern, filled across the puddle.
+  // A per-patch offset (from this patch's RNG) shifts the pattern phase so
+  // neighbouring puddles don't share the exact same ripple alignment.
+  const water = waterPattern(ctx);
+  if (water) {
+    const ox = rng() * WATER_TILE;
+    const oy = rng() * WATER_TILE;
+    ctx.translate(-ox, -oy); // shift where the (clip-masked) pattern samples
+    ctx.fillStyle = water;
+    ctx.fillRect(cx - r - WATER_TILE + ox, cy - r - WATER_TILE + oy, r * 2 + WATER_TILE * 2, r * 2 + WATER_TILE * 2);
   }
 
-  for (const rock of level.rocks) {
+  ctx.restore();
+}
+
+/** Rock with a bumpy silhouette (the collision stays the circle underneath),
+ * flat lit/shadow facets for volume, and standout accent veins and grit that
+ * read even when the base rock color matches the surrounding ground. */
+function drawRock(ctx: CanvasRenderingContext2D, rock: RockObstacle, rockColor: string): void {
+  const base = parseHsl(rockColor);
+  const rng = obstacleRng(rock.pos);
+  const { x: cx, y: cy } = rock.pos;
+  const r = rock.radius;
+
+  // Bumpy outline within ~0.9-1.08r, centered on the circular hitbox so it
+  // still lines up with the (unchanged) circle collision.
+  const verts: Vec2[] = [];
+  const n = 10;
+  const start = rng() * TAU;
+  for (let i = 0; i < n; i++) {
+    const a = start + (i / n) * TAU;
+    const rad = r * (0.9 + rng() * 0.18);
+    verts.push({ x: cx + Math.cos(a) * rad, y: cy + Math.sin(a) * rad });
+  }
+  const outline = (): void => {
     ctx.beginPath();
-    ctx.arc(rock.pos.x, rock.pos.y, rock.radius, 0, Math.PI * 2);
-    ctx.fillStyle = level.palette.rock;
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.25)";
-    ctx.lineWidth = 2;
+    verts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+  };
+
+  // Accents: strong lightness contrast plus a modest hue shift, so veins and
+  // facets stand out even when the rock body blends into the ground.
+  const lit = hslStr(base.h + 16, Math.min(72, base.s + 16), Math.min(90, base.l + 32));
+  const shadow = hslStr(base.h - 12, Math.min(80, base.s + 18), Math.max(10, base.l - 24));
+  const vein = hslStr(base.h + 24, Math.max(30, Math.min(55, base.s + 20)), Math.min(93, base.l + 40));
+
+  outline();
+  ctx.fillStyle = rockColor;
+  ctx.fill();
+
+  ctx.save();
+  ctx.clip();
+
+  // Shadow facet over the lower-right.
+  ctx.beginPath();
+  ctx.moveTo(cx - r, cy - r * 0.1);
+  ctx.lineTo(cx + r, cy - r * 0.35);
+  ctx.lineTo(cx + r, cy + r);
+  ctx.lineTo(cx - r, cy + r);
+  ctx.closePath();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = shadow;
+  ctx.fill();
+
+  // Lit facet plane toward the top-left light.
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.85, cy - r * 0.25);
+  ctx.lineTo(cx + r * 0.1, cy - r * 0.85);
+  ctx.lineTo(cx + r * 0.25, cy - r * 0.05);
+  ctx.lineTo(cx - r * 0.35, cy + r * 0.3);
+  ctx.closePath();
+  ctx.fillStyle = lit;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // 1-2 bright veins wandering across the face.
+  const veinCount = 1 + (rng() < 0.5 ? 1 : 0);
+  ctx.strokeStyle = vein;
+  ctx.lineWidth = Math.max(1, r * 0.06);
+  ctx.lineCap = "round";
+  ctx.globalAlpha = 0.75;
+  for (let vI = 0; vI < veinCount; vI++) {
+    let a = rng() * TAU;
+    let px = cx + Math.cos(a) * r;
+    let py = cy + Math.sin(a) * r;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    for (let s = 0; s < 3; s++) {
+      a += (rng() - 0.5) * 1.3;
+      const step = r * (0.45 + rng() * 0.5);
+      px += Math.cos(a) * step;
+      py += Math.sin(a) * step;
+      ctx.lineTo(px, py);
+    }
     ctx.stroke();
+  }
+
+  // A few grit speckles in the lit accent.
+  const speckles = 3 + Math.floor(rng() * 4);
+  ctx.fillStyle = lit;
+  ctx.globalAlpha = 0.6;
+  for (let i = 0; i < speckles; i++) {
+    const a = rng() * TAU;
+    const rr = rng() * r * 0.8;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, Math.max(0.8, r * 0.045), 0, TAU);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Dark outline on the bumpy silhouette.
+  outline();
+  ctx.strokeStyle = "rgba(0,0,0,0.28)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawObstacles(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
+  const margin = 40;
+  const visible = (pos: Vec2, r: number): boolean =>
+    pos.x + r >= bounds.minX - margin &&
+    pos.x - r <= bounds.maxX + margin &&
+    pos.y + r >= bounds.minY - margin &&
+    pos.y - r <= bounds.maxY + margin;
+
+  for (const mud of level.muds) {
+    if (visible(mud.pos, mud.radius)) drawMud(ctx, mud, level.palette.mud);
+  }
+  for (const rock of level.rocks) {
+    if (visible(rock.pos, rock.radius)) drawRock(ctx, rock, level.palette.rock);
   }
 }
 
@@ -479,18 +711,21 @@ export function renderWorld(
   }
 
   strokeRoad(ctx, level);
-  drawObstacles(ctx, level);
-  drawHouses(ctx, level);
-  // Scenery sits on the grass (placed off-road), drawn under the warehouses so
-  // gameplay markers stay on top. Cull to the visible world rect.
+  // Visible world rect, used to cull both obstacles and scenery to what's on
+  // screen (weekly maps have hundreds of each).
   const halfW = canvasW / 2 / zoom;
   const halfH = canvasH / 2 / zoom;
-  drawScenery(ctx, level, {
+  const viewBounds: Bounds = {
     minX: camera.x - halfW,
     maxX: camera.x + halfW,
     minY: camera.y - halfH,
     maxY: camera.y + halfH,
-  });
+  };
+  drawObstacles(ctx, level, viewBounds);
+  drawHouses(ctx, level);
+  // Scenery sits on the grass (placed off-road), drawn under the warehouses so
+  // gameplay markers stay on top.
+  drawScenery(ctx, level, viewBounds);
   drawWarehouses(ctx, level, visited);
 
   for (const ghost of ghosts) {
