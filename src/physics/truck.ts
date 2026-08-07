@@ -8,10 +8,14 @@ export interface TruckState {
   angularVel: number;
   speed: number;
   radius: number;
+  /** True on any frame the truck was held against the map edge (its position
+   * clamped to stay in bounds). The session uses a run of these to detect a
+   * player driving out of bounds. */
+  atBoundary: boolean;
 }
 
 export function createTruck(pos: Vec2, heading: number): TruckState {
-  return { pos: { ...pos }, vel: v(0, 0), heading, angularVel: 0, speed: 0, radius: 14 };
+  return { pos: { ...pos }, vel: v(0, 0), heading, angularVel: 0, speed: 0, radius: 14, atBoundary: false };
 }
 
 const BASE_MAX_SPEED = 260;
@@ -74,20 +78,26 @@ export function updateTruck(
   const minY = truck.radius;
   const maxX = bounds.width - truck.radius;
   const maxY = bounds.height - truck.radius;
+  let clamped = false;
   if (truck.pos.x < minX) {
     truck.pos.x = minX;
     truck.vel.x = Math.max(0, truck.vel.x);
+    clamped = true;
   } else if (truck.pos.x > maxX) {
     truck.pos.x = maxX;
     truck.vel.x = Math.min(0, truck.vel.x);
+    clamped = true;
   }
   if (truck.pos.y < minY) {
     truck.pos.y = minY;
     truck.vel.y = Math.max(0, truck.vel.y);
+    clamped = true;
   } else if (truck.pos.y > maxY) {
     truck.pos.y = maxY;
     truck.vel.y = Math.min(0, truck.vel.y);
+    clamped = true;
   }
+  truck.atBoundary = clamped;
 }
 
 // The truck's collision box, mirroring the drawn body (a 32x22 rectangle, so

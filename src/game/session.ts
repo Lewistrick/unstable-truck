@@ -15,10 +15,18 @@ import { distance } from "../util/vec2.js";
 
 export type GameStatus = "playing" | "success" | "fail";
 
+/** Why a run ended in failure, so the results screen can tailor its message. */
+export type FailReason = "cargo" | "outOfBounds";
+
 // A little forgiveness added to the truck's radius so grazing a building's edge
 // still counts as reaching it.
 const COLLECT_PAD = 2;
 const ROCK_IMPACT_STABILITY_HIT = 22;
+// How many consecutive ticks the truck may be pinned against the map edge
+// before the run ends as "out of bounds". At 60 ticks/s this is ~0.4s, long
+// enough that clipping a corner on a wide turn slides off harmlessly but
+// actually driving into the edge ends the run.
+const OUT_OF_BOUNDS_TICKS = 24;
 // Half the truck body length, used as the hitch point the first cargo box
 // trails behind.
 const TRUCK_HITCH_HALF_LENGTH = 16;
@@ -64,8 +72,12 @@ export class GameSession {
 
   visited = new Set<Warehouse>();
   status: GameStatus = "playing";
+  /** Set alongside a "fail" status to say what went wrong. */
+  failReason: FailReason | null = null;
   elapsed = 0;
   private tick = 0;
+  /** Consecutive ticks the truck has been pinned against the map edge. */
+  private boundaryTicks = 0;
 
   /** Tick indices (not seconds - update() is always called once per fixed
    * physics tick) at which the input button toggled held/released, starting
@@ -137,6 +149,15 @@ export class GameSession {
     const terrain = sampleTerrain(this.truck, this.level);
     updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height });
 
+    // Driving into the map edge and holding there ends the run - you're leaving
+    // the delivery area. A brief clip resets, so only a sustained push fails.
+    this.boundaryTicks = this.truck.atBoundary ? this.boundaryTicks + 1 : 0;
+    if (this.boundaryTicks >= OUT_OF_BOUNDS_TICKS) {
+      this.status = "fail";
+      this.failReason = "outOfBounds";
+      return;
+    }
+
     for (const rock of this.level.rocks) {
       const hit = resolveRockCollision(this.truck, rock.pos, rock.radius);
       if (hit) {
@@ -163,6 +184,7 @@ export class GameSession {
 
     if (this.cargoBoxes.some((box) => box.stability <= 0)) {
       this.status = "fail";
+      this.failReason = "cargo";
       return;
     }
     if (this.allPickedUp && truckTouchesWarehouse(this.truck, this.destination)) {

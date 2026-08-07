@@ -764,6 +764,14 @@ function endRun(): void {
       // so the day's dot recolours (the player may gain or lose champion).
       if (active.level.kind === "daily") void refreshStripChampionTimes();
     });
+  } else if (session.failReason === "outOfBounds") {
+    resultsTitle.textContent = "Hey, come back!";
+    resultsTime.textContent = `Survived ${formatTime(session.elapsed)}`;
+    resultsStability.textContent = "You're trying to steal my truck, aren't you?";
+    resultsPersonalBest.textContent = "";
+    resultsMedal.classList.add("hidden");
+    shareBtn.classList.add("hidden");
+    lastShareText = null;
   } else {
     resultsTitle.textContent = "Cargo fell off!";
     resultsTime.textContent = `Survived ${formatTime(session.elapsed)}`;

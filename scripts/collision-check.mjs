@@ -11,7 +11,7 @@
 // truck too eagerly).
 import { truckTouchesWarehouse } from "../dist/game/session.js";
 import { sampleTerrain } from "../dist/level/terrain.js";
-import { resolveRockCollision } from "../dist/physics/truck.js";
+import { createTruck, resolveRockCollision, updateTruck } from "../dist/physics/truck.js";
 
 const truck = (x, y) => ({ pos: { x, y }, radius: 14 });
 const box = (width, height, angle) => ({ kind: "pickup", pos: { x: 0, y: 0 }, width, height, angle });
@@ -98,6 +98,28 @@ check("mud edge graze is forgiven", sampleTerrain({ pos: { x: -5, y: 0 }, headin
 
 // Well clear of the patch: not in mud.
 check("mud clear when the whole body is outside", sampleTerrain({ pos: { x: -30, y: 0 }, heading: 0 }, mudLevel).inMud, false);
+
+// --- Out-of-bounds detection (truck.atBoundary drives the run's fail) ------
+
+const flatTerrain = { onRoad: true, inMud: false, mud: null };
+const bounds = { width: 2000, height: 1300 };
+
+// A truck pushed past the map edge is clamped back in and flags atBoundary -
+// the signal the session counts up to end the run as "out of bounds".
+{
+  const t = createTruck({ x: 1000, y: 650 }, 0);
+  t.pos.x = 5000;
+  updateTruck(t, false, 1 / 60, flatTerrain, bounds);
+  check("truck past the edge sets atBoundary", t.atBoundary, true);
+  check("truck past the edge is clamped back in bounds", t.pos.x <= bounds.width - t.radius + 1e-6, true);
+}
+
+// A truck well inside the map is not at the boundary, so the run continues.
+{
+  const t = createTruck({ x: 1000, y: 650 }, 0);
+  updateTruck(t, false, 1 / 60, flatTerrain, bounds);
+  check("truck in the middle is not atBoundary", t.atBoundary, false);
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
