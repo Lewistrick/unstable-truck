@@ -143,9 +143,11 @@ export class Tutorial {
     return this.stage === "done";
   }
 
-  /** True while a terrain section is being driven (enables its Skip button). */
-  get inTerrainSection(): boolean {
-    return this.stage === "terrain";
+  /** True while any section (the steering run or a terrain section) is active,
+   * so a per-section Skip button can be shown. False only on the terminal
+   * "done" stage. */
+  get canSkipSection(): boolean {
+    return this.stage !== "done";
   }
 
   // --- Render state: whichever scene (delivery run or terrain section) is live.
@@ -165,10 +167,16 @@ export class Tutorial {
     return this.stage === "drive" ? [] : [this.currentSection.goal];
   }
 
-  /** Skips the current terrain section (the per-section Skip button). No effect
-   * outside the terrain stage. */
+  /** Skips the current section (the per-section Skip button). From the steering
+   * run it jumps straight to the terrain course; within the terrain course it
+   * advances to the next section (or the finish). No effect once done. */
   skipSection(): void {
-    if (this.stage === "terrain") this.advanceSection();
+    if (this.stage === "drive") {
+      this.stage = "terrain";
+      this.sectionIndex = 0;
+    } else if (this.stage === "terrain") {
+      this.advanceSection();
+    }
   }
 
   private advanceSection(): void {

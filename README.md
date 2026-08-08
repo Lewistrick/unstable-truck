@@ -150,10 +150,13 @@ What's implemented:
     goal flag to drive to: *road vs grass* (the road is the fast lane), *mud*
     (a puddle to steer around rather than through — no rock in this one), and
     *rock* (a solid boulder you must go around — no mud in this one; hitting it
-    restarts the section). A **Skip section** button skips just the current
-    section; the persistent **Skip tutorial** button (or Escape) leaves to the
-    main menu at any point. Finishing the course shows a "Let's go!" button
-    (and hides Skip tutorial, since they'd do the same thing).
+    restarts the section).
+
+  A **Skip section** button skips just the current section — from the steering
+  run it jumps straight to the terrain course, and within the course it moves to
+  the next section. The persistent **Skip tutorial** button (or Escape) leaves
+  to the main menu at any point. Finishing the course shows a "Let's go!" button
+  (and hides Skip tutorial, since they'd do the same thing).
 
   The run is unfailable throughout (a `practice` game session that ignores the
   cargo and out-of-bounds game-overs), records no score, and races no ghosts. It

@@ -850,7 +850,7 @@ function refreshTutorialOverlay(): void {
   // thing, so only one shows). Per-section skip only during the terrain course.
   tutorialDoneBtn.classList.toggle("hidden", !done);
   tutorialSkipBtn.classList.toggle("hidden", done);
-  tutorialSkipSectionBtn.classList.toggle("hidden", !tutorial.inTerrainSection);
+  tutorialSkipSectionBtn.classList.toggle("hidden", !tutorial.canSkipSection);
 }
 
 /** Enters the tutorial from the start screen: a fresh guided run with the coach
