@@ -58,3 +58,26 @@ export class GhostPlayer {
     this.session.update(dt, held);
   }
 }
+
+/** Re-simulates a recording to completion through a fresh session and returns
+ * the ticks at which it collected each warehouse, in collection order. It's
+ * deterministic, so these match the collections the live ghost makes - used to
+ * compute the live split time against the player. */
+export function ghostCollectTicks(level: Level, recording: GhostRecording): number[] {
+  const session = new GameSession(level);
+  const finishTick = Math.round(recording.time / FIXED_DT);
+  while (session.status === "playing" && session.currentTick < finishTick) {
+    session.update(FIXED_DT, heldAtTick(recording.inputLog, session.currentTick));
+  }
+  return session.collectTicks.slice();
+}
+
+/** The split time (in seconds) at the player's latest reached checkpoint: the
+ * tick gap to the ghost at the same *number* of warehouses collected (the order
+ * they were collected in is ignored), times `dt`. Negative means the player is
+ * ahead. Null until the player has reached a checkpoint the ghost also reached. */
+export function splitDelta(playerCollectTicks: number[], ghostCollectTicks: number[], dt: number): number | null {
+  const k = playerCollectTicks.length;
+  if (k === 0 || k > ghostCollectTicks.length) return null;
+  return (playerCollectTicks[k - 1]! - ghostCollectTicks[k - 1]!) * dt;
+}

@@ -723,6 +723,10 @@ button:active {
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 #hud-timer {
@@ -732,4 +736,106 @@ button:active {
   background: rgba(255, 255, 255, 0.75);
   padding: 4px 14px;
   border-radius: 6px;
+}
+
+/* Live split time vs the raced ghost. Empty (no class) when there's no ghost or
+   no checkpoint reached yet - padding lives on the state classes so the empty
+   element takes no space. */
+#hud-delta {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+#hud-delta.ahead,
+#hud-delta.behind {
+  padding: 2px 10px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#hud-delta.ahead {
+  color: #55e08a;
+}
+
+#hud-delta.behind {
+  color: #ff6f6f;
+}
+
+/* Tutorial + How-to-play sit side by side under the medal track. */
+#menu-buttons-row {
+  display: flex;
+  gap: 10px;
+}
+
+#menu-buttons-row button {
+  flex: 1;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* --- New-player tutorial coach overlay ------------------------------------
+   Full-screen, but transparent to pointer events so pressing/holding anywhere
+   still steers the truck through the canvas beneath; only the action buttons
+   opt back into being clickable. */
+#tutorial-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+  pointer-events: none;
+}
+
+#tutorial-overlay.hidden {
+  display: none;
+}
+
+#tutorial-banner {
+  width: 100%;
+  max-width: 540px;
+  margin-top: 10px;
+  padding: 15px 20px 18px;
+  text-align: center;
+  background: rgba(22, 27, 34, 0.92);
+  border: 1px solid #4a5566;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  /* The card is see-through to pointers so holds over it still reach the canvas;
+     the buttons below re-enable their own pointer events. */
+  pointer-events: none;
+}
+
+#tutorial-badge {
+  display: inline-block;
+  margin-bottom: 9px;
+  padding: 3px 11px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #10141a;
+  background: #55e08a;
+  border-radius: 999px;
+}
+
+#tutorial-prompt {
+  font-size: 1.05rem;
+  line-height: 1.45;
+  color: #f0f2f5;
+}
+
+#tutorial-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+#tutorial-actions button {
+  padding: 9px 22px;
+  pointer-events: auto;
 }

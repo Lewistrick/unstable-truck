@@ -9,14 +9,18 @@ import {
   type LeaderboardEntry,
   type RemoteRecording,
 } from "./game/api.js";
-import { GhostPlayer, type GhostRecording } from "./game/ghost.js";
+import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
+import { Tutorial } from "./game/tutorial.js";
+import type { TruckState } from "./physics/truck.js";
 import {
   getOrCreateNickname,
+  hasSeenTutorial,
   loadCompletedDays,
   loadPersonalBest,
+  markTutorialSeen,
   loadRacePbGhostPref,
   loadSelectedLeaderboardGhost,
   pruneLeaderboardGhosts,
@@ -132,6 +136,12 @@ const resultsScreen = document.getElementById("results-screen")!;
 const helpScreen = document.getElementById("help-screen")!;
 const helpBtn = document.getElementById("help-btn") as HTMLButtonElement;
 const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
+const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
+const tutorialOverlay = document.getElementById("tutorial-overlay")!;
+const tutorialPrompt = document.getElementById("tutorial-prompt")!;
+const tutorialSkipBtn = document.getElementById("tutorial-skip-btn") as HTMLButtonElement;
+const tutorialSkipSectionBtn = document.getElementById("tutorial-skip-section-btn") as HTMLButtonElement;
+const tutorialDoneBtn = document.getElementById("tutorial-done-btn") as HTMLButtonElement;
 const hud = document.getElementById("hud")!;
 const menuBtn = document.getElementById("menu-btn") as HTMLButtonElement;
 const menuOverlay = document.getElementById("menu-overlay")!;
@@ -149,6 +159,7 @@ const resultsTime = document.getElementById("results-time")!;
 const resultsPersonalBest = document.getElementById("results-personal-best")!;
 const resultsStability = document.getElementById("results-stability")!;
 const hudTimer = document.getElementById("hud-timer")!;
+const hudDelta = document.getElementById("hud-delta")!;
 const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
 const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
@@ -564,11 +575,16 @@ void refreshStripChampionTimes();
 
 const input = createInput(canvas);
 
-type AppState = "start" | "countdown" | "playing" | "ended";
+type AppState = "start" | "countdown" | "playing" | "ended" | "tutorial";
 let appState: AppState = "start";
 let session: GameSession | null = null;
+let tutorial: Tutorial | null = null;
 let pbGhost: GhostPlayer | null = null;
 let leaderboardGhost: GhostPlayer | null = null;
+// The collection ticks of the ghost the live split time is measured against
+// (the pb ghost when it's racing, else the leaderboard ghost), or null when no
+// ghost is raced. Precomputed once per run.
+let referenceCollectTicks: number[] | null = null;
 let active: Playable = viewed;
 let countdownElapsed = 0;
 const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
@@ -683,6 +699,19 @@ function beginRun(playable: Playable): void {
     selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
       ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
       : null;
+
+  // Live split time is measured against the pb ghost whenever it's racing (even
+  // alongside a leaderboard ghost); otherwise the leaderboard ghost if that's
+  // the only one. Precompute that ghost's per-checkpoint collection ticks.
+  const referenceRecording: GhostRecording | RemoteRecording | null =
+    pbGhost && playable.personalBest
+      ? playable.personalBest
+      : leaderboardGhost && selectedGhostEntry
+        ? selectedGhostEntry.recording
+        : null;
+  referenceCollectTicks = referenceRecording ? ghostCollectTicks(playable.level, referenceRecording) : null;
+  hudDelta.textContent = "";
+  hudDelta.className = "";
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
@@ -801,6 +830,67 @@ function goHome(): void {
 retryBtn.addEventListener("click", () => beginRun(active));
 homeBtn.addEventListener("click", goHome);
 
+// --- New-player tutorial ---------------------------------------------------
+// A short, guided practice run on a fixed, unfailable level. It reuses the
+// normal render loop (via `active` + renderScene) but shows its own coach
+// overlay instead of the HUD, and never touches scores, ghosts, or storage
+// beyond marking itself seen on exit.
+
+// The active tutorial scene's truck; when this object reference changes (a new
+// section, a rock-reset, or the drive->terrain hand-off) the camera snaps to it
+// instead of panning across empty ground.
+let lastTutorialTruck: TruckState | null = null;
+
+/** Syncs the coach overlay (prompt + buttons) to the tutorial's current stage. */
+function refreshTutorialOverlay(): void {
+  if (!tutorial) return;
+  tutorialPrompt.textContent = tutorial.prompt;
+  const done = tutorial.isDone;
+  // Once finished, "Let's go!" replaces "Skip tutorial" (they'd do the same
+  // thing, so only one shows). Per-section skip only during the terrain course.
+  tutorialDoneBtn.classList.toggle("hidden", !done);
+  tutorialSkipBtn.classList.toggle("hidden", done);
+  tutorialSkipSectionBtn.classList.toggle("hidden", !tutorial.canSkipSection);
+}
+
+/** Enters the tutorial from the start screen: a fresh guided run with the coach
+ * overlay up. Rendering is driven directly from the Tutorial (see the frame
+ * loop), so it doesn't touch the normal run's render state or ghosts. */
+function startTutorial(): void {
+  tutorial = new Tutorial();
+  lastTutorialTruck = null;
+  camera.x = tutorial.activeTruck.pos.x;
+  camera.y = tutorial.activeTruck.pos.y;
+  accumulator = 0;
+  appState = "tutorial";
+
+  startScreen.classList.add("hidden");
+  resultsScreen.classList.add("hidden");
+  hud.classList.add("hidden");
+  countdownOverlay.classList.add("hidden");
+  tutorialOverlay.classList.remove("hidden");
+  refreshTutorialOverlay();
+}
+
+/** Leaves the tutorial (completed or skipped) back to the start screen, marking
+ * it seen so it won't auto-open again. */
+function endTutorial(): void {
+  if (appState !== "tutorial") return;
+  markTutorialSeen();
+  tutorial = null;
+  appState = "start";
+  tutorialOverlay.classList.add("hidden");
+  startScreen.classList.remove("hidden");
+}
+
+tutorialBtn.addEventListener("click", startTutorial);
+tutorialSkipBtn.addEventListener("click", endTutorial);
+tutorialDoneBtn.addEventListener("click", endTutorial);
+tutorialSkipSectionBtn.addEventListener("click", () => {
+  tutorial?.skipSection();
+  refreshTutorialOverlay();
+});
+
 // In-run hamburger menu: gives touch devices the Restart/Home that desktop
 // gets from Backspace/Esc. Lives inside #hud, so it's only present during a run.
 function setMenuOpen(open: boolean): void {
@@ -876,6 +966,12 @@ window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeHelp();
     return;
   }
+  // The tutorial owns its input: Escape skips it, and the normal run controls
+  // (Enter/Backspace) are inert while it's up. Spacebar still steers via input.ts.
+  if (appState === "tutorial") {
+    if (e.key === "Escape") endTutorial();
+    return;
+  }
   if (e.key === "Escape") goHome();
   if (e.key === "Enter") {
     if (appState === "ended") beginRun(active);
@@ -921,6 +1017,28 @@ function renderScene(activeSession: GameSession, frameDt: number): void {
   );
 }
 
+/** Refreshes the split-time readout under the timer: the difference to the
+ * raced ghost at the player's latest checkpoint. Green (with a minus sign) when
+ * ahead or tied, red (with a plus sign) when behind; blank until there's a
+ * ghost and a reached checkpoint. */
+function updateSplitDelta(): void {
+  if (!session || !referenceCollectTicks) {
+    hudDelta.textContent = "";
+    hudDelta.className = "";
+    return;
+  }
+  const delta = splitDelta(session.collectTicks, referenceCollectTicks, FIXED_DT);
+  if (delta === null) {
+    hudDelta.textContent = "";
+    hudDelta.className = "";
+    return;
+  }
+  const ahead = delta <= 0;
+  const sign = delta < 0 ? "-" : delta > 0 ? "+" : "";
+  hudDelta.textContent = `${sign}${Math.abs(delta).toFixed(2)}s`;
+  hudDelta.className = ahead ? "ahead" : "behind";
+}
+
 let lastTime = performance.now();
 function frame(now: number): void {
   const frameDt = Math.min(0.25, (now - lastTime) / 1000);
@@ -958,8 +1076,40 @@ function frame(now: number): void {
     hudObjective.textContent = session.allPickedUp
       ? "Deliver to destination"
       : `Pick up cargo (${session.visited.size}/${session.pickups.length})`;
+    updateSplitDelta();
 
     if (session.status !== "playing") endRun();
+  } else if (appState === "tutorial" && tutorial) {
+    // The tutorial has no countdown: physics advance immediately so the truck's
+    // default left curve is visible while the player reads the first prompt.
+    accumulator += frameDt;
+    let steps = 0;
+    while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+      tutorial.tick(input.held);
+      accumulator -= FIXED_DT;
+      steps++;
+    }
+    // A new scene (section change / rock-reset / drive->terrain) hands over a
+    // fresh truck object; snap the camera to it rather than panning across.
+    if (tutorial.activeTruck !== lastTutorialTruck) {
+      camera.x = tutorial.activeTruck.pos.x;
+      camera.y = tutorial.activeTruck.pos.y;
+      lastTutorialTruck = tutorial.activeTruck;
+    }
+    updateCamera(camera, tutorial.activeTruck, frameDt);
+    renderWorld(
+      ctx,
+      tutorial.activeLevel,
+      tutorial.activeTruck,
+      tutorial.activeCargo,
+      tutorial.activeVisited,
+      [],
+      camera,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      tutorial.goalMarkers,
+    );
+    refreshTutorialOverlay();
   } else {
     accumulator = 0;
   }
@@ -967,3 +1117,8 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// First-time visitors (no session yet) are dropped straight into the guided
+// tutorial; it's also always reachable from the Tutorial button. Completing or
+// skipping it marks it seen so it won't auto-open again.
+if (!hasSeenTutorial()) startTutorial();

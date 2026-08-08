@@ -26,11 +26,24 @@
       <div id="hud-objective">Pick up cargo</div>
       <div id="hud-timer-wrap">
         <div id="hud-timer">0.0s</div>
+        <div id="hud-delta"></div>
       </div>
     </div>
 
     <div id="countdown-overlay" class="hidden">
       <span id="countdown-text"></span>
+    </div>
+
+    <div id="tutorial-overlay" class="hidden" aria-live="polite">
+      <div id="tutorial-banner">
+        <span id="tutorial-badge">Tutorial</span>
+        <p id="tutorial-prompt"></p>
+        <div id="tutorial-actions">
+          <button id="tutorial-done-btn" class="hidden" type="button">Let's go!</button>
+          <button id="tutorial-skip-section-btn" class="btn-secondary hidden" type="button">Skip section</button>
+          <button id="tutorial-skip-btn" class="btn-secondary" type="button">Skip tutorial</button>
+        </div>
+      </div>
     </div>
 
     <div id="start-screen" class="screen">
@@ -60,7 +73,10 @@
           <button id="best-share-btn" class="btn-secondary btn-share-inline hidden" type="button">Share</button>
         </div>
         <div id="medal-track" aria-label="Medal times"></div>
-        <button id="help-btn" class="btn-secondary" type="button">How to play</button>
+        <div id="menu-buttons-row">
+          <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
+          <button id="help-btn" class="btn-secondary" type="button">How to play</button>
+        </div>
         <div id="nickname-row">
           <label for="nickname-input">Nickname</label>
           <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />

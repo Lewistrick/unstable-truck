@@ -693,6 +693,47 @@ function drawScenery(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds
   }
 }
 
+/** A checkered goal flag drawn at a world position - the target the player
+ * drives to in the tutorial's terrain sections. High-contrast (red/white on a
+ * dark pole) so it stands out on any biome palette. */
+function drawGoalFlag(ctx: CanvasRenderingContext2D, pos: Vec2): void {
+  const poleH = 40;
+  const flagW = 26;
+  const flagH = 18;
+  const topY = pos.y - poleH;
+
+  // Soft ground shadow so the flag reads as planted.
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y, 10, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pole.
+  ctx.strokeStyle = "#1b1f26";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(pos.x, pos.y);
+  ctx.lineTo(pos.x, topY);
+  ctx.stroke();
+
+  // A small 2x2 checkered pennant flying to the right of the pole.
+  const cw = flagW / 2;
+  const ch = flagH / 2;
+  const cols = ["#ff4d4d", "#f5f7fa"];
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 2; c++) {
+      ctx.fillStyle = cols[(r + c) % 2]!;
+      ctx.fillRect(pos.x + c * cw, topY + r * ch, cw, ch);
+    }
+  }
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pos.x, topY, flagW, flagH);
+  ctx.restore();
+}
+
 export function renderWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
@@ -703,6 +744,8 @@ export function renderWorld(
   camera: Camera,
   canvasW: number,
   canvasH: number,
+  /** Tutorial goal flags to draw (empty for normal play). */
+  goalMarkers: readonly Vec2[] = [],
 ): void {
   // Area beyond the level bounds (visible near the world's edges) matches
   // the grass color instead of a hardcoded dark void.
@@ -744,6 +787,7 @@ export function renderWorld(
   // gameplay markers stay on top.
   drawScenery(ctx, level, viewBounds);
   drawWarehouses(ctx, level, visited);
+  for (const marker of goalMarkers) drawGoalFlag(ctx, marker);
 
   for (const ghost of ghosts) {
     ctx.save();
