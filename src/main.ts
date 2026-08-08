@@ -11,9 +11,10 @@ import {
 } from "./game/api.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
-import { renderMinimap, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
+import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { GameSession } from "./game/session.js";
 import { Tutorial } from "./game/tutorial.js";
+import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import type { TruckState } from "./physics/truck.js";
 import {
   getOrCreateNickname,
@@ -142,6 +143,16 @@ const tutorialPrompt = document.getElementById("tutorial-prompt")!;
 const tutorialSkipBtn = document.getElementById("tutorial-skip-btn") as HTMLButtonElement;
 const tutorialSkipSectionBtn = document.getElementById("tutorial-skip-section-btn") as HTMLButtonElement;
 const tutorialDoneBtn = document.getElementById("tutorial-done-btn") as HTMLButtonElement;
+const watchBtn = document.getElementById("watch-btn") as HTMLButtonElement;
+const replaySelectBar = document.getElementById("replay-select-bar")!;
+const replaySelectCount = document.getElementById("replay-select-count")!;
+const replayCancelBtn = document.getElementById("replay-cancel-btn") as HTMLButtonElement;
+const replayStartBtn = document.getElementById("replay-start-btn") as HTMLButtonElement;
+const replayOverlay = document.getElementById("replay-overlay")!;
+const replayPlayBtn = document.getElementById("replay-play-btn") as HTMLButtonElement;
+const replayTimeEl = document.getElementById("replay-time")!;
+const replayProgress = document.getElementById("replay-progress") as HTMLInputElement;
+const replayStopBtn = document.getElementById("replay-stop-btn") as HTMLButtonElement;
 const hud = document.getElementById("hud")!;
 const menuBtn = document.getElementById("menu-btn") as HTMLButtonElement;
 const menuOverlay = document.getElementById("menu-overlay")!;
@@ -223,6 +234,9 @@ function refreshViewedUi(): void {
   // Show the level's medal times immediately on navigation; the leaderboard
   // load will refresh the champion tier once it arrives.
   renderMedalTrack();
+
+  // "Watch a replay" unlocks with the same personal-best gate as ghost racing.
+  updateWatchButton();
 }
 
 /** Picks readable text color (dark or light) for a given `hsl(h s% l%)`
@@ -366,7 +380,9 @@ function renderMedalTrack(): void {
 }
 
 function renderLeaderboardList(): void {
-  leaderboardHeaderEl.textContent = `Leaderboard (${describeOffset(mode, viewedOffset)})`;
+  leaderboardHeaderEl.textContent = watchMode
+    ? `Pick racers (${describeOffset(mode, viewedOffset)})`
+    : `Leaderboard (${describeOffset(mode, viewedOffset)})`;
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
   leaderboardList.replaceChildren();
@@ -378,11 +394,25 @@ function renderLeaderboardList(): void {
     return;
   }
 
+  // In watch mode, rows once the 1-5 cap is hit (and not already picked) are
+  // inert until something is deselected.
+  const capReached = watchSelection.size >= MAX_REPLAY_RACERS;
   for (const entry of [...leaderboardTop, ...leaderboardContext]) {
     const li = document.createElement("li");
     li.className = "leaderboard-row";
     if (entry.nickname === nickname) li.classList.add("self");
-    if (selectedGhostEntry?.nickname === entry.nickname) li.classList.add("selected");
+
+    const picked = watchSelection.has(entry.nickname);
+    if (watchMode) {
+      if (picked) li.classList.add("picked");
+      else if (capReached) li.classList.add("pick-disabled");
+      const check = document.createElement("span");
+      check.className = "leaderboard-check";
+      check.textContent = picked ? "✓" : "";
+      li.appendChild(check);
+    } else if (selectedGhostEntry?.nickname === entry.nickname) {
+      li.classList.add("selected");
+    }
 
     const rankEl = document.createElement("span");
     rankEl.className = "leaderboard-rank";
@@ -390,7 +420,8 @@ function renderLeaderboardList(): void {
 
     const nameEl = document.createElement("span");
     nameEl.className = "leaderboard-nickname";
-    nameEl.textContent = selectedGhostEntry?.nickname === entry.nickname ? `\u{1F4F7} ${entry.nickname}` : entry.nickname;
+    nameEl.textContent =
+      !watchMode && selectedGhostEntry?.nickname === entry.nickname ? `\u{1F4F7} ${entry.nickname}` : entry.nickname;
 
     const timeEl = document.createElement("span");
     timeEl.className = "leaderboard-time";
@@ -398,7 +429,8 @@ function renderLeaderboardList(): void {
 
     li.append(rankEl, nameEl, timeEl);
     li.addEventListener("click", () => {
-      void toggleLeaderboardGhost(entry.nickname);
+      if (watchMode) toggleWatchPick(entry.nickname);
+      else void toggleLeaderboardGhost(entry.nickname);
     });
     leaderboardList.appendChild(li);
   }
@@ -478,6 +510,8 @@ function updateNavButtons(): void {
  * currently selected mode + offset. */
 function refreshViewedSelection(): void {
   viewed = getPlayable(mode, viewedOffset);
+  // Changing level cancels any in-progress replay-racer picking.
+  exitWatchMode();
   // A selected ghost is contextual to the exact seed it was fetched for; clear
   // it, then restore whichever opponent was remembered for this seed (if any).
   selectedGhostEntry = null;
@@ -575,10 +609,24 @@ void refreshStripChampionTimes();
 
 const input = createInput(canvas);
 
-type AppState = "start" | "countdown" | "playing" | "ended" | "tutorial";
+type AppState = "start" | "countdown" | "playing" | "ended" | "tutorial" | "replay";
 let appState: AppState = "start";
 let session: GameSession | null = null;
 let tutorial: Tutorial | null = null;
+
+// --- Replay theater state --------------------------------------------------
+// "Watch" mode turns the leaderboard into a 1-5 racer picker; starting a replay
+// plays those recordings back together, non-interactively, on their own screen.
+let watchMode = false;
+const watchSelection = new Set<string>();
+let replay: ReplayTheater | null = null;
+let replayLevel: Level | null = null;
+// The replay's own fit-all camera (kept separate from the live-play camera).
+const replayCamera: Camera = { x: 0, y: 0 };
+let replayZoom = 1;
+// Progress-bar scrubbing: pause while dragging, resume after if it was playing.
+let replayScrubbing = false;
+let replayResumeAfterScrub = false;
 let pbGhost: GhostPlayer | null = null;
 let leaderboardGhost: GhostPlayer | null = null;
 // The collection ticks of the ghost the live split time is measured against
@@ -891,6 +939,182 @@ tutorialSkipSectionBtn.addEventListener("click", () => {
   refreshTutorialOverlay();
 });
 
+// --- Replay theater --------------------------------------------------------
+// Pick 1-5 leaderboard players and watch their ghosts race each other, with a
+// video-style player (play/pause, a seekable progress bar, and stop). Like
+// racing a ghost, it needs your own time on the level first.
+
+/** Enables the "Watch a replay" button only once there's a personal best on the
+ * viewed level (same gate as racing a ghost). */
+function updateWatchButton(): void {
+  const unlocked = viewed.personalBest != null;
+  watchBtn.disabled = !unlocked;
+  watchBtn.title = unlocked ? "" : "Set your own time here first to watch replays.";
+}
+
+function updateWatchBar(): void {
+  const n = watchSelection.size;
+  replaySelectCount.textContent = `Pick 1–5 racers (${n}/${MAX_REPLAY_RACERS})`;
+  replayStartBtn.textContent = `Watch (${n})`;
+  replayStartBtn.disabled = n < 1;
+}
+
+function enterWatchMode(): void {
+  if (viewed.personalBest == null) return; // gated, mirrors the button state
+  watchMode = true;
+  watchSelection.clear();
+  watchBtn.classList.add("hidden");
+  replaySelectBar.classList.remove("hidden");
+  updateWatchBar();
+  renderLeaderboardList();
+}
+
+function exitWatchMode(): void {
+  if (!watchMode) return;
+  watchMode = false;
+  watchSelection.clear();
+  replaySelectBar.classList.add("hidden");
+  watchBtn.classList.remove("hidden");
+  renderLeaderboardList();
+}
+
+/** Toggles a player into/out of the replay selection, capped at 5. */
+function toggleWatchPick(nickname: string): void {
+  if (watchSelection.has(nickname)) {
+    watchSelection.delete(nickname);
+  } else {
+    if (watchSelection.size >= MAX_REPLAY_RACERS) return;
+    watchSelection.add(nickname);
+  }
+  updateWatchBar();
+  renderLeaderboardList();
+}
+
+/** Fetches the selected players' recordings and opens the replay theater. */
+async function startReplay(): Promise<void> {
+  const seed = viewed.seed;
+  const level = viewed.level;
+  const nicknames = [...watchSelection];
+  if (nicknames.length === 0) return;
+
+  replayStartBtn.disabled = true;
+  replayStartBtn.textContent = "Loading…";
+  const recordings = await Promise.all(nicknames.map((n) => fetchPlayerRecording(seed, n)));
+
+  const racers: ReplayRacer[] = [];
+  recordings.forEach((rec, i) => {
+    if (rec) racers.push({ label: nicknames[i]!, color: REPLAY_COLORS[racers.length]!, recording: rec });
+  });
+  if (racers.length === 0) {
+    // Offline or the recordings couldn't be fetched; stay in pick mode.
+    replaySelectCount.textContent = "Couldn't load those replays - try again.";
+    updateWatchBar();
+    return;
+  }
+
+  replay = new ReplayTheater(level, racers);
+  replayLevel = level;
+  replayProgress.max = String(replay.totalTicks);
+  replayProgress.value = "0";
+  replayScrubbing = false;
+  accumulator = 0;
+  exitWatchMode();
+
+  appState = "replay";
+  startScreen.classList.add("hidden");
+  replayOverlay.classList.remove("hidden");
+  updateReplayCamera(0, true); // frame all racers at the start line
+  replay.play();
+  updateReplayControls();
+}
+
+/** Leaves the replay theater back to the main menu. */
+function stopReplay(): void {
+  if (appState !== "replay") return;
+  replay = null;
+  replayLevel = null;
+  appState = "start";
+  replayOverlay.classList.add("hidden");
+  startScreen.classList.remove("hidden");
+}
+
+/** Fits the camera to the pack of racers (centre + zoom), never zooming in past
+ * 1:1. Snaps instantly on seek, else eases for smooth playback. */
+function updateReplayCamera(frameDt: number, snap: boolean): void {
+  if (!replay) return;
+  const views = replay.views();
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const view of views) {
+    minX = Math.min(minX, view.truck.pos.x);
+    maxX = Math.max(maxX, view.truck.pos.x);
+    minY = Math.min(minY, view.truck.pos.y);
+    maxY = Math.max(maxY, view.truck.pos.y);
+  }
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const pad = 320; // world-unit breathing room around the pack
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const targetZoom = Math.min(1, cw / (maxX - minX + pad), ch / (maxY - minY + pad));
+
+  if (snap) {
+    replayCamera.x = cx;
+    replayCamera.y = cy;
+    replayZoom = targetZoom;
+    return;
+  }
+  const k = Math.min(1, 4.5 * frameDt);
+  replayCamera.x += (cx - replayCamera.x) * k;
+  replayCamera.y += (cy - replayCamera.y) * k;
+  replayZoom += (targetZoom - replayZoom) * k;
+}
+
+/** Formats seconds as m:ss for the player's time readout. */
+function fmtClock(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function updateReplayControls(): void {
+  if (!replay) return;
+  replayPlayBtn.textContent = replay.playing ? "⏸" : "▶"; // ⏸ / ▶
+  replayTimeEl.textContent = `${fmtClock(replay.elapsed)} / ${fmtClock(replay.duration)}`;
+  // Don't fight the user's drag: only mirror the tick into the bar when idle.
+  if (!replayScrubbing) replayProgress.value = String(replay.tick);
+}
+
+watchBtn.addEventListener("click", enterWatchMode);
+replayCancelBtn.addEventListener("click", exitWatchMode);
+replayStartBtn.addEventListener("click", () => {
+  void startReplay();
+});
+replayStopBtn.addEventListener("click", stopReplay);
+replayPlayBtn.addEventListener("click", () => {
+  replay?.togglePlay();
+  updateReplayControls();
+});
+replayProgress.addEventListener("pointerdown", () => {
+  if (!replay) return;
+  replayScrubbing = true;
+  replayResumeAfterScrub = replay.playing;
+  replay.pause();
+});
+replayProgress.addEventListener("input", () => {
+  if (!replay) return;
+  replay.seekTo(Number(replayProgress.value));
+  updateReplayCamera(0, true);
+  updateReplayControls();
+});
+window.addEventListener("pointerup", () => {
+  if (!replayScrubbing) return;
+  replayScrubbing = false;
+  if (replay && replayResumeAfterScrub && !replay.atEnd) replay.play();
+});
+
 // In-run hamburger menu: gives touch devices the Restart/Home that desktop
 // gets from Backspace/Esc. Lives inside #hud, so it's only present during a run.
 function setMenuOpen(open: boolean): void {
@@ -970,6 +1194,16 @@ window.addEventListener("keydown", (e) => {
   // (Enter/Backspace) are inert while it's up. Spacebar still steers via input.ts.
   if (appState === "tutorial") {
     if (e.key === "Escape") endTutorial();
+    return;
+  }
+  // The replay theater: Escape stops (back to menu), Space toggles play/pause.
+  if (appState === "replay") {
+    if (e.key === "Escape") stopReplay();
+    else if (e.code === "Space") {
+      e.preventDefault();
+      replay?.togglePlay();
+      updateReplayControls();
+    }
     return;
   }
   if (e.key === "Escape") goHome();
@@ -1110,6 +1344,21 @@ function frame(now: number): void {
       tutorial.goalMarkers,
     );
     refreshTutorialOverlay();
+  } else if (appState === "replay" && replay && replayLevel) {
+    if (replay.playing) {
+      accumulator += frameDt;
+      let steps = 0;
+      while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+        replay.step();
+        accumulator -= FIXED_DT;
+        steps++;
+      }
+    } else {
+      accumulator = 0;
+    }
+    updateReplayCamera(frameDt, false);
+    renderReplayWorld(ctx, replayLevel, replay.views(), replayCamera, replayZoom, canvas.clientWidth, canvas.clientHeight);
+    updateReplayControls();
   } else {
     accumulator = 0;
   }

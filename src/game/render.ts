@@ -734,27 +734,27 @@ function drawGoalFlag(ctx: CanvasRenderingContext2D, pos: Vec2): void {
   ctx.restore();
 }
 
-export function renderWorld(
+/** Paints the static world (ground, texture, roads, obstacles, houses, scenery,
+ * warehouses) with the camera + zoom transform applied, and leaves that
+ * transform in place so the caller can draw the moving actors on top and then
+ * call ctx.restore(). Shared by the normal render and the replay render, which
+ * differ only in the actors (and how the camera/zoom are chosen). */
+function paintWorld(
   ctx: CanvasRenderingContext2D,
   level: Level,
-  truck: TruckState,
-  cargoBoxes: readonly CargoState[],
   visited: ReadonlySet<Warehouse>,
-  ghosts: readonly GhostView[],
   camera: Camera,
+  zoom: number,
   canvasW: number,
   canvasH: number,
-  /** Tutorial goal flags to draw (empty for normal play). */
-  goalMarkers: readonly Vec2[] = [],
 ): void {
-  // Area beyond the level bounds (visible near the world's edges) matches
-  // the grass color instead of a hardcoded dark void.
+  // Area beyond the level bounds (visible near the world's edges) matches the
+  // grass color instead of a hardcoded dark void.
   ctx.fillStyle = level.palette.grass;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   // Center the camera on screen, then scale about that center so the truck
   // stays put while more of the world comes into view on small screens.
-  const zoom = viewZoom(canvasW, canvasH);
   ctx.save();
   ctx.translate(canvasW / 2, canvasH / 2);
   ctx.scale(zoom, zoom);
@@ -787,6 +787,23 @@ export function renderWorld(
   // gameplay markers stay on top.
   drawScenery(ctx, level, viewBounds);
   drawWarehouses(ctx, level, visited);
+}
+
+export function renderWorld(
+  ctx: CanvasRenderingContext2D,
+  level: Level,
+  truck: TruckState,
+  cargoBoxes: readonly CargoState[],
+  visited: ReadonlySet<Warehouse>,
+  ghosts: readonly GhostView[],
+  camera: Camera,
+  canvasW: number,
+  canvasH: number,
+  /** Tutorial goal flags to draw (empty for normal play). */
+  goalMarkers: readonly Vec2[] = [],
+): void {
+  const zoom = viewZoom(canvasW, canvasH);
+  paintWorld(ctx, level, visited, camera, zoom, canvasW, canvasH);
   for (const marker of goalMarkers) drawGoalFlag(ctx, marker);
 
   for (const ghost of ghosts) {
@@ -806,6 +823,67 @@ export function renderWorld(
   // objective.
   if (level.kind === "weekly") drawGuidanceArrow(ctx, truck, level, visited);
 
+  ctx.restore();
+}
+
+const REPLAY_NO_VISITED: ReadonlySet<Warehouse> = new Set();
+
+/** One racer in a replay: an opaque, colour-tagged truck + cargo. */
+export interface ReplayRacerView {
+  truck: TruckState;
+  cargoBoxes: readonly CargoState[];
+  label: string;
+  color: string;
+}
+
+/** A coloured ring + name pill so each racer in a replay is tellable apart
+ * (drawn outside the truck's rotation so the tag stays upright). */
+function drawRacerTag(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }, text: string, color: string): void {
+  ctx.save();
+  // Ring around the truck.
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 19, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Coloured name pill with dark text above the truck.
+  ctx.font = "700 11px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const padX = 7;
+  const w = ctx.measureText(text).width + padX * 2;
+  const h = 16;
+  const cx = pos.x;
+  const cy = pos.y - 30;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(cx - w / 2, cy - h / 2, w, h, 5);
+  ctx.fill();
+  ctx.fillStyle = "#12161c";
+  ctx.fillText(text, cx, cy + 0.5);
+  ctx.restore();
+}
+
+/** Renders a non-interactive replay: several racers on one level, all opaque
+ * and colour-tagged (no "you" truck, no ghost transparency). The camera and
+ * zoom are chosen by the caller (fit-all), so `zoom` is passed in rather than
+ * derived from the canvas size. */
+export function renderReplayWorld(
+  ctx: CanvasRenderingContext2D,
+  level: Level,
+  racers: readonly ReplayRacerView[],
+  camera: Camera,
+  zoom: number,
+  canvasW: number,
+  canvasH: number,
+): void {
+  paintWorld(ctx, level, REPLAY_NO_VISITED, camera, zoom, canvasW, canvasH);
+  for (const r of racers) {
+    drawCargoChain(ctx, r.cargoBoxes);
+    drawTruck(ctx, r.truck);
+    drawRacerTag(ctx, r.truck.pos, r.label, r.color);
+  }
   ctx.restore();
 }
 

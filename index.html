@@ -34,6 +34,15 @@
       <span id="countdown-text"></span>
     </div>
 
+    <div id="replay-overlay" class="hidden">
+      <div id="replay-bar">
+        <button id="replay-play-btn" type="button" aria-label="Play or pause">&#10074;&#10074;</button>
+        <span id="replay-time" class="replay-time">0:00 / 0:00</span>
+        <input id="replay-progress" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+        <button id="replay-stop-btn" class="btn-secondary" type="button">Stop</button>
+      </div>
+    </div>
+
     <div id="tutorial-overlay" class="hidden" aria-live="polite">
       <div id="tutorial-banner">
         <span id="tutorial-badge">Tutorial</span>
@@ -85,6 +94,16 @@
         <div id="leaderboard">
           <div class="leaderboard-header" id="leaderboard-header">Today's Leaderboard</div>
           <ol id="leaderboard-list"></ol>
+          <div id="replay-controls">
+            <button id="watch-btn" class="btn-secondary" type="button">&#9654; Watch a replay</button>
+            <div id="replay-select-bar" class="hidden">
+              <span id="replay-select-count">Pick 1&ndash;5 racers (0/5)</span>
+              <div id="replay-select-actions">
+                <button id="replay-cancel-btn" class="btn-secondary" type="button">Cancel</button>
+                <button id="replay-start-btn" type="button" disabled>Watch (0)</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
