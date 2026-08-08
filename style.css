@@ -566,6 +566,135 @@ html, body {
   color: #6b7480;
 }
 
+/* Small checkbox on each leaderboard row while in "Watch" pick mode. */
+.leaderboard-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #6b7480;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #12161c;
+}
+
+.leaderboard-row.picked .leaderboard-check {
+  background: #55e08a;
+  border-color: #55e08a;
+}
+
+.leaderboard-row.picked {
+  background: rgba(85, 224, 138, 0.12);
+}
+
+/* A row that can't be picked (the 5-racer cap is reached and it isn't already
+   selected) reads as inert. */
+.leaderboard-row.pick-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- Replay selection controls (under the leaderboard) -------------------- */
+#replay-controls {
+  margin-top: 10px;
+}
+
+#watch-btn {
+  width: 100%;
+}
+
+#watch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#replay-select-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* id specificity would otherwise beat the shared .hidden rule. */
+#replay-select-bar.hidden {
+  display: none;
+}
+
+#replay-select-count {
+  font-size: 0.8rem;
+  color: #9aa4b2;
+  text-align: left;
+}
+
+#replay-select-actions {
+  display: flex;
+  gap: 10px;
+}
+
+#replay-select-actions button {
+  flex: 1;
+  padding: 8px 0;
+}
+
+/* --- Replay player (video-style bar over the canvas) --------------------- */
+#replay-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  pointer-events: none;
+}
+
+#replay-overlay.hidden {
+  display: none;
+}
+
+#replay-bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  padding: 10px 14px;
+  background: rgba(22, 27, 34, 0.92);
+  border: 1px solid #4a5566;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+#replay-play-btn {
+  flex: none;
+  width: 42px;
+  height: 38px;
+  padding: 0;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.replay-time {
+  flex: none;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: #c3cad4;
+  min-width: 84px;
+  text-align: center;
+}
+
+#replay-progress {
+  flex: 1;
+  height: 6px;
+  cursor: pointer;
+  accent-color: #55e08a;
+}
+
 button {
   padding: 10px 28px;
   font-size: 1rem;
