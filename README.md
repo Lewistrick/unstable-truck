@@ -92,7 +92,12 @@ What's implemented:
 - Personal-best recording and ghost replay: each run's input (held/released
   toggle ticks) is recorded; a successful run that beats your stored best for
   that day's seed is saved to `localStorage` and can be raced against as a
-  semi-transparent ghost.
+  semi-transparent ghost. While racing a ghost, a live split time under the
+  timer shows how far ahead (green, minus sign) or behind (red, plus sign) you
+  are, measured at each warehouse pickup by the *number* collected rather than
+  which ones (so route order doesn't matter). The ghost's per-checkpoint ticks
+  are recovered by deterministically re-simulating its input log; with two
+  ghosts racing, the split is measured against the personal-best one.
 - Global leaderboard, backed by a Postgres + Express server: each successful
   run is submitted under a nickname (auto-generated on first visit, editable)
   and only overwrites your prior score for that seed if it's faster. The home
@@ -134,6 +139,27 @@ What's implemented:
   back to the public address for local/dev play.
   The home screen also has a Share button next to today's "Best" time that
   copies the same kind of summary for your stored personal best (today only).
+- New-player tutorial: a first-time visitor (no stored progress yet) is dropped
+  straight into a short, guided, unfailable practice tutorial. A coach banner
+  walks through it step by step, gated on what the player actually does. It has
+  two parts:
+  - **Learn to drive.** On a fixed, calm grassland level (base, one pickup, one
+    drop-off along a wide road, no obstacles): hold to steer right, then release
+    to drift left, then collect the `W`, then deliver to the `D`.
+  - **A terrain course** of three hands-on sections, each a small level with a
+    goal flag to drive to: *road vs grass* (the road is the fast lane), *mud*
+    (a puddle to steer around rather than through — no rock in this one), and
+    *rock* (a solid boulder you must go around — no mud in this one; hitting it
+    restarts the section). A **Skip section** button skips just the current
+    section; the persistent **Skip tutorial** button (or Escape) leaves to the
+    main menu at any point. Finishing the course shows a "Let's go!" button
+    (and hides Skip tutorial, since they'd do the same thing).
+
+  The run is unfailable throughout (a `practice` game session that ignores the
+  cargo and out-of-bounds game-overs), records no score, and races no ghosts. It
+  auto-opens only once (a `localStorage` "seen" flag) and is always reachable
+  afterwards from a **Tutorial** button beside **How to play** on the home
+  screen.
 - Start screen shows one day at a time (today by default), with prev/next
   arrows beside the thumbnail to browse up to 30 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
@@ -254,7 +280,8 @@ Backspace/Escape (steering or restarting dismisses it).
 
 A "How to play" button on the home screen opens a help overlay covering the
 objective, controls, terrain, and daily/leaderboard basics (close it with the
-Close button, Escape, or by tapping the backdrop).
+Close button, Escape, or by tapping the backdrop). Beside it, a "Tutorial"
+button (re)starts the guided practice run described above.
 
 ## Project layout
 

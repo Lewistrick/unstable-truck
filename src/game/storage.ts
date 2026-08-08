@@ -128,6 +128,20 @@ export function loadCompletedDays(): Set<string> {
   return new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
 }
 
+const TUTORIAL_SEEN_KEY = "unstable-truck:tutorial-seen";
+
+/** Whether this browser has already been through (or dismissed) the new-player
+ * tutorial. Absent on a genuine first visit, which is what auto-opens it. */
+export function hasSeenTutorial(): boolean {
+  return localStorage.getItem(TUTORIAL_SEEN_KEY) === "1";
+}
+
+/** Marks the tutorial as seen so it won't auto-open again (it stays reachable
+ * from the Tutorial button). Set once the player completes or skips it. */
+export function markTutorialSeen(): void {
+  localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
+}
+
 const NICKNAME_KEY = "unstable-truck:nickname";
 const MAX_NICKNAME_LENGTH = 24;
 

@@ -18,6 +18,14 @@ export type GameStatus = "playing" | "success" | "fail";
 /** Why a run ended in failure, so the results screen can tailor its message. */
 export type FailReason = "cargo" | "outOfBounds";
 
+/** Per-run options. `practice` makes the run unfailable (used by the new-player
+ * tutorial): cargo falling off and driving out of bounds are ignored, so a
+ * learner can flail around without a game-over. A successful delivery still
+ * registers, so the tutorial can detect completion. */
+export interface SessionOptions {
+  practice?: boolean;
+}
+
 // A little forgiveness added to the truck's radius so grazing a building's edge
 // still counts as reaching it.
 const COLLECT_PAD = 2;
@@ -71,6 +79,9 @@ export class GameSession {
   readonly cargoBoxes: CargoState[] = [];
 
   visited = new Set<Warehouse>();
+  /** The tick each pickup was collected, in collection order. Compared by
+   * count (not which warehouse) against a ghost's for the live split time. */
+  readonly collectTicks: number[] = [];
   status: GameStatus = "playing";
   /** Set alongside a "fail" status to say what went wrong. */
   failReason: FailReason | null = null;
@@ -87,7 +98,11 @@ export class GameSession {
   readonly inputLog: number[] = [];
   private lastHeld = false;
 
-  constructor(level: Level) {
+  /** When true the run can't be lost (see SessionOptions.practice). */
+  private readonly practice: boolean;
+
+  constructor(level: Level, options: SessionOptions = {}) {
+    this.practice = options.practice ?? false;
     this.level = level;
     this.base = findWarehouse(level, "base");
     this.destination = findWarehouse(level, "destination");
@@ -152,7 +167,7 @@ export class GameSession {
     // Driving into the map edge and holding there ends the run - you're leaving
     // the delivery area. A brief clip resets, so only a sustained push fails.
     this.boundaryTicks = this.truck.atBoundary ? this.boundaryTicks + 1 : 0;
-    if (this.boundaryTicks >= OUT_OF_BOUNDS_TICKS) {
+    if (!this.practice && this.boundaryTicks >= OUT_OF_BOUNDS_TICKS) {
       this.status = "fail";
       this.failReason = "outOfBounds";
       return;
@@ -168,6 +183,7 @@ export class GameSession {
     for (const wh of this.pickups) {
       if (!this.visited.has(wh) && truckTouchesWarehouse(this.truck, wh)) {
         this.visited.add(wh);
+        this.collectTicks.push(this.tick);
         this.loadPickup();
       }
     }
@@ -182,7 +198,7 @@ export class GameSession {
       leaderHalfLength = box.length / 2;
     }
 
-    if (this.cargoBoxes.some((box) => box.stability <= 0)) {
+    if (!this.practice && this.cargoBoxes.some((box) => box.stability <= 0)) {
       this.status = "fail";
       this.failReason = "cargo";
       return;
