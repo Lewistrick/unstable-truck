@@ -875,6 +875,29 @@ button:active {
   border-radius: 6px;
 }
 
+/* "Paused" status banner, shown near the top-center under the objective while
+   the game is frozen. Purely informational (the bottom timer is the control). */
+#pause-indicator {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #12161c;
+  background: rgba(255, 214, 91, 0.92);
+  padding: 6px 18px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  z-index: 6;
+}
+
+#pause-indicator.hidden {
+  display: none;
+}
+
 #hud-timer-wrap {
   position: fixed;
   left: 50%;
@@ -886,13 +909,29 @@ button:active {
   gap: 4px;
 }
 
+/* The timer doubles as the pause/resume button. It's a real <button> so tap
+   (mobile) and keyboard both work; these resets keep it looking like the old
+   readout rather than a native button. */
 #hud-timer {
+  font-family: inherit;
   font-size: 1.4rem;
   font-weight: 700;
   color: #000;
   background: rgba(255, 255, 255, 0.75);
   padding: 4px 14px;
+  border: none;
   border-radius: 6px;
+  cursor: pointer;
+  pointer-events: auto;
+  /* Keep a tap from selecting the digits or flashing a tap-highlight on mobile. */
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Paused look: amber to match the top banner, so the control reads as "engaged". */
+#hud-timer.paused {
+  background: rgba(255, 214, 91, 0.92);
 }
 
 /* Live split time vs the raced ghost. Empty (no class) when there's no ghost or

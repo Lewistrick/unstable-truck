@@ -169,7 +169,8 @@ const shareBtn = document.getElementById("share-btn") as HTMLButtonElement;
 const resultsTime = document.getElementById("results-time")!;
 const resultsPersonalBest = document.getElementById("results-personal-best")!;
 const resultsStability = document.getElementById("results-stability")!;
-const hudTimer = document.getElementById("hud-timer")!;
+const hudTimer = document.getElementById("hud-timer") as HTMLButtonElement;
+const pauseIndicator = document.getElementById("pause-indicator")!;
 const hudDelta = document.getElementById("hud-delta")!;
 const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
@@ -613,6 +614,31 @@ type AppState = "start" | "countdown" | "playing" | "ended" | "tutorial" | "repl
 let appState: AppState = "start";
 let session: GameSession | null = null;
 let tutorial: Tutorial | null = null;
+// When paused, the playing branch of the frame loop stops advancing physics,
+// ghosts, and the clock - the frozen frame keeps rendering and a "Paused"
+// banner shows near the top. Only meaningful during `playing`.
+let paused = false;
+
+/** Freezes or resumes an in-progress run, syncing the bottom timer button
+ * (which doubles as the pause control) and the top "Paused" banner. */
+function setPaused(next: boolean): void {
+  paused = next;
+  pauseIndicator.classList.toggle("hidden", !paused);
+  hudTimer.classList.toggle("paused", paused);
+  hudTimer.setAttribute("aria-pressed", String(paused));
+  hudTimer.setAttribute("aria-label", paused ? "Resume" : "Pause");
+  hudTimer.title = paused ? "Resume" : "Pause";
+}
+
+// The timer at the bottom is the pause/resume control. A native <button> so a
+// tap (mobile) or Enter/Space (keyboard) works; only toggles during live play.
+hudTimer.addEventListener("click", () => {
+  if (appState !== "playing") return;
+  setPaused(!paused);
+  // Space is the steering key; drop focus so it doesn't also re-toggle this
+  // button once it's been clicked/tapped.
+  hudTimer.blur();
+});
 
 // --- Replay theater state --------------------------------------------------
 // "Watch" mode turns the leaderboard into a 1-5 racer picker; starting a replay
@@ -764,6 +790,7 @@ function beginRun(playable: Playable): void {
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
   appState = "countdown";
+  setPaused(false);
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
@@ -774,6 +801,7 @@ function beginRun(playable: Playable): void {
 function endRun(): void {
   if (!session) return;
   appState = "ended";
+  setPaused(false);
   hud.classList.add("hidden");
   resultsScreen.classList.remove("hidden");
   if (session.status === "success") {
@@ -865,6 +893,7 @@ function endRun(): void {
 function goHome(): void {
   if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
   appState = "start";
+  setPaused(false);
   setMenuOpen(false);
   session = null;
   pbGhost = null;
@@ -1295,16 +1324,22 @@ function frame(now: number): void {
       hudObjective.textContent = `Pick up cargo (0/${session.pickups.length})`;
     }
   } else if (appState === "playing" && session) {
-    accumulator += frameDt;
-    let steps = 0;
-    while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
-      session.update(FIXED_DT, input.held);
-      pbGhost?.update(FIXED_DT);
-      leaderboardGhost?.update(FIXED_DT);
-      accumulator -= FIXED_DT;
-      steps++;
+    // Paused freezes everything - truck, ghosts, and the clock - by skipping the
+    // physics steps entirely; the scene still re-renders (frozen) each frame.
+    if (!paused) {
+      accumulator += frameDt;
+      let steps = 0;
+      while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+        session.update(FIXED_DT, input.held);
+        pbGhost?.update(FIXED_DT);
+        leaderboardGhost?.update(FIXED_DT);
+        accumulator -= FIXED_DT;
+        steps++;
+      }
+    } else {
+      accumulator = 0;
     }
-    renderScene(session, frameDt);
+    renderScene(session, paused ? 0 : frameDt);
 
     hudTimer.textContent = formatTime(session.elapsed);
     hudObjective.textContent = session.allPickedUp

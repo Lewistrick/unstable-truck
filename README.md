@@ -289,7 +289,9 @@ steer right. Release to drift left. The truck always drives forward;
 steering is the only input. Enter starts/retries, Escape quits to the home
 screen, Backspace restarts the current run. During a run, a hamburger menu in
 the top-left corner opens Restart/Home buttons - the touch equivalent of
-Backspace/Escape (steering or restarting dismisses it).
+Backspace/Escape (steering or restarting dismisses it). Tapping the timer at
+the bottom pauses the run - the truck, any racing ghosts, and the clock all
+freeze and a "Paused" banner shows near the top; tap it again to resume.
 
 A "How to play" button on the home screen opens a help overlay covering the
 objective, controls, terrain, and daily/leaderboard basics (close it with the
