@@ -11,7 +11,7 @@
     "watch": "tsc --watch",
     "start": "node server/dist/index.js",
     "serve": "python -m http.server 8123",
-    "test": "npm run build:client && node scripts/collision-check.mjs && node scripts/storage-check.mjs && node scripts/medal-check.mjs && node scripts/split-check.mjs && node scripts/tutorial-check.mjs && node scripts/replay-check.mjs && node scripts/seed-target-check.mjs"
+    "test": "npm run build:client && node scripts/collision-check.mjs && node scripts/storage-check.mjs && node scripts/medal-check.mjs && node scripts/medal-par-check.mjs && node scripts/split-check.mjs && node scripts/tutorial-check.mjs && node scripts/replay-check.mjs && node scripts/seed-target-check.mjs"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

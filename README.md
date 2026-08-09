@@ -120,9 +120,12 @@ What's implemented:
   final frame so the finish order stays on screen.
 - Medal targets: each level has deterministic gold/silver/bronze finish-time
   thresholds derived purely from its geometry (the ideal
-  base → pickups → destination route length, inflated for road curvature and
-  divided by an assumed good-driving speed), so they're identical for every
-  player and work fully offline. Above gold sits a Champion tier at
+  base → pickups → destination route length — a 2-opt-optimized tour, so it
+  tracks the route a strong player actually drives rather than an inflated
+  estimate — inflated for road curvature and divided by an assumed good-driving
+  speed), so they're identical for every player and work fully offline. Gold
+  lands at roughly 1.36× the straight-line-at-top-speed floor on every map, so
+  difficulty stays consistent whether a track has four pickups or twenty-five. Above gold sits a Champion tier at
   `gold - 3*(gold - top)/4` (three quarters of the way from the gold time down
   to the world record time); it unlocks as soon as someone sets a gold time (a record
   faster than gold). Unlike the geometry-derived tiers, the Champion threshold

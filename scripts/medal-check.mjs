@@ -19,7 +19,7 @@ function check(name, actual, expected) {
 }
 
 // A representative level: bronze 34, silver 26, gold 20 (silver/bronze are
-// gold * 1.3 / 1.7 in the real par calc, but any ordered triple works here).
+// gold * 1.18 / 1.45 in the real par calc, but any ordered triple works here).
 const pars = { gold: 20, silver: 26, bronze: 34 };
 
 // --- championTime: the threshold a record implies -------------------------
