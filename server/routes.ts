@@ -149,7 +149,7 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
     }
   }
 
-  res.json({ seed, top, context, championTime });
+  res.json({ seed, top, context, championTime, total: all.length });
 });
 
 /** A specific player's full recording for a seed, for racing their ghost. */

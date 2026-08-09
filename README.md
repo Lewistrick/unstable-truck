@@ -144,11 +144,21 @@ What's implemented:
   Champion. Each medal dot carries a small resting glow in its own colour and
   pulses once, brighter, when you hover it.
 - Shareable result card: after a delivery, a Share button copies a spoiler-free
-  summary (day, finish time, earned medal, and a link back to the game — no map
-  details) to the clipboard. The link is the page's own hosted URL, falling
-  back to the public address for local/dev play.
+  summary to the clipboard — the board (Daily/Weekly) and seed, finish time and
+  earned medal, your world rank ("#N in the world", when the leaderboard is
+  reachable), and a link back to the game (no map details). The link carries the
+  map's seed as `?s=<seed>`, so opening it drops the recipient straight onto that
+  exact day/week. The base link is the page's own hosted URL, falling back to the
+  public address for local/dev play.
   The home screen also has a Share button next to today's "Best" time that
   copies the same kind of summary for your stored personal best (today only).
+- Shared-map deep links: opening the game with `?s=<seed>` loads that map. A
+  seed that's a still-browsable day (≤30 days) or week (≤52 weeks) lands on its
+  live board; any other seed — an expired period, or a non-standard string — is
+  generated and fully playable as a one-off "shared map", but with no global
+  leaderboard, ranking, ghost-racing, replays, or score submission (a short
+  notice replaces the leaderboard). Use the Daily/Weekly toggle to return to a
+  live period.
 - New-player tutorial: a first-time visitor (no stored progress yet) is dropped
   straight into a short, guided, unfailable practice tutorial. A coach banner
   walks through it step by step, gated on what the player actually does. It has

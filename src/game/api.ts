@@ -11,6 +11,9 @@ export interface LeaderboardResponse {
   context: LeaderboardEntry[];
   /** The champion-medal threshold for this seed, or null if none is set yet. */
   championTime: number | null;
+  /** Total number of ranked players for this seed (the field size a rank is
+   * "out of"). Absent from older servers, so treat missing as unknown. */
+  total?: number;
 }
 
 export interface RemoteRecording {

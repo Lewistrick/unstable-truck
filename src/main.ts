@@ -1,4 +1,5 @@
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
+import { resolveSeedTarget } from "./level/seed-target.js";
 import { FIXED_DT } from "./physics/constants.js";
 import {
   backfillChampionTime,
@@ -51,6 +52,10 @@ interface Playable {
   level: Level;
   personalBest: GhostRecording | null;
   pars: MedalPars;
+  /** True for a shared-link seed that isn't a live daily/weekly period (expired
+   * or non-standard): the map is playable, but it has no global leaderboard, so
+   * ranking, ghost-racing others, and score submission are all disabled. */
+  orphan?: boolean;
 }
 
 function makePlayable(seed: string, kind: Mode): Playable {
@@ -101,6 +106,17 @@ function maxPastOffset(mode: Mode): number {
   return mode === "weekly" ? MAX_PAST_WEEKS : MAX_PAST_DAYS;
 }
 
+/** Syncs the Daily/Weekly toggle buttons and the streak strip's visibility to
+ * the current `mode`. */
+function setModeVisuals(): void {
+  modeDailyBtn.classList.toggle("active", mode === "daily");
+  modeWeeklyBtn.classList.toggle("active", mode === "weekly");
+  modeDailyBtn.setAttribute("aria-selected", String(mode === "daily"));
+  modeWeeklyBtn.setAttribute("aria-selected", String(mode === "weekly"));
+  // The streak/calendar strip only applies to live daily play.
+  progressStrip.classList.toggle("hidden", mode !== "daily");
+}
+
 function describeOffset(mode: Mode, offset: number): string {
   if (mode === "weekly") {
     if (offset === 0) return "This week";
@@ -144,6 +160,7 @@ const tutorialSkipBtn = document.getElementById("tutorial-skip-btn") as HTMLButt
 const tutorialSkipSectionBtn = document.getElementById("tutorial-skip-section-btn") as HTMLButtonElement;
 const tutorialDoneBtn = document.getElementById("tutorial-done-btn") as HTMLButtonElement;
 const watchBtn = document.getElementById("watch-btn") as HTMLButtonElement;
+const replayControls = document.getElementById("replay-controls")!;
 const replaySelectBar = document.getElementById("replay-select-bar")!;
 const replaySelectCount = document.getElementById("replay-select-count")!;
 const replayCancelBtn = document.getElementById("replay-cancel-btn") as HTMLButtonElement;
@@ -207,12 +224,13 @@ pbGhostToggle.addEventListener("change", () => {
 });
 
 function refreshViewedUi(): void {
-  viewedDateEl.textContent = `${describeOffset(mode, viewedOffset)} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
+  const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
+  viewedDateEl.textContent = `${periodLabel} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
   viewedBestEl.textContent = viewed.personalBest ? `Best: ${formatTime(viewed.personalBest.time)}` : "Best: -";
 
   // Sharing the best time is offered only for today, and only once there's a
-  // best to share.
-  const canShareBest = viewedOffset === 0 && viewed.personalBest != null;
+  // best to share (never on a shared orphan map, which has no leaderboard).
+  const canShareBest = !viewed.orphan && viewedOffset === 0 && viewed.personalBest != null;
   bestShareBtn.classList.toggle("hidden", !canShareBest);
   if (canShareBest) bestShareBtn.textContent = "Share";
   if (viewed.personalBest) {
@@ -334,7 +352,19 @@ async function refreshStripChampionTimes(): Promise<void> {
 
 let leaderboardTop: LeaderboardEntry[] = [];
 let leaderboardContext: LeaderboardEntry[] = [];
+// Total ranked players for the viewed seed (the field a rank is "out of"), or
+// null when the server didn't report it (offline, or an older server).
+let leaderboardTotal: number | null = null;
 let selectedGhostEntry: { nickname: string; recording: RemoteRecording } | null = null;
+
+/** The player's world rank for the currently-loaded leaderboard (seed = the
+ * viewed seed), read from the top-10 or the rank-context window, or null when
+ * they're unranked here or the field size is unknown. */
+function myWorldRank(): { rank: number; total: number } | null {
+  if (leaderboardTotal == null) return null;
+  const mine = [...leaderboardTop, ...leaderboardContext].find((e) => e.nickname === nickname);
+  return mine ? { rank: mine.rank, total: leaderboardTotal } : null;
+}
 
 // Champion-medal threshold (finish at or under it to earn champion) for the
 // viewed seed, plus a per-seed cache used to colour the streak calendar. The
@@ -381,6 +411,13 @@ function renderMedalTrack(): void {
 }
 
 function renderLeaderboardList(): void {
+  // A shared orphan map has no leaderboard; keep its notice instead of painting
+  // rows (still refresh the medal track, which is derived from the level).
+  if (viewed.orphan) {
+    renderMedalTrack();
+    renderOrphanNotice();
+    return;
+  }
   leaderboardHeaderEl.textContent = watchMode
     ? `Pick racers (${describeOffset(mode, viewedOffset)})`
     : `Leaderboard (${describeOffset(mode, viewedOffset)})`;
@@ -481,6 +518,7 @@ async function refreshLeaderboard(): Promise<void> {
   if (data && viewed.seed === requestedSeed) {
     leaderboardTop = data.top;
     leaderboardContext = data.context;
+    leaderboardTotal = typeof data.total === "number" ? data.total : null;
 
     // The champion threshold is the server's stored value. If it has none yet
     // but the day's record already beats gold, derive it from that record and
@@ -503,14 +541,26 @@ async function refreshLeaderboard(): Promise<void> {
 // --- Period navigation (day or week) ----------------------------------
 
 function updateNavButtons(): void {
+  // A shared orphan map isn't part of the browsable day/week timeline, so there's
+  // nowhere to step to - use the Daily/Weekly toggle to return to a live period.
+  if (viewed.orphan) {
+    navPrevBtn.disabled = true;
+    navNextBtn.disabled = true;
+    return;
+  }
   navPrevBtn.disabled = viewedOffset <= -maxPastOffset(mode);
   navNextBtn.disabled = viewedOffset >= 0;
 }
 
 /** Re-syncs the whole home view (map, best, ghost toggle, leaderboard) to the
- * currently selected mode + offset. */
+ * currently selected mode + offset. Also leaves any shared "orphan" seed view,
+ * since a mode/offset selection is always a live period. */
 function refreshViewedSelection(): void {
   viewed = getPlayable(mode, viewedOffset);
+  // A live period has a leaderboard + streak strip again; restore the chrome
+  // that showOrphanSeed() hides.
+  replayControls.classList.remove("hidden");
+  setModeVisuals();
   // Changing level cancels any in-progress replay-racer picking.
   exitWatchMode();
   // A selected ghost is contextual to the exact seed it was fetched for; clear
@@ -533,20 +583,71 @@ function navigateTo(offset: number): void {
 }
 
 function switchMode(newMode: Mode): void {
-  if (mode === newMode) return;
+  // Re-selecting the current mode is normally a no-op, but from a shared orphan
+  // seed it's the way back to the live period, so allow it in that case.
+  if (mode === newMode && !viewed.orphan) return;
   mode = newMode;
   viewedOffset = 0;
-  modeDailyBtn.classList.toggle("active", mode === "daily");
-  modeWeeklyBtn.classList.toggle("active", mode === "weekly");
-  modeDailyBtn.setAttribute("aria-selected", String(mode === "daily"));
-  modeWeeklyBtn.setAttribute("aria-selected", String(mode === "weekly"));
-  // The streak/calendar strip only applies to daily play.
-  progressStrip.classList.toggle("hidden", mode !== "daily");
+  setModeVisuals();
   if (mode === "daily") {
     renderProgressStrip();
     void refreshStripChampionTimes();
   }
   refreshViewedSelection();
+}
+
+/** Shows a shared "orphan" seed - a generated map with no live leaderboard.
+ * Playable (including racing your own local PB ghost), but ranking, others'
+ * ghosts, replays, and score submission are all off, with a short notice in
+ * place of the leaderboard. */
+function showOrphanSeed(seed: string, genMode: Mode): void {
+  mode = genMode;
+  setModeVisuals();
+  progressStrip.classList.add("hidden"); // no streak strip for a one-off map
+  viewed = { ...makePlayable(seed, genMode), orphan: true };
+  exitWatchMode();
+  selectedGhostEntry = null;
+  viewedChampionTime = null;
+  leaderboardTop = [];
+  leaderboardContext = [];
+  leaderboardTotal = null;
+  updateNavButtons();
+  refreshViewedUi();
+  paintViewedTerrainTags();
+  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  ghostHint.textContent = "This is a shared map - global leaderboards aren't available for it.";
+  renderOrphanNotice();
+}
+
+/** Replaces the leaderboard with a short "no leaderboard here" notice for a
+ * shared orphan map, and hides the controls that need a leaderboard (racing
+ * others' ghosts, watching replays). */
+function renderOrphanNotice(): void {
+  replayControls.classList.add("hidden");
+  leaderboardHeaderEl.textContent = "Shared map";
+  leaderboardList.replaceChildren();
+  const li = document.createElement("li");
+  li.className = "leaderboard-empty";
+  li.textContent = "Leaderboards aren't available for this map.";
+  leaderboardList.appendChild(li);
+}
+
+/** Routes a `?s=` shared-link seed to its level: the matching live daily/weekly
+ * period when it's still in the browsable window, otherwise a generated orphan
+ * map. */
+function openSharedSeed(seed: string): void {
+  const target = resolveSeedTarget(seed, MAX_PAST_DAYS, MAX_PAST_WEEKS);
+  if (target.kind === "live") {
+    mode = target.mode;
+    viewedOffset = target.offset;
+    if (mode === "daily") {
+      renderProgressStrip();
+      void refreshStripChampionTimes();
+    }
+    refreshViewedSelection();
+    return;
+  }
+  showOrphanSeed(seed, target.mode);
 }
 
 navPrevBtn.addEventListener("click", () => navigateTo(viewedOffset - 1));
@@ -574,6 +675,9 @@ thumbnailNav.addEventListener("pointerdown", (e) => {
 window.addEventListener("pointerup", (e) => {
   if (!swipeTracking) return;
   swipeTracking = false;
+  // A shared orphan map isn't on the day/week timeline, so swiping does nothing
+  // (the Daily/Weekly toggle is the way back to a live period).
+  if (viewed.orphan) return;
   const dx = e.clientX - swipeStartX;
   const dy = e.clientY - swipeStartY;
   if (Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
@@ -596,17 +700,14 @@ window.addEventListener("resize", resizeCanvas);
 window.visualViewport?.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-// Initial paint: today (offset 0), same steps navigateTo() would do.
-updateNavButtons();
-refreshViewedUi();
-paintViewedTerrainTags();
+// Prepare the streak strip up front so it's ready whenever daily play is shown
+// (a shared weekly/orphan link keeps it hidden until the user switches to daily).
 renderProgressStrip();
-renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
-void refreshLeaderboard();
-void restoreSelectedLeaderboardGhost();
 // Pull champion thresholds for the streak strip so its dots can show the
 // champion tint, then repaint.
 void refreshStripChampionTimes();
+// The initial home-screen paint / `?s=` deep-link resolution runs below, once
+// the run-state `let`s it touches (watchMode, active, camera) are declared.
 
 const input = createInput(canvas);
 
@@ -663,6 +764,23 @@ let active: Playable = viewed;
 let countdownElapsed = 0;
 const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
 
+// A `?s=<seed>` deep link opens that exact map (the matching live day/week, or a
+// generated orphan when it's expired/non-standard); otherwise start on today.
+// This runs here - after the run-state let-bindings above - because the render
+// helpers it calls (via exitWatchMode/refreshViewedSelection) read them.
+const sharedSeed = new URLSearchParams(window.location.search).get("s")?.trim();
+if (sharedSeed) {
+  openSharedSeed(sharedSeed);
+} else {
+  // Initial paint: today (offset 0), same steps navigateTo() would do.
+  updateNavButtons();
+  refreshViewedUi();
+  paintViewedTerrainTags();
+  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  void refreshLeaderboard();
+  void restoreSelectedLeaderboardGhost();
+}
+
 // "GO" gets its own step so it's visible for one beat before play begins.
 const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
 const COUNTDOWN_STEP_DURATION = 0.8;
@@ -706,16 +824,30 @@ function gameUrl(): string {
   return hosted ? origin + pathname : FALLBACK_GAME_URL;
 }
 
+/** The share link for a seed: the base game URL plus `?s=<seed>`, so opening it
+ * drops the recipient straight onto that day's/week's map. */
+function shareLinkFor(seed: string): string {
+  return `${gameUrl()}?s=${encodeURIComponent(seed)}`;
+}
+
 /** Spoiler-free result summary for the clipboard - no route/map details, just
- * the day, finish time, earned medal, and a link to play. */
-function buildShareText(playable: Playable, time: number, medal: Medal | null): string {
+ * the board (Daily/Weekly), the seed, finish time, earned medal, world rank (when
+ * known), and a deep link back to that exact map. */
+function buildShareText(
+  playable: Playable,
+  time: number,
+  medal: Medal | null,
+  rank: { rank: number; total: number } | null,
+): string {
   const medalEmoji = medal ? ` ${MEDAL_ICON[medal]}` : "";
-  return [
-    `\u{1F69A} Unstable Truck - ${playable.seed}`,
+  const board = playable.level.kind === "weekly" ? "Weekly" : "Daily";
+  const lines = [
+    `\u{1F69A} Unstable Truck ${board} - ${playable.seed}`,
     `I finished in a time of ${formatTime(time)}${medalEmoji}`,
-    "Can you beat my time? #unstabletruck",
-    gameUrl(),
-  ].join("\n");
+  ];
+  if (rank) lines.push(`Ranked #${rank.rank} in the world`);
+  lines.push("Can you beat my time? #unstabletruck", shareLinkFor(playable.seed));
+  return lines.join("\n");
 }
 
 /** Spoiler-free summary of the currently-viewed day's stored best time, or
@@ -723,7 +855,7 @@ function buildShareText(playable: Playable, time: number, medal: Medal | null): 
 function currentBestShareText(): string | null {
   const best = viewed.personalBest;
   if (!best) return null;
-  return buildShareText(viewed, best.time, medalFor(best.time, viewed.pars));
+  return buildShareText(viewed, best.time, medalFor(best.time, viewed.pars), myWorldRank());
 }
 
 /** Wires a Share button to copy text (from `getText`) on click, flashing a
@@ -817,12 +949,18 @@ function endRun(): void {
 
     // Mark the day delivered (drives the streak + calendar) before building
     // the share text, so a fresh completion is reflected in the streak count.
-    // The streak is a daily-play concept only.
-    if (active.level.kind === "daily") {
+    // The streak is a live daily-play concept only (never a shared orphan map).
+    if (active.level.kind === "daily" && !active.orphan) {
       recordCompletion(active.seed);
       renderProgressStrip();
     }
-    lastShareText = buildShareText(active, session.elapsed, medal);
+    // Capture run details so the async leaderboard callback below can fold the
+    // world rank into the share text without racing a later navigation/retry.
+    const sharePlayable = active;
+    const shareTime = session.elapsed;
+    // Seed the share text now (no rank yet, and none at all on an orphan map);
+    // it's rebuilt with the world rank once the leaderboard reload lands.
+    lastShareText = buildShareText(sharePlayable, shareTime, medal, null);
     shareBtn.textContent = "Share";
     shareBtn.classList.remove("hidden");
 
@@ -845,30 +983,39 @@ function endRun(): void {
         ? `New personal best! (previous: ${formatTime(previousBest.time)})`
         : `Personal best: ${formatTime(previousBest.time)}`;
 
-    // Best-effort sync to the shared leaderboard; works offline too since
-    // submitScore() swallows network failures and the local PB above is
-    // already saved regardless. The champion candidate this run implies
-    // (null if slower than gold) lets the server lower the seed's champion
-    // threshold, but only for the player's current day/week so past maps stay
-    // frozen.
-    const submittedSeed = active.seed;
-    const championCandidate = championTime(active.pars.gold, recording.time);
-    const isCurrentPeriod =
-      active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
-    submitScore(
-      submittedSeed,
-      nickname,
-      recording.time,
-      recording.stability,
-      recording.inputLog,
-      championCandidate,
-      isCurrentPeriod,
-    ).then(() => {
-      if (submittedSeed === viewed.seed) void refreshLeaderboard();
-      // A new record today can lower the champion threshold; refresh the strip
-      // so the day's dot recolours (the player may gain or lose champion).
-      if (active.level.kind === "daily") void refreshStripChampionTimes();
-    });
+    // A shared orphan map has no live leaderboard, so there's nothing to submit
+    // to or rank against - the local PB above is all that's kept.
+    if (!active.orphan) {
+      // Best-effort sync to the shared leaderboard; works offline too since
+      // submitScore() swallows network failures and the local PB above is
+      // already saved regardless. The champion candidate this run implies
+      // (null if slower than gold) lets the server lower the seed's champion
+      // threshold, but only for the player's current day/week so past maps stay
+      // frozen.
+      const submittedSeed = active.seed;
+      const championCandidate = championTime(active.pars.gold, recording.time);
+      const isCurrentPeriod =
+        active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
+      submitScore(
+        submittedSeed,
+        nickname,
+        recording.time,
+        recording.stability,
+        recording.inputLog,
+        championCandidate,
+        isCurrentPeriod,
+      ).then(async () => {
+        if (submittedSeed === viewed.seed) {
+          await refreshLeaderboard();
+          // The board now reflects this run, so the player's world rank is
+          // final - fold it into the share text (a no-op if they're unranked).
+          lastShareText = buildShareText(sharePlayable, shareTime, medal, myWorldRank());
+        }
+        // A new record today can lower the champion threshold; refresh the strip
+        // so the day's dot recolours (the player may gain or lose champion).
+        if (active.level.kind === "daily") void refreshStripChampionTimes();
+      });
+    }
   } else if (session.failReason === "outOfBounds") {
     resultsTitle.textContent = "Hey, come back!";
     resultsTime.textContent = `Survived ${formatTime(session.elapsed)}`;
