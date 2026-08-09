@@ -963,17 +963,10 @@ export interface ReplayRacerView {
   color: string;
 }
 
-/** A coloured ring + name pill so each racer in a replay is tellable apart
- * (drawn outside the truck's rotation so the tag stays upright). */
+/** A coloured name pill so each racer in a replay is tellable apart (drawn
+ * outside the truck's rotation so the tag stays upright). */
 function drawRacerTag(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }, text: string, color: string): void {
   ctx.save();
-  // Ring around the truck.
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.arc(pos.x, pos.y, 19, 0, Math.PI * 2);
-  ctx.stroke();
-
   // Coloured name pill with dark text above the truck.
   ctx.font = "700 11px system-ui, sans-serif";
   ctx.textAlign = "center";
