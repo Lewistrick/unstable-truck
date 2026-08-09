@@ -690,9 +690,37 @@ html, body {
 
 #replay-progress {
   flex: 1;
+  /* Without this, the range keeps its intrinsic ~130px min-width (flex items
+     default to min-width:auto) and can't shrink, overflowing the bar on narrow
+     phones and pushing the Stop button off-screen. */
+  min-width: 0;
   height: 6px;
   cursor: pointer;
   accent-color: #55e08a;
+}
+
+/* Keep Stop compact so the whole bar fits a phone width. */
+#replay-stop-btn {
+  flex: none;
+  padding: 9px 16px;
+}
+
+/* Tighten the bar further on small screens. */
+@media (max-width: 420px) {
+  #replay-overlay {
+    padding: 10px;
+  }
+  #replay-bar {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .replay-time {
+    min-width: 0;
+    font-size: 0.72rem;
+  }
+  #replay-stop-btn {
+    padding: 9px 12px;
+  }
 }
 
 button {
