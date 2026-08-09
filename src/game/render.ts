@@ -408,7 +408,15 @@ function drawWarehouses(
 }
 
 const CARGO_RENDER_WIDTH = 18;
+/** Half-length of the truck along its heading - the point behind its centre
+ * where the first cargo box hitches on. Mirrors TRUCK_HITCH_HALF_LENGTH in the
+ * session so the drawn tow bar lines up with the trailing distance. */
+const TRUCK_HITCH_HALF_LENGTH = 16;
 
+/** A wooden crate (design C): rounded body whose longitudinal planks and end
+ * corner-brackets *stretch* with the box length rather than tiling, so a full
+ * four-unit box just looks like a longer crate. Fill still encodes stability
+ * (brown -> orange -> red), same as before. */
 function drawCargo(ctx: CanvasRenderingContext2D, cargo: CargoState): void {
   ctx.save();
   ctx.translate(cargo.pos.x, cargo.pos.y);
@@ -416,12 +424,39 @@ function drawCargo(ctx: CanvasRenderingContext2D, cargo: CargoState): void {
   // Length (along travel) grows as the box fills; width is fixed.
   const len = cargo.length;
   const wid = CARGO_RENDER_WIDTH;
+  const halfLen = len / 2;
+  const halfWid = wid / 2;
   const stabilityColor = cargo.stability > 50 ? "#8a5a34" : cargo.stability > 25 ? "#b0632f" : "#c23b2a";
+
+  ctx.beginPath();
+  ctx.roundRect(-halfLen, -halfWid, len, wid, 2);
   ctx.fillStyle = stabilityColor;
-  ctx.fillRect(-len / 2, -wid / 2, len, wid);
+  ctx.fill();
   ctx.strokeStyle = "rgba(0,0,0,0.35)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(-len / 2, -wid / 2, len, wid);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Two planks running the length of the box - span the whole crate, so they
+  // simply lengthen with it.
+  ctx.strokeStyle = "rgba(0,0,0,0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-halfLen, -3);
+  ctx.lineTo(halfLen, -3);
+  ctx.moveTo(-halfLen, 3);
+  ctx.lineTo(halfLen, 3);
+  ctx.stroke();
+
+  // A top-edge highlight and fixed-size corner brackets pinned to each end -
+  // they hug the ends, so a longer box just spreads them apart.
+  ctx.fillStyle = "rgba(255,255,255,0.10)";
+  ctx.beginPath();
+  ctx.roundRect(-halfLen + 2, -halfWid + 1.5, len - 4, 2.5, 1);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.28)";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(-halfLen + 1.5, -halfWid + 1.5, 2.5, wid - 3);
+  ctx.strokeRect(halfLen - 4, -halfWid + 1.5, 2.5, wid - 3);
   ctx.restore();
 }
 
@@ -432,15 +467,109 @@ function drawCargoChain(ctx: CanvasRenderingContext2D, cargoBoxes: readonly Carg
   for (let i = cargoBoxes.length - 1; i >= 0; i--) drawCargo(ctx, cargoBoxes[i]!);
 }
 
+/** The point `half` units ahead of (`sign` = +1) or behind (`sign` = -1) a
+ * centre, along its heading - i.e. a box's front/rear hitch point. */
+function hitchPoint(pos: Vec2, heading: number, half: number, sign: number): Vec2 {
+  return { x: pos.x + Math.cos(heading) * half * sign, y: pos.y + Math.sin(heading) * half * sign };
+}
+
+/** A short tow bar between two hitch points, with a small coupling knob at each
+ * end. Drawn in world space (before the boxes) so the boxes sit on top of it. */
+function drawConnector(ctx: CanvasRenderingContext2D, a: Vec2, b: Vec2): void {
+  ctx.strokeStyle = "#20272f";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.fillStyle = "#3a4653";
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, 2, 0, Math.PI * 2);
+  ctx.arc(b.x, b.y, 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Draws the tow bars linking the truck to the first box and each box to the
+ * next, following the same rear -> front hitch chain the physics uses. */
+function drawConnectors(ctx: CanvasRenderingContext2D, truck: TruckState, cargoBoxes: readonly CargoState[]): void {
+  let leaderPos = truck.pos;
+  let leaderHeading = truck.heading;
+  let leaderHalf = TRUCK_HITCH_HALF_LENGTH;
+  for (const box of cargoBoxes) {
+    const rear = hitchPoint(leaderPos, leaderHeading, leaderHalf, -1);
+    const front = hitchPoint(box.pos, box.heading, box.length / 2, 1);
+    drawConnector(ctx, rear, front);
+    leaderPos = box.pos;
+    leaderHeading = box.heading;
+    leaderHalf = box.length / 2;
+  }
+}
+
 function drawTruck(ctx: CanvasRenderingContext2D, truck: TruckState): void {
   ctx.save();
   ctx.translate(truck.pos.x, truck.pos.y);
   ctx.rotate(truck.heading);
+
+  // Wheels (drawn first so the body overlaps them), poking out at the corners.
+  ctx.fillStyle = "#20272f";
+  for (const [x, y] of [
+    [-12, -12.5],
+    [12, -12.5],
+    [-12, 7.5],
+    [12, 7.5],
+  ] as const) {
+    ctx.beginPath();
+    ctx.roundRect(x - 3.5, y, 7, 5, 2);
+    ctx.fill();
+  }
+
+  // Side mirrors on the cab.
+  ctx.beginPath();
+  ctx.roundRect(6, -13.5, 3, 2.5, 1);
+  ctx.roundRect(6, 11, 3, 2.5, 1);
+  ctx.fill();
+
+  // Flatbed rear, then the cab up front (two-tone body).
+  ctx.fillStyle = "#3a4653";
+  ctx.beginPath();
+  ctx.roundRect(-16, -10, 20, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
   ctx.fillStyle = "#2b3440";
-  ctx.fillRect(-16, -11, 32, 22);
-  ctx.fillStyle = "#5fa8e0";
-  ctx.fillRect(6, -9, 9, 18);
+  ctx.beginPath();
+  ctx.roundRect(3, -11, 13, 22, 5);
+  ctx.fill();
+
+  // Windshield.
+  ctx.fillStyle = "#7fbced";
+  ctx.beginPath();
+  ctx.roundRect(4, -8, 7, 16, 3);
+  ctx.fill();
+
+  // Chrome grille bar and headlights at the nose.
+  ctx.fillStyle = "#c9ccd1";
+  ctx.beginPath();
+  ctx.roundRect(14, -7, 2, 14, 1);
+  ctx.fill();
+  ctx.fillStyle = "#ffe9a8";
+  ctx.beginPath();
+  ctx.arc(15.5, -8, 1.6, 0, Math.PI * 2);
+  ctx.arc(15.5, 8, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.restore();
+}
+
+/** Draws a complete rig - hitch connectors, the trailing cargo chain, then the
+ * truck on top - so every place that shows a truck (you, ghosts, replay racers)
+ * stays consistent. */
+function drawTruckRig(ctx: CanvasRenderingContext2D, truck: TruckState, cargoBoxes: readonly CargoState[]): void {
+  drawConnectors(ctx, truck, cargoBoxes);
+  drawCargoChain(ctx, cargoBoxes);
+  drawTruck(ctx, truck);
 }
 
 /** Small muted name tag above a truck (drawn outside any rotation transform,
@@ -809,14 +938,12 @@ export function renderWorld(
   for (const ghost of ghosts) {
     ctx.save();
     ctx.globalAlpha = GHOST_ALPHA;
-    drawCargoChain(ctx, ghost.cargoBoxes);
-    drawTruck(ctx, ghost.truck);
+    drawTruckRig(ctx, ghost.truck, ghost.cargoBoxes);
     ctx.restore();
     drawNameLabel(ctx, ghost.truck.pos, ghost.label);
   }
 
-  drawCargoChain(ctx, cargoBoxes);
-  drawTruck(ctx, truck);
+  drawTruckRig(ctx, truck, cargoBoxes);
   drawNameLabel(ctx, truck.pos, "you");
 
   // The big weekly map is easy to get lost on, so guide the player to the next
@@ -880,8 +1007,7 @@ export function renderReplayWorld(
 ): void {
   paintWorld(ctx, level, REPLAY_NO_VISITED, camera, zoom, canvasW, canvasH);
   for (const r of racers) {
-    drawCargoChain(ctx, r.cargoBoxes);
-    drawTruck(ctx, r.truck);
+    drawTruckRig(ctx, r.truck, r.cargoBoxes);
     drawRacerTag(ctx, r.truck.pos, r.label, r.color);
   }
   ctx.restore();
