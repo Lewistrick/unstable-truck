@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Run logs — Unstable Truck</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0f1216;
+      color: #d6dbe2;
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    h1 { font-size: 15px; font-weight: 600; color: #f0f2f5; margin: 0 0 14px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td {
+      text-align: left;
+      padding: 6px 12px 6px 0;
+      border-bottom: 1px solid #1e242d;
+      white-space: nowrap;
+    }
+    th { color: #8a94a3; font-weight: 600; }
+    td.seed, td.player { white-space: normal; word-break: break-all; }
+    .s-finished { color: #55e08a; }
+    .s-cargo_fell_off { color: #ff6f6f; }
+    .s-out_of_bounds { color: #f2c14e; }
+    .s-started { color: #8a94a3; }
+    #more {
+      margin: 18px 0 0;
+      padding: 8px 18px;
+      font: inherit;
+      color: #d6dbe2;
+      background: #1c222b;
+      border: 1px solid #2c3542;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #more:hover { background: #232b36; }
+    #more[disabled] { opacity: 0.5; cursor: default; }
+    #status { color: #8a94a3; margin-top: 12px; }
+  </style>
+</head>
+
+<body>
+  <h1>Run logs — newest first</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Player</th>
+        <th>Seed</th>
+        <th>Status</th>
+        <th>Collected</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p id="status"></p>
+  <button id="more" type="button">Show 100 more</button>
+
+  <script>
+    const PAGE = 100;
+    const rowsEl = document.getElementById("rows");
+    const moreBtn = document.getElementById("more");
+    const statusEl = document.getElementById("status");
+    let offset = 0;
+    let loading = false;
+
+    function cell(text, className) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (className) td.className = className;
+      return td;
+    }
+
+    async function loadMore() {
+      if (loading) return;
+      loading = true;
+      moreBtn.disabled = true;
+      moreBtn.textContent = "Loading…";
+      try {
+        const res = await fetch(`api/runs?limit=${PAGE}&offset=${offset}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = await res.json();
+        for (const r of rows) {
+          const tr = document.createElement("tr");
+          const when = new Date(r.createdAt);
+          tr.appendChild(cell(isNaN(when) ? r.createdAt : when.toLocaleString()));
+          tr.appendChild(cell(r.nickname, "player"));
+          tr.appendChild(cell(r.seed, "seed"));
+          tr.appendChild(cell(r.status, "s-" + r.status));
+          tr.appendChild(cell(String(r.collected)));
+          rowsEl.appendChild(tr);
+        }
+        offset += rows.length;
+        statusEl.textContent = `${offset} row(s) loaded`;
+        if (rows.length < PAGE) {
+          moreBtn.remove();
+          if (offset === 0) statusEl.textContent = "No runs logged yet.";
+        } else {
+          moreBtn.disabled = false;
+          moreBtn.textContent = "Show 100 more";
+        }
+      } catch (err) {
+        statusEl.textContent = "Couldn't load logs: " + err.message;
+        moreBtn.disabled = false;
+        moreBtn.textContent = "Retry";
+      } finally {
+        loading = false;
+      }
+    }
+
+    moreBtn.addEventListener("click", loadMore);
+    loadMore();
+  </script>
+</body>
+
+</html>

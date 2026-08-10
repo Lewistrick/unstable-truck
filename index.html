@@ -89,11 +89,6 @@
         </div>
         <div id="medal-track" aria-label="Medal times"></div>
 
-        <div id="mode-toggle" role="tablist" aria-label="Board">
-          <button id="mode-daily" class="mode-btn active" type="button" role="tab" aria-selected="true">Daily</button>
-          <button id="mode-weekly" class="mode-btn" type="button" role="tab" aria-selected="false">Weekly</button>
-        </div>
-        <p id="mode-hint" class="muted">Daily: a quick map, fresh each day. Weekly: a big map, fresh each week.</p>
         <p class="hint" id="ghost-hint">Click any player in the leaderboard to race against their ghost.</p>
         <div id="leaderboard">
           <div class="leaderboard-header" id="leaderboard-header">Today's Leaderboard</div>
@@ -115,6 +110,14 @@
           <div id="nickname-row">
             <label for="nickname-input">Nickname</label>
             <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />
+          </div>
+        </div>
+
+        <div id="mode-switch" class="hidden">
+          <p id="mode-cta">Want a bigger challenge? Play the weekly map!</p>
+          <div id="mode-toggle" role="tablist" aria-label="Board">
+            <button id="mode-daily" class="mode-btn active" type="button" role="tab" aria-selected="true">Daily</button>
+            <button id="mode-weekly" class="mode-btn" type="button" role="tab" aria-selected="false">Weekly</button>
           </div>
         </div>
       </div>

@@ -16,7 +16,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server/dist ./server/dist
-COPY index.html style.css ./
+COPY index.html style.css logs.html ./
 
 EXPOSE 8003
 CMD ["node", "server/dist/index.js"]

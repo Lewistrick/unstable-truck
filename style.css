@@ -181,11 +181,24 @@ html, body {
   line-height: 1;
 }
 
-/* One-line reminder of what Daily vs Weekly means (reviewers found the
-   distinction unclear). */
-#mode-hint {
-  font-size: 0.72rem;
-  margin-top: -6px;
+/* Daily/Weekly switch, revealed at the very bottom only once the player has
+   earned gold (see updateModeSwitchVisibility) - a "bigger challenge" unlock. */
+#mode-switch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+#mode-switch.hidden {
+  display: none;
+}
+
+#mode-cta {
+  font-size: 0.85rem;
+  color: #c3cad4;
 }
 
 #mode-toggle {
@@ -494,6 +507,12 @@ html, body {
   font-size: 0.85rem;
   color: #c3cad4;
   cursor: pointer;
+}
+
+/* The `display: flex` above out-specifies the `.hidden` utility, so hiding the
+   whole row (checkbox included, when there's no PB) needs this explicit rule. */
+#ghost-toggle-row.hidden {
+  display: none;
 }
 
 #ghost-toggle-row:has(input:disabled) {

@@ -209,6 +209,8 @@ const dayDots = document.getElementById("day-dots")!;
 const progressStrip = document.getElementById("progress-strip")!;
 const modeDailyBtn = document.getElementById("mode-daily") as HTMLButtonElement;
 const modeWeeklyBtn = document.getElementById("mode-weekly") as HTMLButtonElement;
+const modeSwitch = document.getElementById("mode-switch")!;
+const modeCta = document.getElementById("mode-cta")!;
 const medalTrack = document.getElementById("medal-track")!;
 
 let nickname = getOrCreateNickname();
@@ -261,6 +263,19 @@ function refreshViewedUi(): void {
 
   // "Watch a replay" unlocks with the same personal-best gate as ghost racing.
   updateWatchButton();
+
+  updateModeSwitchVisibility();
+}
+
+/** The Daily/Weekly switch (pinned to the very bottom) is a progressive-disclosure
+ * unlock: a newcomer never sees it, and it appears with a "bigger challenge"
+ * invite only once they've earned gold on the viewed level. In weekly mode the
+ * toggle always shows (minus the invite) so there's a way back to daily. */
+function updateModeSwitchVisibility(): void {
+  const hasGold = viewed.personalBest != null && viewed.personalBest.time <= viewed.pars.gold;
+  modeSwitch.classList.toggle("hidden", !(mode === "weekly" || hasGold));
+  // The invite is a daily -> weekly nudge, so it's hidden once you're on weekly.
+  modeCta.classList.toggle("hidden", !(mode === "daily" && hasGold));
 }
 
 /** Picks readable text color (dark or light) for a given `hsl(h s% l%)`

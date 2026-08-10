@@ -21,6 +21,10 @@ app.get("/", (_req, res) => {
 app.get("/style.css", (_req, res) => {
   res.sendFile(path.join(projectRoot, "style.css"));
 });
+// Unlisted diagnostics page (not linked from the game) - the run-log viewer.
+app.get("/logs", (_req, res) => {
+  res.sendFile(path.join(projectRoot, "logs.html"));
+});
 
 app.use(scoresRouter);
 

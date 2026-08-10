@@ -5,6 +5,7 @@ import {
   getChampionTimes,
   getScore,
   getSeedLeaderboard,
+  listRuns,
   logRun,
   lowerChampionTime,
   upsertScoreIfBetter,
@@ -130,6 +131,19 @@ scoresRouter.post("/api/runs", async (req, res) => {
   } catch (err) {
     console.error(`run log failed for seed ${seed} (${status}):`, (err as Error).message);
     res.status(503).json({ logged: false, error: "storage unavailable" });
+  }
+});
+
+/** A page of run-log rows (newest first) for the /logs inspector. `limit` is
+ * capped at 200; `offset` pages back through history. */
+scoresRouter.get("/api/runs", async (req, res) => {
+  const limit = Math.min(200, Math.max(1, Number.parseInt(String(req.query.limit ?? ""), 10) || 100));
+  const offset = Math.max(0, Number.parseInt(String(req.query.offset ?? ""), 10) || 0);
+  try {
+    res.json(await listRuns(limit, offset));
+  } catch (err) {
+    console.error("run log list failed:", (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
   }
 });
 

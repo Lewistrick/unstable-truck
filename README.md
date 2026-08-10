@@ -61,7 +61,7 @@ What's implemented:
   drivable path. They're drawn as small code-authored vector sprites (trees
   scaled up as landmarks), culled to the visible viewport so even a dense weekly
   map only draws what's on screen.
-- Weekly board: a Daily/Weekly toggle on the home screen switches to a much
+- Weekly board: a Daily/Weekly toggle switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
   decorative houses (no value, no collision) fleshing out the road network
@@ -69,7 +69,12 @@ What's implemented:
   Because the map is big, a small arrow next
   to the truck points to the nearest unvisited warehouse (red), turning green
   and pointing to the drop-off once every warehouse has been visited. Weekly
-  boards can be browsed up to 52 weeks back, each with its own leaderboard.
+  boards can be browsed up to 52 weeks back, each with its own leaderboard. The
+  Daily/Weekly toggle is a progressive-disclosure unlock: it sits at the very
+  bottom of the home screen and only appears - under a "Want a bigger challenge?"
+  invite - once you've earned gold on the viewed level, so first-timers aren't
+  faced with the choice up front (in weekly mode the toggle always shows so
+  there's a way back to daily).
 - Truck physics: single-button steering (default left bias while coasting,
   right while held) with momentum/inertia on both turning and velocity.
   Physics run on a fixed 1/60s timestep (via an accumulator decoupled from
@@ -117,7 +122,9 @@ What's implemented:
   `/api/runs`), independent of scoring, and never affects gameplay. A `finished`
   row with no matching `scores` entry flags a score-submission drop; such drops
   are also logged server-side (`console.error`) and client-side (`console.warn`),
-  since the client otherwise swallows a failed submit silently.
+  since the client otherwise swallows a failed submit silently. An unlisted
+  `/logs` page (not linked from the game) shows the log newest-first, 100 rows at
+  a time with a "Show 100 more" button, backed by `GET /api/runs`.
 - Replay theater: watch 1–5 leaderboard runs race each other, non-interactively.
   A "Watch a replay" button under the leaderboard (unlocked by the same
   personal-best gate as ghost racing) turns the list into a picker — tap up to

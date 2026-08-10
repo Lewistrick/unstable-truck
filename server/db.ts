@@ -119,6 +119,38 @@ export async function logRun(params: {
   ]);
 }
 
+export interface RunLogRow {
+  nickname: string;
+  seed: string;
+  status: string;
+  collected: number;
+  createdAt: string;
+}
+
+/** A page of run-log rows, newest first, for the /logs inspector. */
+export async function listRuns(limit: number, offset: number): Promise<RunLogRow[]> {
+  const result = await pool.query<{
+    nickname: string;
+    seed: string;
+    status: string;
+    collected: number;
+    created_at: Date;
+  }>(
+    `SELECT nickname, seed, status, collected, created_at
+       FROM run_logs
+       ORDER BY created_at DESC, id DESC
+       LIMIT $1 OFFSET $2`,
+    [limit, offset],
+  );
+  return result.rows.map((r) => ({
+    nickname: r.nickname,
+    seed: r.seed,
+    status: r.status,
+    collected: r.collected,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
 /** Lowers a seed's stored champion-medal threshold to `championTime`, but only
  * if it's lower than what's stored (or nothing is stored yet). The threshold
  * therefore only ratchets down - matching new world records - and a slower
