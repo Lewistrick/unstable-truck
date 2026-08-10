@@ -1,7 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDatabaseHealth, ensureSchema } from "./db.js";
+import { checkDatabaseHealth, ensureSchema, pruneOldRunLogs } from "./db.js";
 import { scoresRouter } from "./routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +45,19 @@ const port = Number(process.env.PORT) || 8080;
 ensureSchema().catch((err) => {
   console.error("Schema check failed:", (err as Error).message);
 });
+
+// Retention: drop run_logs rows older than 7 days, at boot and once a day after.
+// Best-effort - a failure just leaves old rows for the next sweep.
+const RUN_LOG_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+function pruneRunLogs(): void {
+  pruneOldRunLogs()
+    .then((removed) => {
+      if (removed > 0) console.log(`Pruned ${removed} run-log row(s) older than 7 days`);
+    })
+    .catch((err) => console.error("Run-log prune failed:", (err as Error).message));
+}
+pruneRunLogs();
+setInterval(pruneRunLogs, RUN_LOG_PRUNE_INTERVAL_MS).unref();
 
 app.listen(port, () => {
   console.log(`Unstable Truck server listening on port ${port}`);

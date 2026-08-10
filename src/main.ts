@@ -216,10 +216,14 @@ const medalTrack = document.getElementById("medal-track")!;
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
 nicknameInput.addEventListener("change", () => {
+  const oldNickname = nickname;
   setNickname(nicknameInput.value);
   nickname = getOrCreateNickname();
   nicknameInput.value = nickname;
   renderLeaderboardList();
+  if (nickname !== oldNickname) {
+    void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
+  }
 });
 
 // The "race my own ghost" toggle is a global, session-remembered preference,
@@ -598,8 +602,11 @@ function refreshViewedSelection(): void {
 }
 
 function navigateTo(offset: number): void {
+  const prevSeed = viewed.seed;
   viewedOffset = Math.max(-maxPastOffset(mode), Math.min(0, offset));
   refreshViewedSelection();
+  // Log a real map change only (boundary clicks that don't move are skipped).
+  if (viewed.seed !== prevSeed) void logRun(viewed.seed, nickname, "navigated", 0);
 }
 
 function switchMode(newMode: Mode): void {
@@ -614,6 +621,7 @@ function switchMode(newMode: Mode): void {
     void refreshStripChampionTimes();
   }
   refreshViewedSelection();
+  void logRun(viewed.seed, nickname, "mode_switched", 0, `to ${newMode}`);
 }
 
 /** Shows a shared "orphan" seed - a generated map with no live leaderboard.
@@ -756,6 +764,7 @@ function setPaused(next: boolean): void {
 hudTimer.addEventListener("click", () => {
   if (appState !== "playing") return;
   setPaused(!paused);
+  void logRun(active.seed, nickname, paused ? "paused" : "resumed", session?.visited.size ?? 0);
   // Space is the steering key; drop focus so it doesn't also re-toggle this
   // button once it's been clicked/tapped.
   hudTimer.blur();
@@ -1223,6 +1232,7 @@ async function startReplay(): Promise<void> {
   replayScrubbing = false;
   accumulator = 0;
   exitWatchMode();
+  void logRun(seed, nickname, "replay_started", 0, `${racers.length} racers: ${racers.map((r) => r.label).join(", ")}`);
 
   appState = "replay";
   startScreen.classList.add("hidden");
@@ -1235,6 +1245,7 @@ async function startReplay(): Promise<void> {
 /** Leaves the replay theater back to the main menu. */
 function stopReplay(): void {
   if (appState !== "replay") return;
+  void logRun(replayLevel?.seed ?? viewed.seed, nickname, "replay_stopped", 0);
   replay = null;
   replayLevel = null;
   appState = "start";
@@ -1351,12 +1362,16 @@ function setHelpDetail(showFull: boolean): void {
   helpFull.classList.toggle("hidden", !showFull);
   helpDetailCheckbox.checked = showFull;
 }
-helpDetailCheckbox.addEventListener("change", () => setHelpDetail(helpDetailCheckbox.checked));
+helpDetailCheckbox.addEventListener("change", () => {
+  setHelpDetail(helpDetailCheckbox.checked);
+  void logRun(viewed.seed, nickname, "help_toggled", 0, helpDetailCheckbox.checked ? "full" : "summary");
+});
 
 function openHelp(): void {
   helpOpen = true;
   setHelpDetail(false); // always reopen on the summary
   helpScreen.classList.remove("hidden");
+  void logRun(viewed.seed, nickname, "help_opened", 0);
 }
 function closeHelp(): void {
   helpOpen = false;

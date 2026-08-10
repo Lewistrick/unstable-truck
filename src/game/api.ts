@@ -79,19 +79,40 @@ export async function fetchLeaderboard(seed: string, nickname?: string): Promise
   }
 }
 
-/** The run-lifecycle states logged for diagnostics, matching the server's
- * RunStatus. A run logs "started" when it begins and one terminal state on end. */
-export type RunStatus = "started" | "finished" | "cargo_fell_off" | "out_of_bounds";
+/** The event types logged for diagnostics, matching the server's RunStatus. A
+ * run logs "started" then one terminal state; the rest are home-screen / session
+ * interactions. The seed on each row is whichever map it applies to. */
+export type RunStatus =
+  | "started"
+  | "finished"
+  | "cargo_fell_off"
+  | "out_of_bounds"
+  | "navigated"
+  | "mode_switched"
+  | "paused"
+  | "resumed"
+  | "replay_started"
+  | "replay_stopped"
+  | "help_opened"
+  | "help_toggled"
+  | "username_changed";
 
-/** Best-effort run-lifecycle telemetry (see run_logs). Swallows failures like
+/** Best-effort diagnostics telemetry (see run_logs). `comment` is optional
+ * free-form context (e.g. an old->new nickname). Swallows failures like
  * submitScore so it never affects play, but warns to the console so a persistent
  * delivery failure is at least visible in devtools rather than silent. */
-export async function logRun(seed: string, nickname: string, status: RunStatus, collected: number): Promise<void> {
+export async function logRun(
+  seed: string,
+  nickname: string,
+  status: RunStatus,
+  collected: number,
+  comment?: string,
+): Promise<void> {
   try {
     const res = await fetch(apiUrl("api/runs"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ seed, nickname, status, collected }),
+      body: JSON.stringify({ seed, nickname, status, collected, comment }),
     });
     if (!res.ok) console.warn(`run log "${status}" for ${seed} rejected: HTTP ${res.status}`);
   } catch (err) {

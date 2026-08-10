@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Run logs — Unstable Truck</title>
+  <title>Event log — Unstable Truck</title>
   <style>
     :root { color-scheme: dark; }
     body {
@@ -14,7 +14,25 @@
       color: #d6dbe2;
       font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    h1 { font-size: 15px; font-weight: 600; color: #f0f2f5; margin: 0 0 14px; }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 14px;
+    }
+    h1 { font-size: 15px; font-weight: 600; color: #f0f2f5; margin: 0; }
+    .back-btn {
+      flex: none;
+      padding: 6px 14px;
+      font: inherit;
+      color: #d6dbe2;
+      text-decoration: none;
+      background: #1c222b;
+      border: 1px solid #2c3542;
+      border-radius: 6px;
+    }
+    .back-btn:hover { background: #232b36; }
     table { border-collapse: collapse; width: 100%; }
     th, td {
       text-align: left;
@@ -24,10 +42,12 @@
     }
     th { color: #8a94a3; font-weight: 600; }
     td.seed, td.player { white-space: normal; word-break: break-all; }
+    td.comment { white-space: normal; word-break: break-word; color: #b6bec9; }
     .s-finished { color: #55e08a; }
     .s-cargo_fell_off { color: #ff6f6f; }
     .s-out_of_bounds { color: #f2c14e; }
     .s-started { color: #8a94a3; }
+    .s-meta { color: #8fa0c0; } /* non-run events: navigation, pause, replay, help, username */
     #more {
       margin: 18px 0 0;
       padding: 8px 18px;
@@ -45,7 +65,10 @@
 </head>
 
 <body>
-  <h1>Run logs — newest first</h1>
+  <header>
+    <h1>Event log — newest first</h1>
+    <a class="back-btn" href=".">← Back to game</a>
+  </header>
   <table>
     <thead>
       <tr>
@@ -54,6 +77,7 @@
         <th>Seed</th>
         <th>Status</th>
         <th>Collected</th>
+        <th>Comment</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
@@ -63,6 +87,8 @@
 
   <script>
     const PAGE = 100;
+    // Statuses that describe an actual run (the only ones where "collected" applies).
+    const RUN_OUTCOMES = new Set(["started", "finished", "cargo_fell_off", "out_of_bounds"]);
     const rowsEl = document.getElementById("rows");
     const moreBtn = document.getElementById("more");
     const statusEl = document.getElementById("status");
@@ -89,10 +115,12 @@
           const tr = document.createElement("tr");
           const when = new Date(r.createdAt);
           tr.appendChild(cell(isNaN(when) ? r.createdAt : when.toLocaleString()));
+          const isRun = RUN_OUTCOMES.has(r.status);
           tr.appendChild(cell(r.nickname, "player"));
           tr.appendChild(cell(r.seed, "seed"));
-          tr.appendChild(cell(r.status, "s-" + r.status));
-          tr.appendChild(cell(String(r.collected)));
+          tr.appendChild(cell(r.status, isRun ? "s-" + r.status : "s-meta"));
+          tr.appendChild(cell(isRun ? String(r.collected) : ""));
+          tr.appendChild(cell(r.comment ?? "", "comment"));
           rowsEl.appendChild(tr);
         }
         offset += rows.length;

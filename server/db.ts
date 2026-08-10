@@ -91,32 +91,62 @@ export async function ensureSchema(): Promise<void> {
        seed TEXT NOT NULL,
        status TEXT NOT NULL,
        collected INTEGER NOT NULL DEFAULT 0,
+       comment TEXT,
        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
      )`,
   );
+  // Add the free-form comment column to run_logs tables created before it existed.
+  await pool.query(`ALTER TABLE run_logs ADD COLUMN IF NOT EXISTS comment TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_run_logs_seed_created ON run_logs (seed, created_at DESC)`);
+  // Global newest-first ordering (the /logs list) and the retention prune both
+  // scan by created_at.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_run_logs_created ON run_logs (created_at DESC)`);
 }
 
-/** The lifecycle states a run can be logged in: it begins ("started") and ends
- * in exactly one terminal state. Kept in sync with the client's own labels. */
-export type RunStatus = "started" | "finished" | "cargo_fell_off" | "out_of_bounds";
+/** Every kind of event written to run_logs. Kept in sync with the client's own
+ * labels (src/game/api.ts). A run emits "started" then one terminal state;
+ * everything else is a home-screen / session interaction. */
+export type RunStatus =
+  | "started"
+  | "finished"
+  | "cargo_fell_off"
+  | "out_of_bounds"
+  | "navigated"
+  | "mode_switched"
+  | "paused"
+  | "resumed"
+  | "replay_started"
+  | "replay_stopped"
+  | "help_opened"
+  | "help_toggled"
+  | "username_changed";
 
-/** Appends one run-lifecycle event to run_logs (server clock stamps it). Purely
- * diagnostic - callers treat it as best-effort and log/swallow any failure so it
- * never affects gameplay or scoring. */
+/** Appends one event to run_logs (server clock stamps it). `comment` is optional
+ * free-form context (e.g. an old->new nickname). Purely diagnostic - callers
+ * treat it as best-effort and log/swallow any failure so it never affects
+ * gameplay or scoring. */
 export async function logRun(params: {
   nickname: string;
   seed: string;
   status: RunStatus;
   collected: number;
+  comment?: string | null;
 }): Promise<void> {
-  const { nickname, seed, status, collected } = params;
-  await pool.query(`INSERT INTO run_logs (nickname, seed, status, collected) VALUES ($1, $2, $3, $4)`, [
+  const { nickname, seed, status, collected, comment } = params;
+  await pool.query(`INSERT INTO run_logs (nickname, seed, status, collected, comment) VALUES ($1, $2, $3, $4, $5)`, [
     nickname,
     seed,
     status,
     collected,
+    comment ?? null,
   ]);
+}
+
+/** Deletes run_logs rows older than 7 days. Best-effort retention so the log
+ * doesn't grow unbounded; returns how many rows were removed. */
+export async function pruneOldRunLogs(): Promise<number> {
+  const result = await pool.query(`DELETE FROM run_logs WHERE created_at < now() - INTERVAL '7 days'`);
+  return result.rowCount ?? 0;
 }
 
 export interface RunLogRow {
@@ -124,6 +154,7 @@ export interface RunLogRow {
   seed: string;
   status: string;
   collected: number;
+  comment: string | null;
   createdAt: string;
 }
 
@@ -134,9 +165,10 @@ export async function listRuns(limit: number, offset: number): Promise<RunLogRow
     seed: string;
     status: string;
     collected: number;
+    comment: string | null;
     created_at: Date;
   }>(
-    `SELECT nickname, seed, status, collected, created_at
+    `SELECT nickname, seed, status, collected, comment, created_at
        FROM run_logs
        ORDER BY created_at DESC, id DESC
        LIMIT $1 OFFSET $2`,
@@ -147,6 +179,7 @@ export async function listRuns(limit: number, offset: number): Promise<RunLogRow
     seed: r.seed,
     status: r.status,
     collected: r.collected,
+    comment: r.comment,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
   }));
 }

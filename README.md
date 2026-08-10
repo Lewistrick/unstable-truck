@@ -113,18 +113,23 @@ What's implemented:
   The game is fully playable offline/without the
   backend — score submission and the leaderboard just silently no-op if the
   server is unreachable.
-- Run log (diagnostics): every run appends to a `run_logs` table — a "started"
-  row when it begins and one terminal row when it ends (`finished`,
-  `cargo_fell_off`, or `out_of_bounds`), each with the nickname, seed, warehouses
-  collected, and a server timestamp. Only *successful* runs submit a score, so
-  this makes visible what the leaderboard can't: e.g. a run that ended in
-  `cargo_fell_off` never reached the board. It's best-effort telemetry (POST
-  `/api/runs`), independent of scoring, and never affects gameplay. A `finished`
-  row with no matching `scores` entry flags a score-submission drop; such drops
-  are also logged server-side (`console.error`) and client-side (`console.warn`),
-  since the client otherwise swallows a failed submit silently. An unlisted
-  `/logs` page (not linked from the game) shows the log newest-first, 100 rows at
-  a time with a "Show 100 more" button, backed by `GET /api/runs`.
+- Event log (diagnostics): interactions append to a `run_logs` table, each row
+  holding nickname, seed, an optional free-form `comment`, and a server
+  timestamp. A run adds a `started` row and one terminal row (`finished`,
+  `cargo_fell_off`, or `out_of_bounds`) with the warehouses collected; home-screen
+  activity adds `navigated`, `mode_switched`, `paused`/`resumed`,
+  `replay_started`/`replay_stopped`, `help_opened`/`help_toggled` (comment
+  `summary`/`full`), and `username_changed` (comment `old -> new`). This makes
+  visible what the leaderboard can't: only *successful* runs submit a score, so a
+  run that ended in `cargo_fell_off` never reached the board. It's best-effort
+  telemetry (POST `/api/runs`), independent of scoring, and never affects
+  gameplay. A `finished` row with no matching `scores` entry flags a
+  score-submission drop; such drops are also logged server-side
+  (`console.error`) and client-side (`console.warn`), since the client otherwise
+  swallows a failed submit silently. Rows are pruned after 7 days (at boot and
+  daily). An unlisted `/logs` page (not linked from the game) shows the log
+  newest-first, 100 rows at a time with a "Show 100 more" button, backed by
+  `GET /api/runs`.
 - Replay theater: watch 1–5 leaderboard runs race each other, non-interactively.
   A "Watch a replay" button under the leaderboard (unlocked by the same
   personal-best gate as ghost racing) turns the list into a picker — tap up to

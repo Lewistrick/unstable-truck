@@ -34,14 +34,21 @@ CREATE TABLE IF NOT EXISTS champions (
 -- "cargo_fell_off", or "out_of_bounds" - when it ends, each stamped with the
 -- number of warehouses collected so far and the server's clock. Purely
 -- diagnostic: it never feeds scoring or the leaderboard.
+-- Besides runs, this also captures home-screen interactions (navigation, mode
+-- switches, pause/resume, replay start/stop, help open/toggle, username change).
+-- `comment` is optional free-form context (e.g. an old->new nickname). Rows are
+-- pruned after 7 days (see pruneOldRunLogs).
 CREATE TABLE IF NOT EXISTS run_logs (
   id BIGSERIAL PRIMARY KEY,
   nickname TEXT NOT NULL,
   seed TEXT NOT NULL,
   status TEXT NOT NULL,
   collected INTEGER NOT NULL DEFAULT 0,
+  comment TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Most inspection is "runs for this seed, newest first".
 CREATE INDEX IF NOT EXISTS idx_run_logs_seed_created ON run_logs (seed, created_at DESC);
+-- Global newest-first ordering (the /logs list) and the retention prune.
+CREATE INDEX IF NOT EXISTS idx_run_logs_created ON run_logs (created_at DESC);
