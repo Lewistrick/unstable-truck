@@ -43,7 +43,7 @@
         <button id="replay-play-btn" type="button" aria-label="Play or pause">&#10074;&#10074;</button>
         <span id="replay-time" class="replay-time">0:00 / 0:00</span>
         <input id="replay-progress" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
-        <button id="replay-stop-btn" class="btn-secondary" type="button">Stop</button>
+        <button id="replay-stop-btn" class="btn-secondary" type="button" aria-label="Stop" title="Stop">&#9632;</button>
       </div>
     </div>
 
@@ -61,10 +61,10 @@
 
     <div id="start-screen" class="screen">
       <div class="panel">
-        <div id="home-topbar">
+        <div id="home-header">
+          <span class="wordmark">Unstable Truck</span>
           <button id="help-btn" class="btn-secondary" type="button" aria-label="How to play" title="How to play">?</button>
         </div>
-        <span class="wordmark">Unstable Truck</span>
 
         <div id="thumbnail-nav">
           <button id="nav-prev-btn" class="nav-arrow" aria-label="Previous day" type="button">&#8249;</button>
@@ -106,7 +106,10 @@
         </div>
 
         <div id="home-footer">
-          <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
+          <div id="home-footer-actions">
+            <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
+            <button id="howto-btn" class="btn-secondary" type="button">How To</button>
+          </div>
           <div id="nickname-row">
             <label for="nickname-input">Nickname</label>
             <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />

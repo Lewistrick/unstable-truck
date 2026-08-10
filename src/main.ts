@@ -1,50 +1,50 @@
-import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
-import { resolveSeedTarget } from "./level/seed-target.js";
-import { FIXED_DT } from "./physics/constants.js";
 import {
-  backfillChampionTime,
-  fetchChampionTimes,
-  fetchLeaderboard,
-  fetchPlayerRecording,
-  logRun,
-  submitScore,
-  type LeaderboardEntry,
-  type RemoteRecording,
+    backfillChampionTime,
+    fetchChampionTimes,
+    fetchLeaderboard,
+    fetchPlayerRecording,
+    logRun,
+    submitScore,
+    type LeaderboardEntry,
+    type RemoteRecording,
 } from "./game/api.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
-import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
-import { GameSession } from "./game/session.js";
-import { Tutorial } from "./game/tutorial.js";
-import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
-import type { TruckState } from "./physics/truck.js";
 import {
-  getOrCreateNickname,
-  hasSeenTutorial,
-  loadCompletedDays,
-  loadPersonalBest,
-  markTutorialSeen,
-  loadRacePbGhostPref,
-  loadSelectedLeaderboardGhost,
-  pruneLeaderboardGhosts,
-  pruneOldPersonalBests,
-  recordCompletion,
-  saveRacePbGhostPref,
-  savePersonalBestIfBetter,
-  saveSelectedLeaderboardGhost,
-  setNickname,
-} from "./game/storage.js";
-import {
-  championTime,
-  computeMedalPars,
-  medalFor,
-  MEDAL_ICON,
-  MEDAL_LABEL,
-  type Medal,
-  type MedalPars,
+    MEDAL_ICON,
+    MEDAL_LABEL,
+    championTime,
+    computeMedalPars,
+    medalFor,
+    type Medal,
+    type MedalPars,
 } from "./game/medals.js";
+import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
+import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
+import { GameSession } from "./game/session.js";
+import {
+    getOrCreateNickname,
+    hasSeenTutorial,
+    loadCompletedDays,
+    loadPersonalBest,
+    loadRacePbGhostPref,
+    loadSelectedLeaderboardGhost,
+    markTutorialSeen,
+    pruneLeaderboardGhosts,
+    pruneOldPersonalBests,
+    recordCompletion,
+    savePersonalBestIfBetter,
+    saveRacePbGhostPref,
+    saveSelectedLeaderboardGhost,
+    setNickname,
+} from "./game/storage.js";
+import { Tutorial } from "./game/tutorial.js";
+import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
+import { resolveSeedTarget } from "./level/seed-target.js";
 import { getTheme } from "./level/themes.js";
 import type { Level } from "./level/types.js";
+import { FIXED_DT } from "./physics/constants.js";
+import type { TruckState } from "./physics/truck.js";
 
 type Mode = "daily" | "weekly";
 
@@ -155,6 +155,7 @@ const helpScreen = document.getElementById("help-screen")!;
 const helpBtn = document.getElementById("help-btn") as HTMLButtonElement;
 const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
 const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
+const howToBtn = document.getElementById("howto-btn") as HTMLButtonElement;
 const tutorialOverlay = document.getElementById("tutorial-overlay")!;
 const tutorialPrompt = document.getElementById("tutorial-prompt")!;
 const tutorialSkipBtn = document.getElementById("tutorial-skip-btn") as HTMLButtonElement;
@@ -225,6 +226,17 @@ nicknameInput.addEventListener("change", () => {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
   }
 });
+
+function logGameStarted(): void {
+  void logRun(todaysSeed, nickname, "game_started", 0);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", logGameStarted);
+} else {
+  // DOM is already ready by the time this module script executes
+  logGameStarted();
+}
 
 // The "race my own ghost" toggle is a global, session-remembered preference,
 // so flipping it here carries to every level (and mode) you browse next.
@@ -1378,6 +1390,7 @@ function closeHelp(): void {
   helpScreen.classList.add("hidden");
 }
 helpBtn.addEventListener("click", openHelp);
+howToBtn.addEventListener("click", openHelp);
 helpCloseBtn.addEventListener("click", closeHelp);
 // Tapping the dimmed backdrop (outside the panel) closes it.
 helpScreen.addEventListener("click", (e) => {

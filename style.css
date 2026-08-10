@@ -149,13 +149,22 @@ html, body {
   opacity: 0.92;
 }
 
-/* Thin top row holding just the round "?" help button, right-aligned, so the
-   centered title below it can use the full width without colliding. */
-#home-topbar {
+/* Header row: the title stays centered across the full panel width while the
+   round "?" help button rides at the right edge, vertically centered on the
+   title (absolute so it doesn't shove the title down or off-center). */
+#home-header {
+  position: relative;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  margin-bottom: -8px;
+}
+
+#help-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 /* Centered game title in the display face, with generous tracking. Sized with
@@ -1032,6 +1041,12 @@ button:active {
   margin-top: 4px;
   padding-top: 16px;
   border-top: 1px solid #2c3542;
+}
+
+/* Tutorial + How To sit side by side. */
+#home-footer-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* --- New-player tutorial coach overlay ------------------------------------

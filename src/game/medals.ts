@@ -139,10 +139,22 @@ function idealRouteLength(level: Level): number {
   return routeLength(base, order, destination);
 }
 
+/** Round a raw target time up to a whole second, with a half-second of
+ * headroom first so a time like 17.68 lands on 19 (17.68 + 0.5 = 18.18,
+ * ceil -> 19) rather than a tight 18. Keeps medal times readable whole
+ * seconds while staying achievable. */
+function roundMedalTime(time: number): number {
+  return Math.ceil(time + 0.5);
+}
+
 /** Deterministic gold/silver/bronze target times for a level. */
 export function computeMedalPars(level: Level): MedalPars {
   const gold = (idealRouteLength(level) * DETOUR_FACTOR) / GOLD_SPEED;
-  return { gold, silver: gold * SILVER_MULTIPLIER, bronze: gold * BRONZE_MULTIPLIER };
+  return {
+    gold: roundMedalTime(gold),
+    silver: roundMedalTime(gold * SILVER_MULTIPLIER),
+    bronze: roundMedalTime(gold * BRONZE_MULTIPLIER),
+  };
 }
 
 /** Best medal earned for a finish time, or null if slower than bronze. Pass a

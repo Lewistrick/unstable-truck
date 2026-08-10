@@ -83,6 +83,7 @@ export async function fetchLeaderboard(seed: string, nickname?: string): Promise
  * run logs "started" then one terminal state; the rest are home-screen / session
  * interactions. The seed on each row is whichever map it applies to. */
 export type RunStatus =
+  | "game_started"
   | "started"
   | "finished"
   | "cargo_fell_off"
