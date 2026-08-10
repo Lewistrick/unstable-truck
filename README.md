@@ -108,6 +108,16 @@ What's implemented:
   The game is fully playable offline/without the
   backend — score submission and the leaderboard just silently no-op if the
   server is unreachable.
+- Run log (diagnostics): every run appends to a `run_logs` table — a "started"
+  row when it begins and one terminal row when it ends (`finished`,
+  `cargo_fell_off`, or `out_of_bounds`), each with the nickname, seed, warehouses
+  collected, and a server timestamp. Only *successful* runs submit a score, so
+  this makes visible what the leaderboard can't: e.g. a run that ended in
+  `cargo_fell_off` never reached the board. It's best-effort telemetry (POST
+  `/api/runs`), independent of scoring, and never affects gameplay. A `finished`
+  row with no matching `scores` entry flags a score-submission drop; such drops
+  are also logged server-side (`console.error`) and client-side (`console.warn`),
+  since the client otherwise swallows a failed submit silently.
 - Replay theater: watch 1–5 leaderboard runs race each other, non-interactively.
   A "Watch a replay" button under the leaderboard (unlocked by the same
   personal-best gate as ghost racing) turns the list into a picker — tap up to
@@ -184,8 +194,7 @@ What's implemented:
   The run is unfailable throughout (a `practice` game session that ignores the
   cargo and out-of-bounds game-overs), records no score, and races no ghosts. It
   auto-opens only once (a `localStorage` "seen" flag) and is always reachable
-  afterwards from a **Tutorial** button beside **How to play** on the home
-  screen.
+  afterwards from a **Tutorial** button in the home screen's footer.
 - Start screen shows one day at a time (today by default), with prev/next
   arrows beside the thumbnail to browse up to 30 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
@@ -193,10 +202,10 @@ What's implemented:
   most recent week of dots.) Ghost choices are remembered for the session: the
   "race my own ghost" toggle is a global preference that follows you across
   every level and mode, while a selected leaderboard opponent is remembered
-  per level and re-selected when you return to it. Clicking the thumbnail (or pressing Enter) jumps
-  into a 3-2-1-GO countdown and starts whichever day is showing. There's no
-  separate Start button. A results screen (showing your time against your
-  personal best, with Retry and Home buttons) rounds it out. Escape quits a
+  per level and re-selected when you return to it. A **Play** button (or pressing
+  Enter, or clicking the thumbnail as a shortcut) jumps into a 3-2-1-GO countdown
+  and starts whichever day is showing. A results screen (showing your time against
+  your personal best, with Retry and Home buttons) rounds it out. Escape quits a
   run, countdown, or the results screen back to the start screen; Enter
   retries from the results screen; Backspace instantly restarts the current
   run (fresh countdown included).
@@ -216,8 +225,8 @@ and starts two containers: `app` (Node/Express, listening on port `8003`,
 serving both the static frontend and the `/api/*` leaderboard endpoints) and
 `db` (Postgres, schema applied automatically from `db/init.sql` on first
 start; the app also runs an idempotent `CREATE TABLE IF NOT EXISTS` at boot so
-tables added after a DB was first initialised — like `champions` — appear
-without a manual migration). Open `http://localhost:8003`.
+tables added after a DB was first initialised — like `champions` and
+`run_logs` — appear without a manual migration). Open `http://localhost:8003`.
 
 The app port is published on `127.0.0.1` only (not the host's public
 interface), which is enough for local testing and safe on a server where the
@@ -306,10 +315,10 @@ Backspace/Escape (steering or restarting dismisses it). Tapping the timer at
 the bottom pauses the run - the truck, any racing ghosts, and the clock all
 freeze and a "Paused" banner shows near the top; tap it again to resume.
 
-A "How to play" button on the home screen opens a help overlay covering the
+A "?" help button in the home screen's header opens a help overlay covering the
 objective, controls, terrain, and daily/leaderboard basics (close it with the
-Close button, Escape, or by tapping the backdrop). Beside it, a "Tutorial"
-button (re)starts the guided practice run described above.
+Close button, Escape, or by tapping the backdrop). A "Tutorial" button in the
+footer (re)starts the guided practice run described above.
 
 ## Project layout
 

@@ -69,6 +69,8 @@ html, body {
   text-align: center;
 }
 
+/* Titles on the results and help panels (the home panel uses a compact
+   wordmark instead of an h1). */
 .panel h1 {
   font-size: 1.6rem;
   letter-spacing: 0.02em;
@@ -147,9 +149,43 @@ html, body {
   opacity: 0.92;
 }
 
-.thumbnail-hint {
-  font-size: 0.75rem;
-  margin-top: -8px;
+/* Thin top row holding just the round "?" help button, right-aligned, so the
+   centered title below it can use the full width without colliding. */
+#home-topbar {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin-bottom: -8px;
+}
+
+/* Centered game title in the display face, with generous tracking. Sized with
+   clamp so it fills desktop but never overflows the narrow mobile panel. */
+.wordmark {
+  font-family: "Righteous", system-ui, sans-serif;
+  font-size: clamp(1.15rem, 6vw, 1.85rem);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  padding-left: 0.1em; /* balance the trailing letter-spacing so it stays centered */
+  color: #f0f2f5;
+  text-align: center;
+}
+
+#help-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* One-line reminder of what Daily vs Weekly means (reviewers found the
+   distinction unclear). */
+#mode-hint {
+  font-size: 0.72rem;
+  margin-top: -6px;
 }
 
 #mode-toggle {
@@ -958,15 +994,25 @@ button:active {
 }
 
 /* Tutorial + How-to-play sit side by side under the medal track. */
-#menu-buttons-row {
-  display: flex;
-  gap: 10px;
+/* Primary call-to-action: full-width so it reads as the obvious way to start a
+   run (reviewers didn't realise tapping the map starts the game). */
+#play-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 1.05rem;
 }
 
-#menu-buttons-row button {
-  flex: 1;
-  padding-left: 0;
-  padding-right: 0;
+/* Setup/reference at the bottom - Tutorial and the nickname field - separated
+   from the leaderboard by a hairline. */
+#home-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid #2c3542;
 }
 
 /* --- New-player tutorial coach overlay ------------------------------------

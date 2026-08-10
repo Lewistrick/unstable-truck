@@ -79,6 +79,26 @@ export async function fetchLeaderboard(seed: string, nickname?: string): Promise
   }
 }
 
+/** The run-lifecycle states logged for diagnostics, matching the server's
+ * RunStatus. A run logs "started" when it begins and one terminal state on end. */
+export type RunStatus = "started" | "finished" | "cargo_fell_off" | "out_of_bounds";
+
+/** Best-effort run-lifecycle telemetry (see run_logs). Swallows failures like
+ * submitScore so it never affects play, but warns to the console so a persistent
+ * delivery failure is at least visible in devtools rather than silent. */
+export async function logRun(seed: string, nickname: string, status: RunStatus, collected: number): Promise<void> {
+  try {
+    const res = await fetch(apiUrl("api/runs"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seed, nickname, status, collected }),
+    });
+    if (!res.ok) console.warn(`run log "${status}" for ${seed} rejected: HTTP ${res.status}`);
+  } catch (err) {
+    console.warn(`run log "${status}" for ${seed} failed to send:`, err);
+  }
+}
+
 /** Freezes a seed's champion threshold if the server doesn't have one yet
  * (no-op if it already does). Used to seed a past day's threshold from its
  * record so the champion medal is beatable there. Best-effort. */

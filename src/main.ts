@@ -6,6 +6,7 @@ import {
   fetchChampionTimes,
   fetchLeaderboard,
   fetchPlayerRecording,
+  logRun,
   submitScore,
   type LeaderboardEntry,
   type RemoteRecording,
@@ -193,6 +194,8 @@ const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
 const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
 const pbGhostLabel = document.getElementById("pb-ghost-label")!;
+const ghostToggleRow = document.getElementById("ghost-toggle-row")!;
+const playBtn = document.getElementById("play-btn") as HTMLButtonElement;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const viewedBestEl = document.getElementById("viewed-best")!;
@@ -234,6 +237,9 @@ function refreshViewedUi(): void {
   bestShareBtn.classList.toggle("hidden", !canShareBest);
   if (canShareBest) bestShareBtn.textContent = "Share";
   if (viewed.personalBest) {
+    // The "race your PB ghost" toggle only appears once there's a PB to race, so
+    // a first-time player sees a clean map -> Play flow with no dead controls.
+    ghostToggleRow.classList.remove("hidden");
     pbGhostToggle.disabled = false;
     // Global, session-remembered preference - the choice follows you between
     // levels and across daily/weekly instead of re-checking on every level.
@@ -242,9 +248,8 @@ function refreshViewedUi(): void {
     hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
     ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
   } else {
-    pbGhostToggle.disabled = true;
+    ghostToggleRow.classList.add("hidden");
     pbGhostToggle.checked = false;
-    pbGhostLabel.textContent = "No personal best yet";
     hudPb.textContent = "";
     // Racing others' ghosts unlocks only once you've set a time of your own.
     ghostHint.textContent = "Set your own time here first to race other players' ghosts.";
@@ -923,6 +928,8 @@ function beginRun(playable: Playable): void {
   countdownElapsed = 0;
   appState = "countdown";
   setPaused(false);
+  // Diagnostic run log: a run begins here (best-effort, ignores failures).
+  void logRun(playable.seed, nickname, "started", 0);
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
@@ -934,6 +941,12 @@ function endRun(): void {
   if (!session) return;
   appState = "ended";
   setPaused(false);
+  // Diagnostic run log: record how the run ended and how many warehouses were
+  // collected (best-effort; a "finished" here with no matching leaderboard row
+  // points at a score-submission drop).
+  const runStatus =
+    session.status === "success" ? "finished" : session.failReason === "outOfBounds" ? "out_of_bounds" : "cargo_fell_off";
+  void logRun(active.seed, nickname, runStatus, session.visited.size);
   hud.classList.add("hidden");
   resultsScreen.classList.remove("hidden");
   if (session.status === "success") {
@@ -1358,6 +1371,9 @@ minimapCanvas.addEventListener("keydown", (e) => {
     beginRun(viewed);
   }
 });
+// The explicit Play button is the discoverable way to start; tapping the map
+// still works as a shortcut.
+playBtn.addEventListener("click", () => beginRun(viewed));
 
 window.addEventListener("keydown", (e) => {
   // While the help overlay is up it captures Escape (to close itself) and

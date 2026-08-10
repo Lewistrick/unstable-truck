@@ -5,8 +5,10 @@ import {
   getChampionTimes,
   getScore,
   getSeedLeaderboard,
+  logRun,
   lowerChampionTime,
   upsertScoreIfBetter,
+  type RunStatus,
 } from "./db.js";
 
 export const scoresRouter = Router();
@@ -18,6 +20,11 @@ const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
 const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
 const MAX_NICKNAME_LENGTH = 24;
 const TOP_N = 10;
+// run_logs accepts any seed the client actually played, including shared/orphan
+// maps that aren't a live daily/weekly period, so it's length-capped rather than
+// pattern-checked. The four valid lifecycle states mirror the client's labels.
+const MAX_SEED_LENGTH = 64;
+const RUN_STATUSES = new Set<RunStatus>(["started", "finished", "cargo_fell_off", "out_of_bounds"]);
 // Cap the batch champions lookup so a single request can't ask for an unbounded
 // number of seeds (the client only ever needs a month of daily seeds).
 const MAX_CHAMPION_SEEDS = 40;
@@ -82,16 +89,48 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
     return;
   }
   const { championCandidate, isCurrentPeriod, ...score } = submission;
-  const saved = await upsertScoreIfBetter({ seed, ...score });
+  try {
+    const saved = await upsertScoreIfBetter({ seed, ...score });
 
-  // Move the champion threshold down toward this run only while the seed is the
-  // player's current period. lowerChampionTime() ignores candidates that aren't
-  // lower than what's stored, so a non-record run never raises it and only a
-  // genuine new world record ratchets it down.
-  if (isCurrentPeriod && championCandidate != null) {
-    await lowerChampionTime(seed, championCandidate);
+    // Move the champion threshold down toward this run only while the seed is the
+    // player's current period. lowerChampionTime() ignores candidates that aren't
+    // lower than what's stored, so a non-record run never raises it and only a
+    // genuine new world record ratchets it down.
+    if (isCurrentPeriod && championCandidate != null) {
+      await lowerChampionTime(seed, championCandidate);
+    }
+    res.json({ saved });
+  } catch (err) {
+    // Surface a storage delivery failure (DB unreachable, etc.) in the server
+    // logs - the client's submitScore silently swallows the non-2xx, so this is
+    // where an otherwise-invisible drop becomes visible.
+    console.error(`score submit failed for seed ${seed}:`, (err as Error).message);
+    res.status(503).json({ saved: false, error: "storage unavailable" });
   }
-  res.json({ saved });
+});
+
+/** Records one run-lifecycle event (a run starting, or ending in finished /
+ * cargo_fell_off / out_of_bounds). Best-effort diagnostics: it never gates
+ * gameplay, so a bad payload is a 400 and a storage failure is a logged 503, but
+ * the client ignores the outcome either way. */
+scoresRouter.post("/api/runs", async (req, res) => {
+  const b = typeof req.body === "object" && req.body !== null ? (req.body as Record<string, unknown>) : {};
+  const nickname = typeof b.nickname === "string" ? b.nickname.trim().slice(0, MAX_NICKNAME_LENGTH) : "";
+  const seed = typeof b.seed === "string" ? b.seed.slice(0, MAX_SEED_LENGTH) : "";
+  const status = typeof b.status === "string" ? b.status : "";
+  const collected =
+    typeof b.collected === "number" && Number.isInteger(b.collected) && b.collected >= 0 ? b.collected : 0;
+  if (nickname.length === 0 || seed.length === 0 || !RUN_STATUSES.has(status as RunStatus)) {
+    res.status(400).json({ error: "invalid run log" });
+    return;
+  }
+  try {
+    await logRun({ nickname, seed, status: status as RunStatus, collected });
+    res.json({ logged: true });
+  } catch (err) {
+    console.error(`run log failed for seed ${seed} (${status}):`, (err as Error).message);
+    res.status(503).json({ logged: false, error: "storage unavailable" });
+  }
 });
 
 /** Seeds a seed's champion threshold if it doesn't have one yet (frozen once

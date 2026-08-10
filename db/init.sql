@@ -27,3 +27,21 @@ CREATE TABLE IF NOT EXISTS champions (
   champion_time DOUBLE PRECISION NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Append-only run log: one row per run-lifecycle event, for inspecting what
+-- players actually do (e.g. why a finish never reached the leaderboard). A run
+-- emits a "started" row when it begins and one terminal row - "finished",
+-- "cargo_fell_off", or "out_of_bounds" - when it ends, each stamped with the
+-- number of warehouses collected so far and the server's clock. Purely
+-- diagnostic: it never feeds scoring or the leaderboard.
+CREATE TABLE IF NOT EXISTS run_logs (
+  id BIGSERIAL PRIMARY KEY,
+  nickname TEXT NOT NULL,
+  seed TEXT NOT NULL,
+  status TEXT NOT NULL,
+  collected INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Most inspection is "runs for this seed, newest first".
+CREATE INDEX IF NOT EXISTS idx_run_logs_seed_created ON run_logs (seed, created_at DESC);

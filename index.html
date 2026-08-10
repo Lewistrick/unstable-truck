@@ -5,6 +5,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Unstable Truck</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Righteous&display=swap" />
   <link rel="stylesheet" href="style.css" />
 </head>
 
@@ -58,39 +61,39 @@
 
     <div id="start-screen" class="screen">
       <div class="panel">
-        <h1>Unstable Truck</h1>
-        <div id="mode-toggle" role="tablist" aria-label="Board">
-          <button id="mode-daily" class="mode-btn active" type="button" role="tab" aria-selected="true">Daily</button>
-          <button id="mode-weekly" class="mode-btn" type="button" role="tab" aria-selected="false">Weekly</button>
+        <div id="home-topbar">
+          <button id="help-btn" class="btn-secondary" type="button" aria-label="How to play" title="How to play">?</button>
+        </div>
+        <span class="wordmark">Unstable Truck</span>
+
+        <div id="thumbnail-nav">
+          <button id="nav-prev-btn" class="nav-arrow" aria-label="Previous day" type="button">&#8249;</button>
+          <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
+          <button id="nav-next-btn" class="nav-arrow" aria-label="Next day" type="button">&#8250;</button>
         </div>
         <p id="viewed-date" class="muted"></p>
         <div id="progress-strip">
           <span id="streak-badge" title="Consecutive days delivered"></span>
           <div id="day-dots" aria-label="Recent days completed"></div>
         </div>
-        <div id="thumbnail-nav">
-          <button id="nav-prev-btn" class="nav-arrow" aria-label="Previous day" type="button">&#8249;</button>
-          <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
-          <button id="nav-next-btn" class="nav-arrow" aria-label="Next day" type="button">&#8250;</button>
-        </div>
-        <p class="muted thumbnail-hint">Click the map to jump in</p>
-        <label id="ghost-toggle-row">
-          <input type="checkbox" id="pb-ghost-toggle" disabled />
-          <span id="pb-ghost-label">No personal best yet</span>
+
+        <label id="ghost-toggle-row" class="hidden">
+          <input type="checkbox" id="pb-ghost-toggle" />
+          <span id="pb-ghost-label"></span>
         </label>
+        <button id="play-btn" type="button">Play</button>
+
         <div id="viewed-best-row">
           <p class="past-level-best" id="viewed-best"></p>
           <button id="best-share-btn" class="btn-secondary btn-share-inline hidden" type="button">Share</button>
         </div>
         <div id="medal-track" aria-label="Medal times"></div>
-        <div id="menu-buttons-row">
-          <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
-          <button id="help-btn" class="btn-secondary" type="button">How to play</button>
+
+        <div id="mode-toggle" role="tablist" aria-label="Board">
+          <button id="mode-daily" class="mode-btn active" type="button" role="tab" aria-selected="true">Daily</button>
+          <button id="mode-weekly" class="mode-btn" type="button" role="tab" aria-selected="false">Weekly</button>
         </div>
-        <div id="nickname-row">
-          <label for="nickname-input">Nickname</label>
-          <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />
-        </div>
+        <p id="mode-hint" class="muted">Daily: a quick map, fresh each day. Weekly: a big map, fresh each week.</p>
         <p class="hint" id="ghost-hint">Click any player in the leaderboard to race against their ghost.</p>
         <div id="leaderboard">
           <div class="leaderboard-header" id="leaderboard-header">Today's Leaderboard</div>
@@ -104,6 +107,14 @@
                 <button id="replay-start-btn" type="button" disabled>Watch (0)</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div id="home-footer">
+          <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
+          <div id="nickname-row">
+            <label for="nickname-input">Nickname</label>
+            <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />
           </div>
         </div>
       </div>

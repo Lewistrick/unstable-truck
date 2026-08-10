@@ -84,6 +84,39 @@ export async function ensureSchema(): Promise<void> {
        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
      )`,
   );
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS run_logs (
+       id BIGSERIAL PRIMARY KEY,
+       nickname TEXT NOT NULL,
+       seed TEXT NOT NULL,
+       status TEXT NOT NULL,
+       collected INTEGER NOT NULL DEFAULT 0,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+     )`,
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_run_logs_seed_created ON run_logs (seed, created_at DESC)`);
+}
+
+/** The lifecycle states a run can be logged in: it begins ("started") and ends
+ * in exactly one terminal state. Kept in sync with the client's own labels. */
+export type RunStatus = "started" | "finished" | "cargo_fell_off" | "out_of_bounds";
+
+/** Appends one run-lifecycle event to run_logs (server clock stamps it). Purely
+ * diagnostic - callers treat it as best-effort and log/swallow any failure so it
+ * never affects gameplay or scoring. */
+export async function logRun(params: {
+  nickname: string;
+  seed: string;
+  status: RunStatus;
+  collected: number;
+}): Promise<void> {
+  const { nickname, seed, status, collected } = params;
+  await pool.query(`INSERT INTO run_logs (nickname, seed, status, collected) VALUES ($1, $2, $3, $4)`, [
+    nickname,
+    seed,
+    status,
+    collected,
+  ]);
 }
 
 /** Lowers a seed's stored champion-medal threshold to `championTime`, but only
