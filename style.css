@@ -159,8 +159,12 @@ html, body {
 #minimap-track {
   display: flex;
   width: 300%;
-  /* At rest the middle of the three maps fills the viewport. */
-  transform: translateX(-33.3333%);
+  /* Gutter between adjacent maps, revealed as one slides in during a swipe.
+     Keep in sync with CAROUSEL_GAP in main.ts. */
+  gap: 10px;
+  /* At rest the middle of the three maps fills the viewport - shifted an extra
+     gap's width so the gutter sits off-screen and the current map is flush. */
+  transform: translateX(calc(-33.3333% - 10px));
   will-change: transform;
   touch-action: pan-y;
 }

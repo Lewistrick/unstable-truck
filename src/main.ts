@@ -653,7 +653,9 @@ function navigateTo(offset: number): void {
   viewedOffset = Math.max(-maxPastOffset(mode), Math.min(0, offset));
   refreshViewedSelection();
   // Log a real map change only (boundary clicks that don't move are skipped).
-  if (viewed.seed !== prevSeed) void logRun(viewed.seed, nickname, "navigated", 0);
+  if (viewed.seed !== prevSeed) {
+    void logRun(viewed.seed, nickname, "navigated", 0, `to ${describeOffset(mode, viewedOffset)}`);
+  }
 }
 
 function switchMode(newMode: Mode): void {
@@ -743,6 +745,7 @@ const SWIPE_THRESHOLD = 45; // px of horizontal travel to commit to a neighbour
 const SWIPE_ENGAGE = 8; // px before a drag is treated as a horizontal swipe
 const EDGE_RESISTANCE = 0.25; // drag past a timeline edge moves this much
 const SNAP_MS = 260; // keep in sync with #minimap-track.snapping transition
+const CAROUSEL_GAP = 10; // px gutter between maps; keep in sync with #minimap-track gap
 let swipeStartX = 0;
 let swipeStartY = 0;
 let swipeTracking = false; // a pointer is down on the viewport
@@ -750,10 +753,15 @@ let swipeEngaged = false; // the drag has been recognised as horizontal
 let swipeConsumed = false; // the gesture committed to a neighbour (suppress tap)
 let viewportWidth = 0; // width of one carousel slot, measured at drag start
 
-/** Offsets the track by `dx` px from its centred rest position (one slot to the
- * left, since the middle canvas is the second of three). */
+/** Distance to step the track by one map: a full slot plus the gutter between
+ * maps. Measured fresh so it tracks the current viewport width. */
+function slotStride(): number {
+  return viewportWidth + CAROUSEL_GAP;
+}
+/** Offsets the track by `dx` px from its centred rest position (one slot-plus-
+ * gutter to the left, since the middle canvas is the second of three). */
 function setTrackOffset(dx: number): void {
-  minimapTrack.style.transform = `translateX(${-viewportWidth + dx}px)`;
+  minimapTrack.style.transform = `translateX(${-slotStride() + dx}px)`;
 }
 /** Returns the track to its centred rest position, driven by CSS. */
 function restTrack(): void {
@@ -820,7 +828,7 @@ window.addEventListener("pointerup", (e) => {
   // Slide the chosen neighbour fully into the viewport, then commit and recenter
   // instantly. The neighbour canvas already holds the destination map, so the
   // recenter is seamless: the same pixels are simply relabelled as "current".
-  setTrackOffset(dir === -1 ? viewportWidth : -viewportWidth);
+  setTrackOffset(dir === -1 ? slotStride() : -slotStride());
   window.setTimeout(() => {
     minimapTrack.classList.remove("snapping");
     const shown = dir === -1 ? minimapPrevCanvas : minimapNextCanvas;
@@ -1102,7 +1110,13 @@ function endRun(): void {
   // points at a score-submission drop).
   const runStatus =
     session.status === "success" ? "finished" : session.failReason === "outOfBounds" ? "out_of_bounds" : "cargo_fell_off";
-  void logRun(active.seed, nickname, runStatus, session.visited.size);
+  // Record the run's final time too: the finish time on success, or how long the
+  // truck survived before failing.
+  const timeNote =
+    session.status === "success"
+      ? `finished in ${formatTime(session.elapsed)}`
+      : `survived ${formatTime(session.elapsed)}`;
+  void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote);
   hud.classList.add("hidden");
   resultsScreen.classList.remove("hidden");
   if (session.status === "success") {
