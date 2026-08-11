@@ -148,6 +148,12 @@ const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const minimapCanvas = document.getElementById("minimap-canvas") as HTMLCanvasElement;
 const minimapCtx = minimapCanvas.getContext("2d")!;
+// The two flanking canvases of the carousel: the previous (older) and next
+// (newer) period's maps, drawn so they can peek in as the track is dragged.
+const minimapPrevCanvas = document.getElementById("minimap-prev") as HTMLCanvasElement;
+const minimapPrevCtx = minimapPrevCanvas.getContext("2d")!;
+const minimapNextCanvas = document.getElementById("minimap-next") as HTMLCanvasElement;
+const minimapNextCtx = minimapNextCanvas.getContext("2d")!;
 
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
@@ -193,18 +199,13 @@ const pauseIndicator = document.getElementById("pause-indicator")!;
 const hudDelta = document.getElementById("hud-delta")!;
 const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
-const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
-const pbGhostLabel = document.getElementById("pb-ghost-label")!;
-const ghostToggleRow = document.getElementById("ghost-toggle-row")!;
 const playBtn = document.getElementById("play-btn") as HTMLButtonElement;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
-const viewedBestEl = document.getElementById("viewed-best")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
-const ghostHint = document.getElementById("ghost-hint")!;
 const streakBadge = document.getElementById("streak-badge")!;
 const dayDots = document.getElementById("day-dots")!;
 const progressStrip = document.getElementById("progress-strip")!;
@@ -238,43 +239,22 @@ if (document.readyState === "loading") {
   logGameStarted();
 }
 
-// The "race my own ghost" toggle is a global, session-remembered preference,
-// so flipping it here carries to every level (and mode) you browse next.
-pbGhostToggle.addEventListener("change", () => {
-  saveRacePbGhostPref(pbGhostToggle.checked);
-});
-
 function refreshViewedUi(): void {
   const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
   viewedDateEl.textContent = `${periodLabel} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
-  viewedBestEl.textContent = viewed.personalBest ? `Best: ${formatTime(viewed.personalBest.time)}` : "Best: -";
 
   // Sharing the best time is offered only for today, and only once there's a
-  // best to share (never on a shared orphan map, which has no leaderboard).
+  // best to share (never on a shared orphan map, which has no leaderboard). The
+  // button lives below the leaderboard now.
   const canShareBest = !viewed.orphan && viewedOffset === 0 && viewed.personalBest != null;
   bestShareBtn.classList.toggle("hidden", !canShareBest);
-  if (canShareBest) bestShareBtn.textContent = "Share";
-  if (viewed.personalBest) {
-    // The "race your PB ghost" toggle only appears once there's a PB to race, so
-    // a first-time player sees a clean map -> Play flow with no dead controls.
-    ghostToggleRow.classList.remove("hidden");
-    pbGhostToggle.disabled = false;
-    // Global, session-remembered preference - the choice follows you between
-    // levels and across daily/weekly instead of re-checking on every level.
-    pbGhostToggle.checked = loadRacePbGhostPref();
-    pbGhostLabel.textContent = `Race personal best ghost (${formatTime(viewed.personalBest.time)})`;
-    hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
-    ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
-  } else {
-    ghostToggleRow.classList.add("hidden");
-    pbGhostToggle.checked = false;
-    hudPb.textContent = "";
-    // Racing others' ghosts unlocks only once you've set a time of your own.
-    ghostHint.textContent = "Set your own time here first to race other players' ghosts.";
-  }
+  if (canShareBest) bestShareBtn.textContent = "Share personal best";
+
+  hudPb.textContent = viewed.personalBest ? `PB: ${formatTime(viewed.personalBest.time)}` : "";
 
   // Show the level's medal times immediately on navigation; the leaderboard
-  // load will refresh the champion tier once it arrives.
+  // load will refresh the champion tier once it arrives. The PB chip also
+  // reflects the current "race my PB ghost" preference.
   renderMedalTrack();
 
   // "Watch a replay" unlocks with the same personal-best gate as ghost racing.
@@ -417,33 +397,141 @@ function currentChampionTime(): number | null {
   return viewedChampionTime;
 }
 
-/** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
- * always, plus the Champion tier at the top when it's available. */
+// Icon for the personal-best chip - the player's own truck, distinct from the
+// medal icons. It always shows the truck; the PB-ghost on/off state is conveyed
+// by an inner glow (and a brief text flash on toggle), not by swapping the icon.
+const PB_ICON = "\u{1F69A}"; // 🚚
+
+// When the PB chip is clicked, it briefly shows "Ghost enabled/disabled" before
+// settling into its new state. pbFlashMsg holds the message during that window.
+const PB_FLASH_MS = 850;
+let pbFlashMsg: string | null = null;
+let pbFlashTimer: number | undefined;
+
+// Per-medal glow colours ("r, g, b" triples), matching the streak dots' --glow
+// in style.css - keep the two in sync. FAINT_GLOW is a bluish grey for a PB
+// that's slower than every medal.
+const MEDAL_GLOW: Record<Medal, string> = {
+  champion: "244, 202, 187",
+  gold: "255, 216, 115",
+  silver: "226, 232, 239",
+  bronze: "217, 148, 87",
+};
+const FAINT_GLOW = "150, 165, 190";
+
+/** Renders the medal + personal-best "chips" for the viewed level: one small
+ * rounded tile per available time, laid out left to right in ascending (fastest
+ * first) order. Gold/Silver/Bronze always show; PB and Champion join in only
+ * when they exist. Each tile stacks an icon, the time's name, and the time, and
+ * carries a colour glow that pulses once on hover (same flourish as the streak
+ * dots). The PB tile borrows the glow of the medal immediately to its right (the
+ * best medal it earned); a PB slower than every medal glows a faint bluish grey.
+ * The PB tile is also the control for racing your PB ghost: clicking it toggles
+ * the (global, session-remembered) preference, flashing a confirmation and then
+ * carrying an inner whitish-gold glow while it's on. */
 function renderMedalTrack(): void {
   const pars = viewed.pars;
   const champion = currentChampionTime();
-  const tiers: Array<{ medal: Medal; time: number }> = [];
-  if (champion != null) tiers.push({ medal: "champion", time: champion });
-  tiers.push({ medal: "gold", time: pars.gold });
-  tiers.push({ medal: "silver", time: pars.silver });
-  tiers.push({ medal: "bronze", time: pars.bronze });
+  const pb = viewed.personalBest?.time ?? null;
+  const pbGhostOn = loadRacePbGhostPref();
+
+  const chips: Array<{ icon: string; name: string; time: number; medal: Medal | null }> = [];
+  if (pb != null) chips.push({ icon: PB_ICON, name: "PB", time: pb, medal: null });
+  if (champion != null) chips.push({ icon: MEDAL_ICON.champion, name: MEDAL_LABEL.champion, time: champion, medal: "champion" });
+  chips.push({ icon: MEDAL_ICON.gold, name: MEDAL_LABEL.gold, time: pars.gold, medal: "gold" });
+  chips.push({ icon: MEDAL_ICON.silver, name: MEDAL_LABEL.silver, time: pars.silver, medal: "silver" });
+  chips.push({ icon: MEDAL_ICON.bronze, name: MEDAL_LABEL.bronze, time: pars.bronze, medal: "bronze" });
+  chips.sort((a, b) => a.time - b.time);
 
   medalTrack.replaceChildren();
-  for (const { medal, time } of tiers) {
-    const row = document.createElement("div");
-    row.className = "medal-row";
+  chips.forEach((chip, i) => {
+    const isPb = chip.medal === null;
+    const cell = document.createElement("div");
+    cell.className = "medal-chip";
+
+    // A medal chip glows in its own colour; the PB chip borrows the glow of the
+    // medal to its right, or a faint bluish grey when it's the slowest of all.
+    let glow = FAINT_GLOW;
+    let faint = true;
+    if (chip.medal) {
+      glow = MEDAL_GLOW[chip.medal];
+      faint = false;
+    } else {
+      const rightMedal = chips[i + 1]?.medal;
+      if (rightMedal) {
+        glow = MEDAL_GLOW[rightMedal];
+        faint = false;
+      }
+    }
+    cell.style.setProperty("--glow", glow);
+    if (faint) cell.classList.add("glow-faint");
+
+    // Pulse once per mouse-enter, driven here (not CSS :hover) so it always runs
+    // to completion and can fire again next entry - exactly like the streak dots.
+    cell.addEventListener("mouseenter", () => cell.classList.add("pulsing"));
+    cell.addEventListener("animationend", () => cell.classList.remove("pulsing"));
+
+    // The PB chip doubles as the "race my PB ghost" switch: clicking it flips the
+    // preference, flashes a confirmation, then settles with (or without) an inner
+    // glow marking it selected.
+    if (isPb) {
+      cell.classList.add("pb-chip");
+      cell.setAttribute("role", "button");
+      cell.tabIndex = 0;
+      cell.title = pbGhostOn ? "Racing your PB ghost - click to turn off" : "Click to race your PB ghost";
+      const toggle = () => {
+        saveRacePbGhostPref(!loadRacePbGhostPref());
+        flashPbGhost(loadRacePbGhostPref());
+      };
+      cell.addEventListener("click", toggle);
+      cell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggle();
+        }
+      });
+
+      // Mid-toggle: show the transient message instead of the usual contents, and
+      // hold off the inner glow until the flash clears.
+      if (pbFlashMsg != null) {
+        cell.classList.add("flashing");
+        const flash = document.createElement("span");
+        flash.className = "medal-chip-flash";
+        flash.textContent = pbFlashMsg;
+        cell.appendChild(flash);
+        medalTrack.appendChild(cell);
+        return;
+      }
+      if (pbGhostOn) cell.classList.add("active");
+    }
+
+    const icon = document.createElement("span");
+    icon.className = "medal-chip-icon";
+    icon.textContent = chip.icon;
 
     const name = document.createElement("span");
-    name.className = "medal-name";
-    name.textContent = `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}`;
+    name.className = "medal-chip-name";
+    name.textContent = chip.name;
 
     const t = document.createElement("span");
-    t.className = "medal-time";
-    t.textContent = formatTime(time);
+    t.className = "medal-chip-time";
+    t.textContent = formatTime(chip.time);
 
-    row.append(name, t);
-    medalTrack.appendChild(row);
-  }
+    cell.append(icon, name, t);
+    medalTrack.appendChild(cell);
+  });
+}
+
+/** Flashes "Ghost enabled/disabled" inside the PB chip for a beat, then re-renders
+ * so the chip settles into its new state (inner glow on/off). */
+function flashPbGhost(on: boolean): void {
+  pbFlashMsg = on ? "Ghost enabled" : "Ghost disabled";
+  window.clearTimeout(pbFlashTimer);
+  pbFlashTimer = window.setTimeout(() => {
+    pbFlashMsg = null;
+    renderMedalTrack();
+  }, PB_FLASH_MS);
+  renderMedalTrack();
 }
 
 function renderLeaderboardList(): void {
@@ -455,7 +543,7 @@ function renderLeaderboardList(): void {
     return;
   }
   leaderboardHeaderEl.textContent = watchMode
-    ? `Pick racers (${describeOffset(mode, viewedOffset)})`
+    ? `Pick up to 5 racers to include in the replay`
     : `Leaderboard (${describeOffset(mode, viewedOffset)})`;
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
@@ -588,6 +676,35 @@ function updateNavButtons(): void {
   navNextBtn.disabled = viewedOffset >= 0;
 }
 
+/** True when there's an older/newer period to swipe to from the current view.
+ * A shared orphan map is off the day/week timeline, so it has no neighbours. */
+function hasOlderPeriod(): boolean {
+  return !viewed.orphan && viewedOffset > -maxPastOffset(mode);
+}
+function hasNewerPeriod(): boolean {
+  return !viewed.orphan && viewedOffset < 0;
+}
+
+/** Paints the carousel: the centre canvas is the viewed map, and the flanking
+ * canvases hold the previous (older) and next (newer) maps so a swipe reveals
+ * the real neighbour sliding in. Missing neighbours (timeline edges, orphan
+ * maps) are cleared to an empty slot. */
+function renderMinimaps(): void {
+  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  paintNeighbourThumb(minimapPrevCtx, minimapPrevCanvas, hasOlderPeriod() ? viewedOffset - 1 : null);
+  paintNeighbourThumb(minimapNextCtx, minimapNextCanvas, hasNewerPeriod() ? viewedOffset + 1 : null);
+}
+
+/** Draws the map at `offset` into a flanking carousel canvas, or clears it to an
+ * empty slot when there's no neighbour there. */
+function paintNeighbourThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, offset: number | null): void {
+  if (offset === null) {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    return;
+  }
+  renderMinimap(ctx, getPlayable(mode, offset).level, 0, 0, cv.width, cv.height);
+}
+
 /** Re-syncs the whole home view (map, best, ghost toggle, leaderboard) to the
  * currently selected mode + offset. Also leaves any shared "orphan" seed view,
  * since a mode/offset selection is always a live period. */
@@ -608,7 +725,7 @@ function refreshViewedSelection(): void {
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
-  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  renderMinimaps();
   void refreshLeaderboard();
   void restoreSelectedLeaderboardGhost();
 }
@@ -618,7 +735,9 @@ function navigateTo(offset: number): void {
   viewedOffset = Math.max(-maxPastOffset(mode), Math.min(0, offset));
   refreshViewedSelection();
   // Log a real map change only (boundary clicks that don't move are skipped).
-  if (viewed.seed !== prevSeed) void logRun(viewed.seed, nickname, "navigated", 0);
+  if (viewed.seed !== prevSeed) {
+    void logRun(viewed.seed, nickname, "navigated", 0, `to ${describeOffset(mode, viewedOffset)}`);
+  }
 }
 
 function switchMode(newMode: Mode): void {
@@ -654,8 +773,7 @@ function showOrphanSeed(seed: string, genMode: Mode): void {
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
-  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
-  ghostHint.textContent = "This is a shared map - global leaderboards aren't available for it.";
+  renderMinimaps();
   renderOrphanNotice();
 }
 
@@ -695,35 +813,124 @@ navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
 modeDailyBtn.addEventListener("click", () => switchMode("daily"));
 modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 
-// Swipe navigation over the map thumbnail: swipe right -> previous period,
-// swipe left -> next. Pointer events unify mouse-drag (desktop) and touch
-// (mobile). A recognised swipe sets `swipeConsumed` so the minimap's tap-to-
-// play click (which fires right after pointerup) is skipped for that gesture.
-const thumbnailNav = document.getElementById("thumbnail-nav")!;
-const SWIPE_THRESHOLD = 45; // px of horizontal travel to count as a swipe
+// Carousel navigation over the map thumbnail: drag/swipe right -> previous
+// (older) period, left -> next (newer). While dragging, the track follows the
+// finger so the neighbouring map slides in like a carousel; on release it snaps
+// to the chosen map (past the threshold) or springs back. Pointer events unify
+// mouse-drag (desktop) and touch (mobile). A committed swipe sets
+// `swipeConsumed` so the minimap's tap-to-play click (which fires right after
+// pointerup) is skipped for that gesture.
+const minimapViewport = document.getElementById("minimap-viewport")!;
+const minimapTrack = document.getElementById("minimap-track")!;
+const SWIPE_THRESHOLD = 45; // px of horizontal travel to commit to a neighbour
+const SWIPE_ENGAGE = 8; // px before a drag is treated as a horizontal swipe
+const EDGE_RESISTANCE = 0.25; // drag past a timeline edge moves this much
+const SNAP_MS = 260; // keep in sync with #minimap-track.snapping transition
+const CAROUSEL_GAP = 10; // px gutter between maps; keep in sync with #minimap-track gap
 let swipeStartX = 0;
 let swipeStartY = 0;
-let swipeTracking = false;
-let swipeConsumed = false;
-thumbnailNav.addEventListener("pointerdown", (e) => {
+let swipeTracking = false; // a pointer is down on the viewport
+let swipeEngaged = false; // the drag has been recognised as horizontal
+let swipeConsumed = false; // the gesture committed to a neighbour (suppress tap)
+let viewportWidth = 0; // width of one carousel slot, measured at drag start
+
+/** Distance to step the track by one map: a full slot plus the gutter between
+ * maps. Measured fresh so it tracks the current viewport width. */
+function slotStride(): number {
+  return viewportWidth + CAROUSEL_GAP;
+}
+/** Offsets the track by `dx` px from its centred rest position (one slot-plus-
+ * gutter to the left, since the middle canvas is the second of three). */
+function setTrackOffset(dx: number): void {
+  minimapTrack.style.transform = `translateX(${-slotStride() + dx}px)`;
+}
+/** Returns the track to its centred rest position, driven by CSS. */
+function restTrack(): void {
+  minimapTrack.style.transform = "";
+}
+
+minimapViewport.addEventListener("pointerdown", (e) => {
+  // A shared orphan map isn't on the day/week timeline, so there's nothing to
+  // swipe to (the Daily/Weekly toggle is the way back to a live period).
+  if (viewed.orphan || e.button > 0) return;
   swipeStartX = e.clientX;
   swipeStartY = e.clientY;
   swipeTracking = true;
+  swipeEngaged = false;
   swipeConsumed = false;
+  viewportWidth = minimapViewport.clientWidth;
+  minimapTrack.classList.remove("snapping");
 });
+
+window.addEventListener("pointermove", (e) => {
+  if (!swipeTracking) return;
+  const dx = e.clientX - swipeStartX;
+  const dy = e.clientY - swipeStartY;
+  if (!swipeEngaged) {
+    // Let a clearly vertical drag fall through to page scrolling instead.
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > SWIPE_ENGAGE) {
+      swipeTracking = false;
+      return;
+    }
+    if (Math.abs(dx) < SWIPE_ENGAGE) return;
+    swipeEngaged = true;
+  }
+  // Rubber-band against a timeline edge so the track can't be dragged toward a
+  // neighbour that doesn't exist.
+  let travel = dx;
+  if ((dx > 0 && !hasOlderPeriod()) || (dx < 0 && !hasNewerPeriod())) travel = dx * EDGE_RESISTANCE;
+  setTrackOffset(travel);
+});
+
 // Bound to window so a drag that lifts off the thumbnail still resolves.
 window.addEventListener("pointerup", (e) => {
   if (!swipeTracking) return;
   swipeTracking = false;
-  // A shared orphan map isn't on the day/week timeline, so swiping does nothing
-  // (the Daily/Weekly toggle is the way back to a live period).
-  if (viewed.orphan) return;
+  if (!swipeEngaged) return; // a tap, not a drag - leave tap-to-play to click
+  // A real drag happened, so the trailing click is drag fallout, not tap-to-play
+  // - suppress it whether we commit to a neighbour or spring back.
+  swipeConsumed = true;
   const dx = e.clientX - swipeStartX;
   const dy = e.clientY - swipeStartY;
+  let dir = 0; // -1 = older (right swipe), +1 = newer (left swipe)
   if (Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
-    swipeConsumed = true;
-    navigateTo(viewedOffset + (dx > 0 ? -1 : 1));
+    if (dx > 0 && hasOlderPeriod()) dir = -1;
+    else if (dx < 0 && hasNewerPeriod()) dir = 1;
   }
+  minimapTrack.classList.add("snapping");
+  if (dir === 0) {
+    setTrackOffset(0); // spring back to the current map
+    window.setTimeout(() => {
+      minimapTrack.classList.remove("snapping");
+      restTrack();
+    }, SNAP_MS);
+    return;
+  }
+  // Slide the chosen neighbour fully into the viewport, then commit and recenter
+  // instantly. The neighbour canvas already holds the destination map, so the
+  // recenter is seamless: the same pixels are simply relabelled as "current".
+  setTrackOffset(dir === -1 ? slotStride() : -slotStride());
+  window.setTimeout(() => {
+    minimapTrack.classList.remove("snapping");
+    const shown = dir === -1 ? minimapPrevCanvas : minimapNextCanvas;
+    minimapCtx.drawImage(shown, 0, 0);
+    restTrack();
+    navigateTo(viewedOffset + dir);
+  }, SNAP_MS);
+});
+
+// If the browser takes over the gesture (e.g. it becomes a page scroll), spring
+// the track back rather than leaving it stranded mid-drag.
+window.addEventListener("pointercancel", () => {
+  if (!swipeTracking) return;
+  swipeTracking = false;
+  if (!swipeEngaged) return;
+  minimapTrack.classList.add("snapping");
+  setTrackOffset(0);
+  window.setTimeout(() => {
+    minimapTrack.classList.remove("snapping");
+    restTrack();
+  }, SNAP_MS);
 });
 
 // -----------------------------------------------------------------------
@@ -817,7 +1024,7 @@ if (sharedSeed) {
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
-  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  renderMinimaps();
   void refreshLeaderboard();
   void restoreSelectedLeaderboardGhost();
 }
@@ -900,9 +1107,10 @@ function currentBestShareText(): string | null {
 }
 
 /** Wires a Share button to copy text (from `getText`) on click, flashing a
- * transient "Copied!"/"Copy failed" label before reverting to "Share". `source`
- * labels which Share button it is in the run log (e.g. "results", "best"). */
-function attachShareHandler(btn: HTMLButtonElement, source: string, getText: () => string | null): void {
+ * transient "Copied!"/"Copy failed" label before reverting to `restLabel`.
+ * `source` labels which Share button it is in the run log (e.g. "results",
+ * "best"). */
+function attachShareHandler(btn: HTMLButtonElement, source: string, restLabel: string, getText: () => string | null): void {
   let resetTimer: number | undefined;
   btn.addEventListener("click", async () => {
     const text = getText();
@@ -912,7 +1120,7 @@ function attachShareHandler(btn: HTMLButtonElement, source: string, getText: () 
     btn.textContent = ok ? "Copied!" : "Copy failed";
     window.clearTimeout(resetTimer);
     resetTimer = window.setTimeout(() => {
-      btn.textContent = "Share";
+      btn.textContent = restLabel;
     }, 1600);
   });
 }
@@ -943,7 +1151,7 @@ async function copyText(text: string): Promise<boolean> {
 function beginRun(playable: Playable): void {
   active = playable;
   session = new GameSession(playable.level);
-  pbGhost = playable.personalBest && pbGhostToggle.checked ? new GhostPlayer(playable.level, playable.personalBest) : null;
+  pbGhost = playable.personalBest && loadRacePbGhostPref() ? new GhostPlayer(playable.level, playable.personalBest) : null;
   leaderboardGhost =
     selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
       ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
@@ -984,7 +1192,13 @@ function endRun(): void {
   // points at a score-submission drop).
   const runStatus =
     session.status === "success" ? "finished" : session.failReason === "outOfBounds" ? "out_of_bounds" : "cargo_fell_off";
-  void logRun(active.seed, nickname, runStatus, session.visited.size);
+  // Record the run's final time too: the finish time on success, or how long the
+  // truck survived before failing.
+  const timeNote =
+    session.status === "success"
+      ? `finished in ${formatTime(session.elapsed)}`
+      : `survived ${formatTime(session.elapsed)}`;
+  void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote);
   hud.classList.add("hidden");
   resultsScreen.classList.remove("hidden");
   if (session.status === "success") {
@@ -1177,7 +1391,7 @@ tutorialSkipSectionBtn.addEventListener("click", () => {
 // video-style player (play/pause, a seekable progress bar, and stop). Like
 // racing a ghost, it needs your own time on the level first.
 
-/** Enables the "Watch a replay" button only once there's a personal best on the
+/** Enables the "Create a replay" button only once there's a personal best on the
  * viewed level (same gate as racing a ghost). */
 function updateWatchButton(): void {
   const unlocked = viewed.personalBest != null;
@@ -1185,11 +1399,11 @@ function updateWatchButton(): void {
   watchBtn.title = unlocked ? "" : "Set your own time here first to watch replays.";
 }
 
+/** The pick-bar's prompt and "Show replay" label are static; this just gates the
+ * button on having picked at least one ghost (capped at MAX_REPLAY_RACERS by
+ * toggleWatchPick). */
 function updateWatchBar(): void {
-  const n = watchSelection.size;
-  replaySelectCount.textContent = `Pick 1–5 racers (${n}/${MAX_REPLAY_RACERS})`;
-  replayStartBtn.textContent = `Watch (${n})`;
-  replayStartBtn.disabled = n < 1;
+  replayStartBtn.disabled = watchSelection.size < 1;
 }
 
 function enterWatchMode(): void {
@@ -1198,6 +1412,8 @@ function enterWatchMode(): void {
   watchSelection.clear();
   watchBtn.classList.add("hidden");
   replaySelectBar.classList.remove("hidden");
+  // Reset any leftover prompt/label from a prior aborted attempt.
+  replayStartBtn.textContent = "Show replay";
   updateWatchBar();
   renderLeaderboardList();
 }
@@ -1240,6 +1456,7 @@ async function startReplay(): Promise<void> {
   });
   if (racers.length === 0) {
     // Offline or the recordings couldn't be fetched; stay in pick mode.
+    replayStartBtn.textContent = "Show replay";
     replaySelectCount.textContent = "Couldn't load those replays - try again.";
     updateWatchBar();
     return;
@@ -1405,8 +1622,8 @@ helpScreen.addEventListener("click", (e) => {
   if (e.target === helpScreen) closeHelp();
 });
 
-attachShareHandler(shareBtn, "results", () => lastShareText);
-attachShareHandler(bestShareBtn, "best", currentBestShareText);
+attachShareHandler(shareBtn, "results", "Share", () => lastShareText);
+attachShareHandler(bestShareBtn, "best", "Share personal best", currentBestShareText);
 minimapCanvas.addEventListener("click", () => {
   // A swipe gesture ends in a synthetic click on the map; don't treat it as
   // tap-to-play.

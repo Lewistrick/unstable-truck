@@ -53,7 +53,8 @@
         <p id="tutorial-prompt"></p>
         <div id="tutorial-actions">
           <button id="tutorial-done-btn" class="hidden" type="button">Let's go!</button>
-          <button id="tutorial-skip-section-btn" class="btn-secondary hidden" type="button">Skip section</button>
+          <button id="tutorial-skip-section-btn" class="btn-secondary hidden" type="button">Skip
+            section</button>
           <button id="tutorial-skip-btn" class="btn-secondary" type="button">Skip tutorial</button>
         </div>
       </div>
@@ -66,50 +67,49 @@
           <button id="help-btn" class="btn-secondary" type="button" aria-label="How to play" title="How to play">?</button>
         </div>
 
+        <p id="viewed-date" class="muted"></p>
         <div id="thumbnail-nav">
           <button id="nav-prev-btn" class="nav-arrow" aria-label="Previous day" type="button">&#8249;</button>
-          <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
+          <div id="minimap-viewport">
+            <div id="minimap-track">
+              <canvas id="minimap-prev" class="minimap-thumb" width="300" height="190" aria-hidden="true"></canvas>
+              <canvas id="minimap-canvas" class="minimap-thumb" width="300" height="190" role="button" tabindex="0"></canvas>
+              <canvas id="minimap-next" class="minimap-thumb" width="300" height="190" aria-hidden="true"></canvas>
+            </div>
+          </div>
           <button id="nav-next-btn" class="nav-arrow" aria-label="Next day" type="button">&#8250;</button>
         </div>
-        <p id="viewed-date" class="muted"></p>
+
+        <button id="play-btn" type="button">Play</button>
+        <div id="home-actions">
+          <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
+          <button id="howto-btn" class="btn-secondary" type="button">How To</button>
+        </div>
+
+        <div id="medal-track" aria-label="Medal times"></div>
         <div id="progress-strip">
           <span id="streak-badge" title="Consecutive days delivered"></span>
           <div id="day-dots" aria-label="Recent days completed"></div>
         </div>
 
-        <label id="ghost-toggle-row" class="hidden">
-          <input type="checkbox" id="pb-ghost-toggle" />
-          <span id="pb-ghost-label"></span>
-        </label>
-        <button id="play-btn" type="button">Play</button>
-
-        <div id="viewed-best-row">
-          <p class="past-level-best" id="viewed-best"></p>
-          <button id="best-share-btn" class="btn-secondary btn-share-inline hidden" type="button">Share</button>
-        </div>
-        <div id="medal-track" aria-label="Medal times"></div>
-
-        <p class="hint" id="ghost-hint">Click any player in the leaderboard to race against their ghost.</p>
         <div id="leaderboard">
           <div class="leaderboard-header" id="leaderboard-header">Today's Leaderboard</div>
           <ol id="leaderboard-list"></ol>
           <div id="replay-controls">
-            <button id="watch-btn" class="btn-secondary" type="button">&#9654; Watch a replay</button>
+            <button id="watch-btn" class="btn-secondary" type="button">&#127909; Create a replay</button>
             <div id="replay-select-bar" class="hidden">
-              <span id="replay-select-count">Pick 1&ndash;5 racers (0/5)</span>
+              <span id="replay-select-count">Select up to 5 ghosts to include in the replay</span>
               <div id="replay-select-actions">
                 <button id="replay-cancel-btn" class="btn-secondary" type="button">Cancel</button>
-                <button id="replay-start-btn" type="button" disabled>Watch (0)</button>
+                <button id="replay-start-btn" type="button" disabled>Show replay</button>
               </div>
             </div>
           </div>
         </div>
 
+        <button id="best-share-btn" class="btn-secondary hidden" type="button">Share personal best</button>
+
         <div id="home-footer">
-          <div id="home-footer-actions">
-            <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
-            <button id="howto-btn" class="btn-secondary" type="button">How To</button>
-          </div>
           <div id="nickname-row">
             <label for="nickname-input">Nickname</label>
             <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />
@@ -141,7 +141,8 @@
             <span class="tag tag-pickup">W</span> warehouse, then deliver it all to the
             <span class="tag tag-destination">D</span> drop-off as fast as you can.
           </p>
-          <p><strong>Controls:</strong> Hold to steer right, release to steer left.<br />Tap and hold anywhere on screen
+          <p><strong>Controls:</strong> Hold to steer right, release to steer left.<br />Tap and hold anywhere
+            on screen
             (mobile), or hold spacebar or the mouse button (desktop).</p>
         </div>
         <div class="help-body hidden" id="help-full">
@@ -149,7 +150,7 @@
             parcel delivered, and fast. Start at the base, pick up cargo from each
             <span class="tag tag-pickup">W</span> warehouse, then bring it all to the
             <span class="tag tag-destination">D</span> drop-off.
-            </p>
+          </p>
           <p><strong>How you win.</strong> Two things decide your time: finding the most efficient
             route that visits every warehouse before the drop-off, and driving that route cleanly.</p>
           <p><strong>Steering, one input.</strong> Your truck always curves left on its own. Hold to
@@ -174,13 +175,21 @@
           <p><strong>Mind your cargo.</strong> Watch its color: when it turns red, it's about to fall
             off. Ease off and drive smoothly to let it settle and recover.</p>
           <p><strong>Getting around.</strong></p>
+          <p>Pause the run: click the timer on the bottom. To resume, click it again.</p>
           <p>Restart or quit mid-run: the top-left menu on mobile, or <strong>Backspace</strong> to
             restart and <strong>Escape</strong> to quit on desktop.</p>
           <p>Replay earlier days: browse up to 7 days back from the main menu.</p>
-          <p>Switch between the daily map and the much larger weekly challenge with the
-            Daily / Weekly toggle at the top. On the weekly map, a small arrow by the truck
-            points you to the next warehouse (green once they're all done, pointing to the drop-off).
-            </p>
+          <p>After you obtain a gold medal, you can switch between the daily map and the much larger weekly challenge
+            using the Daily / Weekly toggle at the bottom. On the weekly map, a small arrow by the truck
+            points you to the closest warehouse (green once they're all done, pointing to the drop-off), but you can
+            pick another order.
+          </p>
+          <p>To race against your personal best (pb), click the 'PB' tile. To race against another player's ghost,
+            click a player in the leaderboard. A camera icon will show up to indicate the ghost is enabled.</p>
+          <p>To compare multiple ghosts, click 'Create a replay'. Then, select the ghosts you want to see and click
+            'Show replay' to enter theater mode, where you can play/pause/scroll through the replay. Press the Stop
+            button to return to the main menu.
+          </p>
         </div>
         <button id="help-close-btn" type="button">Close</button>
       </div>

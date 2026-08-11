@@ -4,7 +4,8 @@
   padding: 0;
 }
 
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -133,19 +134,57 @@ html, body {
   cursor: default;
 }
 
-#minimap-canvas {
+/* The map thumbnail is a mini carousel: a fixed-size viewport that clips a
+   wider track of three side-by-side maps (previous / current / next). Only the
+   middle one shows at rest; dragging slides the track so the neighbour peeks in,
+   then it snaps to the chosen map. */
+#minimap-viewport {
   flex: 1;
   min-width: 0;
   max-width: 300px;
-  height: auto;
   border-radius: 8px;
   border: 1px solid #2c3542;
+  overflow: hidden;
+  background: #1c222b;
   cursor: pointer;
+  /* Reserve horizontal drags for the carousel while leaving vertical page
+     scroll to the browser. */
+  touch-action: pan-y;
 }
 
-#minimap-canvas:hover,
-#minimap-canvas:focus-visible {
+#minimap-viewport:hover,
+#minimap-viewport:focus-within {
   border-color: #4a5566;
+}
+
+#minimap-track {
+  display: flex;
+  width: 300%;
+  /* Gutter between adjacent maps, revealed as one slides in during a swipe.
+     Keep in sync with CAROUSEL_GAP in main.ts. */
+  gap: 10px;
+  /* At rest the middle of the three maps fills the viewport - shifted an extra
+     gap's width so the gutter sits off-screen and the current map is flush. */
+  transform: translateX(calc(-33.3333% - 10px));
+  will-change: transform;
+  touch-action: pan-y;
+}
+
+/* Only animate when snapping to a map after a drag - live dragging tracks the
+   finger with no transition. */
+#minimap-track.snapping {
+  transition: transform 260ms ease-out;
+}
+
+.minimap-thumb {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  height: auto;
+  display: block;
+}
+
+.minimap-thumb:hover,
+.minimap-thumb:focus-visible {
   opacity: 0.92;
 }
 
@@ -174,7 +213,8 @@ html, body {
   font-size: clamp(1.15rem, 6vw, 1.85rem);
   font-weight: 400;
   letter-spacing: 0.1em;
-  padding-left: 0.1em; /* balance the trailing letter-spacing so it stays centered */
+  padding-left: 0.1em;
+  /* balance the trailing letter-spacing so it stays centered */
   color: #f0f2f5;
   text-align: center;
 }
@@ -238,34 +278,122 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: -6px;
 }
 
 #progress-strip.hidden {
   display: none;
 }
 
+/* Medal + personal-best times as a row of small rounded tiles (fastest first). */
 #medal-track {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  padding: 8px 12px;
+}
+
+.medal-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 72px;
+  padding: 6px 4px;
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 8px;
+  position: relative; /* anchors the PB chip's inner-glow ::after */
+  /* Resting colour glow, same "r,g,b"-triple system as the streak dots; --glow
+       is set per chip in renderMedalTrack. */
+    box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
+  }
+  
+  /* A PB slower than every medal: a fainter bluish-grey glow (colour from --glow),
+     overriding the standard resting intensity above. */
+  .medal-chip.glow-faint {
+    box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
+  }
+  
+  /* Single pulse on hover - same flourish and timing as the streak dots. Toggled
+     from JS (see renderMedalTrack) so it always completes. The faint chips pulse
+     at their lower intensity so there's no brightness jump. */
+  .medal-chip.pulsing {
+    animation: medal-pulse 0.9s ease-out;
+  }
+  
+  .medal-chip.glow-faint.pulsing {
+    animation: medal-pulse-faint 0.9s ease-out;
+  }
+  
+  @keyframes medal-pulse-faint {
+    0% {
+      box-shadow: 0 0 4px 1px rgba(var(--glow), 0.32);
+    }
+  
+    35% {
+      box-shadow: 0 0 9px 3px rgba(var(--glow), 0.6);
+    }
+  
+    100% {
+      box-shadow: 0 0 4px 1px rgba(var(--glow), 0.32);
+    }
 }
 
-.medal-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.85rem;
+.medal-chip-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.medal-chip-name {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa4b2;
+}
+
+.medal-chip-time {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   color: #c3cad4;
 }
 
-.medal-time {
-  font-variant-numeric: tabular-nums;
+/* The PB chip doubles as the "race my PB ghost" switch, so it's clickable. */
+.medal-chip.pb-chip {
+  cursor: pointer;
+}
+
+/* While the PB ghost is on, a fixed whitish-gold inner glow marks it selected.
+   It's on a pseudo-element (not the chip's own box-shadow) so the hover pulse -
+   which animates that box-shadow - can't wipe it. */
+.medal-chip.pb-chip.active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 10px 1px rgba(255, 238, 195, 0.9);
+  pointer-events: none;
+}
+
+.medal-chip.pb-chip:focus-visible {
+  outline: 2px solid #4a5566;
+  outline-offset: 2px;
+}
+
+/* Transient "Ghost enabled/disabled" message shown inside the PB chip on toggle
+   (in place of the icon/name/time, vertically centred). */
+.medal-chip.flashing {
+  justify-content: center;
+}
+
+.medal-chip-flash {
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  color: #f0e6c8;
 }
 
 #streak-badge {
@@ -342,9 +470,11 @@ html, body {
   0% {
     box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
   }
+
   35% {
     box-shadow: 0 0 10px 4px rgba(var(--glow), 0.95);
   }
+
   100% {
     box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
   }
@@ -357,7 +487,8 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .day-dot.pulsing {
+.day-dot.pulsing,
+  .medal-chip.pulsing {
     animation: none;
   }
 }
@@ -442,16 +573,16 @@ html, body {
   transition: transform 0.15s;
 }
 
-.detail-switch input:checked ~ .detail-switch-track {
+.detail-switch input:checked~.detail-switch-track {
   background: #3a4a63;
 }
 
-.detail-switch input:checked ~ .detail-switch-track .detail-switch-knob {
+.detail-switch input:checked~.detail-switch-track .detail-switch-knob {
   transform: translateX(18px);
   background: #f0f2f5;
 }
 
-.detail-switch input:focus-visible ~ .detail-switch-track {
+.detail-switch input:focus-visible~.detail-switch-track {
   border-color: #4a5566;
   box-shadow: 0 0 0 2px rgba(74, 85, 102, 0.6);
 }
@@ -476,8 +607,13 @@ html, body {
   color: white;
 }
 
-.tag-pickup { background: hsl(2 72% 50%); }
-.tag-destination { background: hsl(140 55% 38%); }
+.tag-pickup {
+  background: hsl(2 72% 50%);
+}
+
+.tag-destination {
+  background: hsl(140 55% 38%);
+}
 
 /* Background + text color are set inline via JS from today's actual palette
  * (road/grass/mud/rock hues are seeded per day), so only shared box styling
@@ -487,54 +623,6 @@ html, body {
   padding: 0 6px;
   border-radius: 4px;
   font-weight: 700;
-}
-
-#viewed-best-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.past-level-best {
-  font-size: 0.75rem;
-  color: #c3cad4;
-}
-
-/* Same secondary look as the results Share button, sized down to sit inline
-   next to the small "Best" line. */
-.btn-share-inline {
-  padding: 4px 14px;
-  font-size: 0.8rem;
-  border-radius: 6px;
-}
-
-#ghost-toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
-  color: #c3cad4;
-  cursor: pointer;
-}
-
-/* The `display: flex` above out-specifies the `.hidden` utility, so hiding the
-   whole row (checkbox included, when there's no PB) needs this explicit rule. */
-#ghost-toggle-row.hidden {
-  display: none;
-}
-
-#ghost-toggle-row:has(input:disabled) {
-  color: #6b7480;
-  cursor: default;
-}
-
-#ghost-toggle-row input {
-  cursor: pointer;
-}
-
-#ghost-toggle-row input:disabled {
-  cursor: default;
 }
 
 #nickname-row {
@@ -689,7 +777,7 @@ html, body {
 #replay-select-count {
   font-size: 0.8rem;
   color: #9aa4b2;
-  text-align: left;
+  text-align: right;
 }
 
 #replay-select-actions {
@@ -774,14 +862,17 @@ html, body {
   #replay-overlay {
     padding: 10px;
   }
+
   #replay-bar {
     gap: 8px;
     padding: 8px 10px;
   }
+
   .replay-time {
     min-width: 0;
     font-size: 0.72rem;
   }
+
   #replay-stop-btn {
     padding: 9px 12px;
   }
@@ -1030,8 +1121,19 @@ button:active {
   font-size: 1.05rem;
 }
 
-/* Setup/reference at the bottom - Tutorial and the nickname field - separated
-   from the leaderboard by a hairline. */
+/* Tutorial + How To sit side by side, directly under Play. */
+#home-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+#home-actions .btn-secondary {
+  flex: 1 1 0;
+}
+
+/* The nickname field at the bottom, separated from the leaderboard by a
+   hairline. */
 #home-footer {
   display: flex;
   flex-direction: column;
@@ -1041,12 +1143,6 @@ button:active {
   margin-top: 4px;
   padding-top: 16px;
   border-top: 1px solid #2c3542;
-}
-
-/* Tutorial + How To sit side by side. */
-#home-footer-actions {
-  display: flex;
-  gap: 8px;
 }
 
 /* --- New-player tutorial coach overlay ------------------------------------
