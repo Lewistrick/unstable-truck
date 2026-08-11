@@ -283,27 +283,45 @@ html, body {
   display: none;
 }
 
+/* Medal + personal-best times as a row of small rounded tiles (fastest first). */
 #medal-track {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  padding: 8px 12px;
+}
+
+.medal-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 72px;
+  padding: 6px 4px;
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 8px;
 }
 
-.medal-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.85rem;
-  color: #c3cad4;
+.medal-chip-icon {
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
-.medal-time {
+.medal-chip-name {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa4b2;
+}
+
+.medal-chip-time {
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  color: #c3cad4;
 }
 
 #streak-badge {
@@ -547,32 +565,25 @@ html, body {
   border-radius: 6px;
 }
 
-#ghost-toggle-row {
-  display: flex;
+/* Inline "show ghost" toggle sitting beside the best time. */
+#show-ghost-toggle {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
+  gap: 5px;
+  font-size: 0.75rem;
   color: #c3cad4;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-/* The `display: flex` above out-specifies the `.hidden` utility, so hiding the
-   whole row (checkbox included, when there's no PB) needs this explicit rule. */
-#ghost-toggle-row.hidden {
+/* The `display: inline-flex` above out-specifies the `.hidden` utility, so
+   hiding the toggle (checkbox included, when there's no PB) needs this rule. */
+#show-ghost-toggle.hidden {
   display: none;
 }
 
-#ghost-toggle-row:has(input:disabled) {
-  color: #6b7480;
-  cursor: default;
-}
-
-#ghost-toggle-row input {
+#show-ghost-toggle input {
   cursor: pointer;
-}
-
-#ghost-toggle-row input:disabled {
-  cursor: default;
 }
 
 #nickname-row {
@@ -1068,8 +1079,19 @@ button:active {
   font-size: 1.05rem;
 }
 
-/* Setup/reference at the bottom - Tutorial and the nickname field - separated
-   from the leaderboard by a hairline. */
+/* Tutorial + How To sit side by side, directly under Play. */
+#home-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+#home-actions .btn-secondary {
+  flex: 1 1 0;
+}
+
+/* The nickname field at the bottom, separated from the leaderboard by a
+   hairline. */
 #home-footer {
   display: flex;
   flex-direction: column;
@@ -1079,12 +1101,6 @@ button:active {
   margin-top: 4px;
   padding-top: 16px;
   border-top: 1px solid #2c3542;
-}
-
-/* Tutorial + How To sit side by side. */
-#home-footer-actions {
-  display: flex;
-  gap: 8px;
 }
 
 /* --- New-player tutorial coach overlay ------------------------------------

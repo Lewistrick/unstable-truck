@@ -166,9 +166,11 @@ What's implemented:
   or under a day's (frozen) threshold earns Champion, on past days too. Days
   whose threshold was never captured live (e.g. from before this was stored) get
   it backfilled from their record the first time they're viewed, then frozen.
-  The home screen shows a medal-time track (Champion when available, then
-  Gold/Silver/Bronze) for both boards, and the results screen shows the medal
-  earned plus the next tier up.
+  The home screen shows these as a row of small rounded tiles - one per
+  available time (your PB and Champion when they exist, plus Gold/Silver/Bronze),
+  each stacking an icon, its name, and the time, laid out fastest-first - for
+  both boards, and the results screen shows the medal earned plus the next tier
+  up.
 - Daily streak and a recent-days calendar on the home screen: delivering a day
   successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
   consecutive delivered days (with a one-day grace before today's is done), and
@@ -214,19 +216,20 @@ What's implemented:
   The run is unfailable throughout (a `practice` game session that ignores the
   cargo and out-of-bounds game-overs), records no score, and races no ghosts. It
   auto-opens only once (a `localStorage` "seen" flag) and is always reachable
-  afterwards from a **Tutorial** button in the home screen's footer, alongside a
-  **How To** button that opens the same How-to-Play help as the round **?** in
-  the header.
+  afterwards from a **Tutorial** button directly under the home screen's Play
+  button, alongside a **How To** button that opens the same How-to-Play help as
+  the round **?** in the header.
 - Start screen shows one day at a time (today by default), with prev/next
   arrows beside the thumbnail to browse up to 30 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
   together as you navigate. You can also swipe the thumbnail left/right (or
   click-drag on desktop): it works as a carousel, the neighbouring day's map
   sliding in with your finger and snapping into place on release. (The streak calendar strip still shows just the
-  most recent week of dots.) Ghost choices are remembered for the session: the
-  "race my own ghost" toggle is a global preference that follows you across
-  every level and mode, while a selected leaderboard opponent is remembered
-  per level and re-selected when you return to it. A **Play** button (or pressing
+  most recent week of dots.) Ghost choices are remembered for the session: a
+  "show ghost" checkbox beside the best time is a global preference that follows
+  you across every level and mode, while a selected leaderboard opponent is
+  remembered per level and re-selected when you return to it. A **Play** button
+  (with **Tutorial** and **How To** buttons directly below it, or pressing
   Enter, or clicking the thumbnail as a shortcut) jumps into a 3-2-1-GO countdown
   and starts whichever day is showing. A results screen (showing your time against
   your personal best, with Retry and Home buttons) rounds it out. Escape quits a

@@ -200,8 +200,7 @@ const hudDelta = document.getElementById("hud-delta")!;
 const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
 const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
-const pbGhostLabel = document.getElementById("pb-ghost-label")!;
-const ghostToggleRow = document.getElementById("ghost-toggle-row")!;
+const showGhostToggle = document.getElementById("show-ghost-toggle")!;
 const playBtn = document.getElementById("play-btn") as HTMLButtonElement;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
@@ -261,18 +260,18 @@ function refreshViewedUi(): void {
   bestShareBtn.classList.toggle("hidden", !canShareBest);
   if (canShareBest) bestShareBtn.textContent = "Share";
   if (viewed.personalBest) {
-    // The "race your PB ghost" toggle only appears once there's a PB to race, so
-    // a first-time player sees a clean map -> Play flow with no dead controls.
-    ghostToggleRow.classList.remove("hidden");
+    // The "show ghost" toggle (next to the best time) only appears once there's a
+    // PB to race, so a first-time player sees a clean map -> Play flow with no
+    // dead controls.
+    showGhostToggle.classList.remove("hidden");
     pbGhostToggle.disabled = false;
     // Global, session-remembered preference - the choice follows you between
     // levels and across daily/weekly instead of re-checking on every level.
     pbGhostToggle.checked = loadRacePbGhostPref();
-    pbGhostLabel.textContent = `Race personal best ghost (${formatTime(viewed.personalBest.time)})`;
     hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
     ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
   } else {
-    ghostToggleRow.classList.add("hidden");
+    showGhostToggle.classList.add("hidden");
     pbGhostToggle.checked = false;
     hudPb.textContent = "";
     // Racing others' ghosts unlocks only once you've set a time of your own.
@@ -423,32 +422,46 @@ function currentChampionTime(): number | null {
   return viewedChampionTime;
 }
 
-/** Renders the medal-time "track" for the viewed level: Bronze/Silver/Gold
- * always, plus the Champion tier at the top when it's available. */
+// Icon for the personal-best chip - the player's own truck, distinct from the
+// medal icons.
+const PB_ICON = "\u{1F69A}"; // 🚚
+
+/** Renders the medal + personal-best "chips" for the viewed level: one small
+ * rounded tile per available time, laid out left to right in ascending (fastest
+ * first) order. Gold/Silver/Bronze always show; PB and Champion join in only
+ * when they exist. Each tile stacks an icon, the time's name, and the time. */
 function renderMedalTrack(): void {
   const pars = viewed.pars;
   const champion = currentChampionTime();
-  const tiers: Array<{ medal: Medal; time: number }> = [];
-  if (champion != null) tiers.push({ medal: "champion", time: champion });
-  tiers.push({ medal: "gold", time: pars.gold });
-  tiers.push({ medal: "silver", time: pars.silver });
-  tiers.push({ medal: "bronze", time: pars.bronze });
+  const pb = viewed.personalBest?.time ?? null;
+
+  const chips: Array<{ icon: string; name: string; time: number }> = [];
+  if (pb != null) chips.push({ icon: PB_ICON, name: "PB", time: pb });
+  if (champion != null) chips.push({ icon: MEDAL_ICON.champion, name: MEDAL_LABEL.champion, time: champion });
+  chips.push({ icon: MEDAL_ICON.gold, name: MEDAL_LABEL.gold, time: pars.gold });
+  chips.push({ icon: MEDAL_ICON.silver, name: MEDAL_LABEL.silver, time: pars.silver });
+  chips.push({ icon: MEDAL_ICON.bronze, name: MEDAL_LABEL.bronze, time: pars.bronze });
+  chips.sort((a, b) => a.time - b.time);
 
   medalTrack.replaceChildren();
-  for (const { medal, time } of tiers) {
-    const row = document.createElement("div");
-    row.className = "medal-row";
+  for (const chip of chips) {
+    const cell = document.createElement("div");
+    cell.className = "medal-chip";
+
+    const icon = document.createElement("span");
+    icon.className = "medal-chip-icon";
+    icon.textContent = chip.icon;
 
     const name = document.createElement("span");
-    name.className = "medal-name";
-    name.textContent = `${MEDAL_ICON[medal]} ${MEDAL_LABEL[medal]}`;
+    name.className = "medal-chip-name";
+    name.textContent = chip.name;
 
     const t = document.createElement("span");
-    t.className = "medal-time";
-    t.textContent = formatTime(time);
+    t.className = "medal-chip-time";
+    t.textContent = formatTime(chip.time);
 
-    row.append(name, t);
-    medalTrack.appendChild(row);
+    cell.append(icon, name, t);
+    medalTrack.appendChild(cell);
   }
 }
 

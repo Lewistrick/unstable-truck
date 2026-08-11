@@ -83,14 +83,18 @@
           <div id="day-dots" aria-label="Recent days completed"></div>
         </div>
 
-        <label id="ghost-toggle-row" class="hidden">
-          <input type="checkbox" id="pb-ghost-toggle" />
-          <span id="pb-ghost-label"></span>
-        </label>
         <button id="play-btn" type="button">Play</button>
+        <div id="home-actions">
+          <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
+          <button id="howto-btn" class="btn-secondary" type="button">How To</button>
+        </div>
 
         <div id="viewed-best-row">
           <p class="past-level-best" id="viewed-best"></p>
+          <label id="show-ghost-toggle" class="hidden">
+            <input type="checkbox" id="pb-ghost-toggle" />
+            <span>show ghost</span>
+          </label>
           <button id="best-share-btn" class="btn-secondary btn-share-inline hidden" type="button">Share</button>
         </div>
         <div id="medal-track" aria-label="Medal times"></div>
@@ -112,10 +116,6 @@
         </div>
 
         <div id="home-footer">
-          <div id="home-footer-actions">
-            <button id="tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
-            <button id="howto-btn" class="btn-secondary" type="button">How To</button>
-          </div>
           <div id="nickname-row">
             <label for="nickname-input">Nickname</label>
             <input type="text" id="nickname-input" maxlength="24" autocomplete="off" />
