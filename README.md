@@ -169,8 +169,10 @@ What's implemented:
   The home screen shows these as a row of small rounded tiles - one per
   available time (your PB and Champion when they exist, plus Gold/Silver/Bronze),
   each stacking an icon, its name, and the time, laid out fastest-first - for
-  both boards, and the results screen shows the medal earned plus the next tier
-  up.
+  both boards. Each tile carries a colour glow (the same resting-glow +
+  pulse-on-hover flourish as the streak dots); the PB tile borrows the glow of
+  the medal it earned, or a faint bluish grey when it's slower than bronze. The
+  results screen shows the medal earned plus the next tier up.
 - Daily streak and a recent-days calendar on the home screen: delivering a day
   successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
   consecutive delivered days (with a one-day grace before today's is done), and

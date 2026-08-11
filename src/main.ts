@@ -426,27 +426,63 @@ function currentChampionTime(): number | null {
 // medal icons.
 const PB_ICON = "\u{1F69A}"; // 🚚
 
+// Per-medal glow colours ("r, g, b" triples), matching the streak dots' --glow
+// in style.css - keep the two in sync. FAINT_GLOW is a bluish grey for a PB
+// that's slower than every medal.
+const MEDAL_GLOW: Record<Medal, string> = {
+  champion: "244, 202, 187",
+  gold: "255, 216, 115",
+  silver: "226, 232, 239",
+  bronze: "217, 148, 87",
+};
+const FAINT_GLOW = "150, 165, 190";
+
 /** Renders the medal + personal-best "chips" for the viewed level: one small
  * rounded tile per available time, laid out left to right in ascending (fastest
  * first) order. Gold/Silver/Bronze always show; PB and Champion join in only
- * when they exist. Each tile stacks an icon, the time's name, and the time. */
+ * when they exist. Each tile stacks an icon, the time's name, and the time, and
+ * carries a colour glow that pulses once on hover (same flourish as the streak
+ * dots). The PB tile borrows the glow of the medal immediately to its right (the
+ * best medal it earned); a PB slower than every medal glows a faint bluish grey. */
 function renderMedalTrack(): void {
   const pars = viewed.pars;
   const champion = currentChampionTime();
   const pb = viewed.personalBest?.time ?? null;
 
-  const chips: Array<{ icon: string; name: string; time: number }> = [];
-  if (pb != null) chips.push({ icon: PB_ICON, name: "PB", time: pb });
-  if (champion != null) chips.push({ icon: MEDAL_ICON.champion, name: MEDAL_LABEL.champion, time: champion });
-  chips.push({ icon: MEDAL_ICON.gold, name: MEDAL_LABEL.gold, time: pars.gold });
-  chips.push({ icon: MEDAL_ICON.silver, name: MEDAL_LABEL.silver, time: pars.silver });
-  chips.push({ icon: MEDAL_ICON.bronze, name: MEDAL_LABEL.bronze, time: pars.bronze });
+  const chips: Array<{ icon: string; name: string; time: number; medal: Medal | null }> = [];
+  if (pb != null) chips.push({ icon: PB_ICON, name: "PB", time: pb, medal: null });
+  if (champion != null) chips.push({ icon: MEDAL_ICON.champion, name: MEDAL_LABEL.champion, time: champion, medal: "champion" });
+  chips.push({ icon: MEDAL_ICON.gold, name: MEDAL_LABEL.gold, time: pars.gold, medal: "gold" });
+  chips.push({ icon: MEDAL_ICON.silver, name: MEDAL_LABEL.silver, time: pars.silver, medal: "silver" });
+  chips.push({ icon: MEDAL_ICON.bronze, name: MEDAL_LABEL.bronze, time: pars.bronze, medal: "bronze" });
   chips.sort((a, b) => a.time - b.time);
 
   medalTrack.replaceChildren();
-  for (const chip of chips) {
+  chips.forEach((chip, i) => {
     const cell = document.createElement("div");
     cell.className = "medal-chip";
+
+    // A medal chip glows in its own colour; the PB chip borrows the glow of the
+    // medal to its right, or a faint bluish grey when it's the slowest of all.
+    let glow = FAINT_GLOW;
+    let faint = true;
+    if (chip.medal) {
+      glow = MEDAL_GLOW[chip.medal];
+      faint = false;
+    } else {
+      const rightMedal = chips[i + 1]?.medal;
+      if (rightMedal) {
+        glow = MEDAL_GLOW[rightMedal];
+        faint = false;
+      }
+    }
+    cell.style.setProperty("--glow", glow);
+    if (faint) cell.classList.add("glow-faint");
+
+    // Pulse once per mouse-enter, driven here (not CSS :hover) so it always runs
+    // to completion and can fire again next entry - exactly like the streak dots.
+    cell.addEventListener("mouseenter", () => cell.classList.add("pulsing"));
+    cell.addEventListener("animationend", () => cell.classList.remove("pulsing"));
 
     const icon = document.createElement("span");
     icon.className = "medal-chip-icon";
@@ -462,7 +498,7 @@ function renderMedalTrack(): void {
 
     cell.append(icon, name, t);
     medalTrack.appendChild(cell);
-  }
+  });
 }
 
 function renderLeaderboardList(): void {

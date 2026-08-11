@@ -214,7 +214,7 @@ body {
   font-weight: 400;
   letter-spacing: 0.1em;
   padding-left: 0.1em;
-    /* balance the trailing letter-spacing so it stays centered */
+  /* balance the trailing letter-spacing so it stays centered */
   color: #f0f2f5;
   text-align: center;
 }
@@ -306,6 +306,40 @@ body {
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 8px;
+  /* Resting colour glow, same "r,g,b"-triple system as the streak dots; --glow
+       is set per chip in renderMedalTrack. */
+    box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
+  }
+  
+  /* A PB slower than every medal: a fainter bluish-grey glow (colour from --glow),
+     overriding the standard resting intensity above. */
+  .medal-chip.glow-faint {
+    box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
+  }
+  
+  /* Single pulse on hover - same flourish and timing as the streak dots. Toggled
+     from JS (see renderMedalTrack) so it always completes. The faint chips pulse
+     at their lower intensity so there's no brightness jump. */
+  .medal-chip.pulsing {
+    animation: medal-pulse 0.9s ease-out;
+  }
+  
+  .medal-chip.glow-faint.pulsing {
+    animation: medal-pulse-faint 0.9s ease-out;
+  }
+  
+  @keyframes medal-pulse-faint {
+    0% {
+      box-shadow: 0 0 4px 1px rgba(var(--glow), 0.32);
+    }
+  
+    35% {
+      box-shadow: 0 0 9px 3px rgba(var(--glow), 0.6);
+    }
+  
+    100% {
+      box-shadow: 0 0 4px 1px rgba(var(--glow), 0.32);
+    }
 }
 
 .medal-chip-icon {
@@ -417,7 +451,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .day-dot.pulsing {
+.day-dot.pulsing,
+  .medal-chip.pulsing {
     animation: none;
   }
 }
