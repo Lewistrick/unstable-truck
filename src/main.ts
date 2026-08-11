@@ -148,6 +148,12 @@ const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const minimapCanvas = document.getElementById("minimap-canvas") as HTMLCanvasElement;
 const minimapCtx = minimapCanvas.getContext("2d")!;
+// The two flanking canvases of the carousel: the previous (older) and next
+// (newer) period's maps, drawn so they can peek in as the track is dragged.
+const minimapPrevCanvas = document.getElementById("minimap-prev") as HTMLCanvasElement;
+const minimapPrevCtx = minimapPrevCanvas.getContext("2d")!;
+const minimapNextCanvas = document.getElementById("minimap-next") as HTMLCanvasElement;
+const minimapNextCtx = minimapNextCanvas.getContext("2d")!;
 
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
@@ -588,6 +594,35 @@ function updateNavButtons(): void {
   navNextBtn.disabled = viewedOffset >= 0;
 }
 
+/** True when there's an older/newer period to swipe to from the current view.
+ * A shared orphan map is off the day/week timeline, so it has no neighbours. */
+function hasOlderPeriod(): boolean {
+  return !viewed.orphan && viewedOffset > -maxPastOffset(mode);
+}
+function hasNewerPeriod(): boolean {
+  return !viewed.orphan && viewedOffset < 0;
+}
+
+/** Paints the carousel: the centre canvas is the viewed map, and the flanking
+ * canvases hold the previous (older) and next (newer) maps so a swipe reveals
+ * the real neighbour sliding in. Missing neighbours (timeline edges, orphan
+ * maps) are cleared to an empty slot. */
+function renderMinimaps(): void {
+  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  paintNeighbourThumb(minimapPrevCtx, minimapPrevCanvas, hasOlderPeriod() ? viewedOffset - 1 : null);
+  paintNeighbourThumb(minimapNextCtx, minimapNextCanvas, hasNewerPeriod() ? viewedOffset + 1 : null);
+}
+
+/** Draws the map at `offset` into a flanking carousel canvas, or clears it to an
+ * empty slot when there's no neighbour there. */
+function paintNeighbourThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, offset: number | null): void {
+  if (offset === null) {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    return;
+  }
+  renderMinimap(ctx, getPlayable(mode, offset).level, 0, 0, cv.width, cv.height);
+}
+
 /** Re-syncs the whole home view (map, best, ghost toggle, leaderboard) to the
  * currently selected mode + offset. Also leaves any shared "orphan" seed view,
  * since a mode/offset selection is always a live period. */
@@ -608,7 +643,7 @@ function refreshViewedSelection(): void {
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
-  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  renderMinimaps();
   void refreshLeaderboard();
   void restoreSelectedLeaderboardGhost();
 }
@@ -654,7 +689,7 @@ function showOrphanSeed(seed: string, genMode: Mode): void {
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
-  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  renderMinimaps();
   ghostHint.textContent = "This is a shared map - global leaderboards aren't available for it.";
   renderOrphanNotice();
 }
@@ -695,35 +730,118 @@ navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
 modeDailyBtn.addEventListener("click", () => switchMode("daily"));
 modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 
-// Swipe navigation over the map thumbnail: swipe right -> previous period,
-// swipe left -> next. Pointer events unify mouse-drag (desktop) and touch
-// (mobile). A recognised swipe sets `swipeConsumed` so the minimap's tap-to-
-// play click (which fires right after pointerup) is skipped for that gesture.
-const thumbnailNav = document.getElementById("thumbnail-nav")!;
-const SWIPE_THRESHOLD = 45; // px of horizontal travel to count as a swipe
+// Carousel navigation over the map thumbnail: drag/swipe right -> previous
+// (older) period, left -> next (newer). While dragging, the track follows the
+// finger so the neighbouring map slides in like a carousel; on release it snaps
+// to the chosen map (past the threshold) or springs back. Pointer events unify
+// mouse-drag (desktop) and touch (mobile). A committed swipe sets
+// `swipeConsumed` so the minimap's tap-to-play click (which fires right after
+// pointerup) is skipped for that gesture.
+const minimapViewport = document.getElementById("minimap-viewport")!;
+const minimapTrack = document.getElementById("minimap-track")!;
+const SWIPE_THRESHOLD = 45; // px of horizontal travel to commit to a neighbour
+const SWIPE_ENGAGE = 8; // px before a drag is treated as a horizontal swipe
+const EDGE_RESISTANCE = 0.25; // drag past a timeline edge moves this much
+const SNAP_MS = 260; // keep in sync with #minimap-track.snapping transition
 let swipeStartX = 0;
 let swipeStartY = 0;
-let swipeTracking = false;
-let swipeConsumed = false;
-thumbnailNav.addEventListener("pointerdown", (e) => {
+let swipeTracking = false; // a pointer is down on the viewport
+let swipeEngaged = false; // the drag has been recognised as horizontal
+let swipeConsumed = false; // the gesture committed to a neighbour (suppress tap)
+let viewportWidth = 0; // width of one carousel slot, measured at drag start
+
+/** Offsets the track by `dx` px from its centred rest position (one slot to the
+ * left, since the middle canvas is the second of three). */
+function setTrackOffset(dx: number): void {
+  minimapTrack.style.transform = `translateX(${-viewportWidth + dx}px)`;
+}
+/** Returns the track to its centred rest position, driven by CSS. */
+function restTrack(): void {
+  minimapTrack.style.transform = "";
+}
+
+minimapViewport.addEventListener("pointerdown", (e) => {
+  // A shared orphan map isn't on the day/week timeline, so there's nothing to
+  // swipe to (the Daily/Weekly toggle is the way back to a live period).
+  if (viewed.orphan || e.button > 0) return;
   swipeStartX = e.clientX;
   swipeStartY = e.clientY;
   swipeTracking = true;
+  swipeEngaged = false;
   swipeConsumed = false;
+  viewportWidth = minimapViewport.clientWidth;
+  minimapTrack.classList.remove("snapping");
 });
+
+window.addEventListener("pointermove", (e) => {
+  if (!swipeTracking) return;
+  const dx = e.clientX - swipeStartX;
+  const dy = e.clientY - swipeStartY;
+  if (!swipeEngaged) {
+    // Let a clearly vertical drag fall through to page scrolling instead.
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > SWIPE_ENGAGE) {
+      swipeTracking = false;
+      return;
+    }
+    if (Math.abs(dx) < SWIPE_ENGAGE) return;
+    swipeEngaged = true;
+  }
+  // Rubber-band against a timeline edge so the track can't be dragged toward a
+  // neighbour that doesn't exist.
+  let travel = dx;
+  if ((dx > 0 && !hasOlderPeriod()) || (dx < 0 && !hasNewerPeriod())) travel = dx * EDGE_RESISTANCE;
+  setTrackOffset(travel);
+});
+
 // Bound to window so a drag that lifts off the thumbnail still resolves.
 window.addEventListener("pointerup", (e) => {
   if (!swipeTracking) return;
   swipeTracking = false;
-  // A shared orphan map isn't on the day/week timeline, so swiping does nothing
-  // (the Daily/Weekly toggle is the way back to a live period).
-  if (viewed.orphan) return;
+  if (!swipeEngaged) return; // a tap, not a drag - leave tap-to-play to click
+  // A real drag happened, so the trailing click is drag fallout, not tap-to-play
+  // - suppress it whether we commit to a neighbour or spring back.
+  swipeConsumed = true;
   const dx = e.clientX - swipeStartX;
   const dy = e.clientY - swipeStartY;
+  let dir = 0; // -1 = older (right swipe), +1 = newer (left swipe)
   if (Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
-    swipeConsumed = true;
-    navigateTo(viewedOffset + (dx > 0 ? -1 : 1));
+    if (dx > 0 && hasOlderPeriod()) dir = -1;
+    else if (dx < 0 && hasNewerPeriod()) dir = 1;
   }
+  minimapTrack.classList.add("snapping");
+  if (dir === 0) {
+    setTrackOffset(0); // spring back to the current map
+    window.setTimeout(() => {
+      minimapTrack.classList.remove("snapping");
+      restTrack();
+    }, SNAP_MS);
+    return;
+  }
+  // Slide the chosen neighbour fully into the viewport, then commit and recenter
+  // instantly. The neighbour canvas already holds the destination map, so the
+  // recenter is seamless: the same pixels are simply relabelled as "current".
+  setTrackOffset(dir === -1 ? viewportWidth : -viewportWidth);
+  window.setTimeout(() => {
+    minimapTrack.classList.remove("snapping");
+    const shown = dir === -1 ? minimapPrevCanvas : minimapNextCanvas;
+    minimapCtx.drawImage(shown, 0, 0);
+    restTrack();
+    navigateTo(viewedOffset + dir);
+  }, SNAP_MS);
+});
+
+// If the browser takes over the gesture (e.g. it becomes a page scroll), spring
+// the track back rather than leaving it stranded mid-drag.
+window.addEventListener("pointercancel", () => {
+  if (!swipeTracking) return;
+  swipeTracking = false;
+  if (!swipeEngaged) return;
+  minimapTrack.classList.add("snapping");
+  setTrackOffset(0);
+  window.setTimeout(() => {
+    minimapTrack.classList.remove("snapping");
+    restTrack();
+  }, SNAP_MS);
 });
 
 // -----------------------------------------------------------------------
@@ -817,7 +935,7 @@ if (sharedSeed) {
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
-  renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
+  renderMinimaps();
   void refreshLeaderboard();
   void restoreSelectedLeaderboardGhost();
 }

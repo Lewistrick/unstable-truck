@@ -68,7 +68,13 @@
 
         <div id="thumbnail-nav">
           <button id="nav-prev-btn" class="nav-arrow" aria-label="Previous day" type="button">&#8249;</button>
-          <canvas id="minimap-canvas" width="300" height="190" role="button" tabindex="0"></canvas>
+          <div id="minimap-viewport">
+            <div id="minimap-track">
+              <canvas id="minimap-prev" class="minimap-thumb" width="300" height="190" aria-hidden="true"></canvas>
+              <canvas id="minimap-canvas" class="minimap-thumb" width="300" height="190" role="button" tabindex="0"></canvas>
+              <canvas id="minimap-next" class="minimap-thumb" width="300" height="190" aria-hidden="true"></canvas>
+            </div>
+          </div>
           <button id="nav-next-btn" class="nav-arrow" aria-label="Next day" type="button">&#8250;</button>
         </div>
         <p id="viewed-date" class="muted"></p>

@@ -133,19 +133,53 @@ html, body {
   cursor: default;
 }
 
-#minimap-canvas {
+/* The map thumbnail is a mini carousel: a fixed-size viewport that clips a
+   wider track of three side-by-side maps (previous / current / next). Only the
+   middle one shows at rest; dragging slides the track so the neighbour peeks in,
+   then it snaps to the chosen map. */
+#minimap-viewport {
   flex: 1;
   min-width: 0;
   max-width: 300px;
-  height: auto;
   border-radius: 8px;
   border: 1px solid #2c3542;
+  overflow: hidden;
+  background: #1c222b;
   cursor: pointer;
+  /* Reserve horizontal drags for the carousel while leaving vertical page
+     scroll to the browser. */
+  touch-action: pan-y;
 }
 
-#minimap-canvas:hover,
-#minimap-canvas:focus-visible {
+#minimap-viewport:hover,
+#minimap-viewport:focus-within {
   border-color: #4a5566;
+}
+
+#minimap-track {
+  display: flex;
+  width: 300%;
+  /* At rest the middle of the three maps fills the viewport. */
+  transform: translateX(-33.3333%);
+  will-change: transform;
+  touch-action: pan-y;
+}
+
+/* Only animate when snapping to a map after a drag - live dragging tracks the
+   finger with no transition. */
+#minimap-track.snapping {
+  transition: transform 260ms ease-out;
+}
+
+.minimap-thumb {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  height: auto;
+  display: block;
+}
+
+.minimap-thumb:hover,
+.minimap-thumb:focus-visible {
   opacity: 0.92;
 }
 

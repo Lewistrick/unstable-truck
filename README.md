@@ -220,7 +220,9 @@ What's implemented:
 - Start screen shows one day at a time (today by default), with prev/next
   arrows beside the thumbnail to browse up to 30 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
-  together as you navigate. (The streak calendar strip still shows just the
+  together as you navigate. You can also swipe the thumbnail left/right (or
+  click-drag on desktop): it works as a carousel, the neighbouring day's map
+  sliding in with your finger and snapping into place on release. (The streak calendar strip still shows just the
   most recent week of dots.) Ghost choices are remembered for the session: the
   "race my own ghost" toggle is a global preference that follows you across
   every level and mode, while a selected leaderboard opponent is remembered
