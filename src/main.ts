@@ -900,13 +900,15 @@ function currentBestShareText(): string | null {
 }
 
 /** Wires a Share button to copy text (from `getText`) on click, flashing a
- * transient "Copied!"/"Copy failed" label before reverting to "Share". */
-function attachShareHandler(btn: HTMLButtonElement, getText: () => string | null): void {
+ * transient "Copied!"/"Copy failed" label before reverting to "Share". `source`
+ * labels which Share button it is in the run log (e.g. "results", "best"). */
+function attachShareHandler(btn: HTMLButtonElement, source: string, getText: () => string | null): void {
   let resetTimer: number | undefined;
   btn.addEventListener("click", async () => {
     const text = getText();
     if (!text) return;
     const ok = await copyText(text);
+    void logRun(viewed.seed, nickname, "shared", 0, `${source}: ${ok ? "copied" : "copy failed"}`);
     btn.textContent = ok ? "Copied!" : "Copy failed";
     window.clearTimeout(resetTimer);
     resetTimer = window.setTimeout(() => {
@@ -1403,8 +1405,8 @@ helpScreen.addEventListener("click", (e) => {
   if (e.target === helpScreen) closeHelp();
 });
 
-attachShareHandler(shareBtn, () => lastShareText);
-attachShareHandler(bestShareBtn, currentBestShareText);
+attachShareHandler(shareBtn, "results", () => lastShareText);
+attachShareHandler(bestShareBtn, "best", currentBestShareText);
 minimapCanvas.addEventListener("click", () => {
   // A swipe gesture ends in a synthetic click on the map; don't treat it as
   // tap-to-play.

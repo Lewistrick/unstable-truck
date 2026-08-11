@@ -44,6 +44,7 @@ const RUN_STATUSES = new Set<RunStatus>([
   "tutorial_started",
   "tutorial_ended",
   "menu_shown",
+  "shared",
   "username_changed",
 ]);
 // Cap the batch champions lookup so a single request can't ask for an unbounded

@@ -99,6 +99,7 @@ export type RunStatus =
   | "tutorial_started"
   | "tutorial_ended"
   | "menu_shown"
+  | "shared"
   | "username_changed";
 
 /** Best-effort diagnostics telemetry (see run_logs). `comment` is optional

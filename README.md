@@ -122,8 +122,9 @@ What's implemented:
   `help_opened`/`help_toggled` (comment `summary`/`full`),
   `tutorial_started`/`tutorial_ended` (comment `skipped`/`finished`/`escape`),
   `menu_shown` (returning to the menu from a run via Home - a page-internal
-  transition, so distinct from the page-load `game_started`), and
-  `username_changed` (comment `old -> new`). This makes
+  transition, so distinct from the page-load `game_started`), `shared`
+  (tapping either Share button; comment names the source and copy result, e.g.
+  `results: copied`), and `username_changed` (comment `old -> new`). This makes
   visible what the leaderboard can't: only *successful* runs submit a score, so a
   run that ended in `cargo_fell_off` never reached the board. It's best-effort
   telemetry (POST `/api/runs`), independent of scoring, and never affects

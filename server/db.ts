@@ -123,6 +123,7 @@ export type RunStatus =
   | "tutorial_started"
   | "tutorial_ended"
   | "menu_shown"
+  | "shared"
   | "username_changed";
 
 /** Appends one event to run_logs (server clock stamps it). `comment` is optional
