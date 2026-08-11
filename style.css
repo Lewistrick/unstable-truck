@@ -278,7 +278,6 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: -6px;
 }
 
 #progress-strip.hidden {
@@ -306,6 +305,7 @@ body {
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 8px;
+  position: relative; /* anchors the PB chip's inner-glow ::after */
   /* Resting colour glow, same "r,g,b"-triple system as the streak dots; --glow
        is set per chip in renderMedalTrack. */
     box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
@@ -358,6 +358,42 @@ body {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   color: #c3cad4;
+}
+
+/* The PB chip doubles as the "race my PB ghost" switch, so it's clickable. */
+.medal-chip.pb-chip {
+  cursor: pointer;
+}
+
+/* While the PB ghost is on, a fixed whitish-gold inner glow marks it selected.
+   It's on a pseudo-element (not the chip's own box-shadow) so the hover pulse -
+   which animates that box-shadow - can't wipe it. */
+.medal-chip.pb-chip.active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 10px 1px rgba(255, 238, 195, 0.9);
+  pointer-events: none;
+}
+
+.medal-chip.pb-chip:focus-visible {
+  outline: 2px solid #4a5566;
+  outline-offset: 2px;
+}
+
+/* Transient "Ghost enabled/disabled" message shown inside the PB chip on toggle
+   (in place of the icon/name/time, vertically centred). */
+.medal-chip.flashing {
+  justify-content: center;
+}
+
+.medal-chip-flash {
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  color: #f0e6c8;
 }
 
 #streak-badge {
@@ -587,47 +623,6 @@ body {
   padding: 0 6px;
   border-radius: 4px;
   font-weight: 700;
-}
-
-#viewed-best-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.past-level-best {
-  font-size: 0.75rem;
-  color: #c3cad4;
-}
-
-/* Same secondary look as the results Share button, sized down to sit inline
-   next to the small "Best" line. */
-.btn-share-inline {
-  padding: 4px 14px;
-  font-size: 0.8rem;
-  border-radius: 6px;
-}
-
-/* Inline "show ghost" toggle sitting beside the best time. */
-#show-ghost-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.75rem;
-  color: #c3cad4;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-/* The `display: inline-flex` above out-specifies the `.hidden` utility, so
-   hiding the toggle (checkbox included, when there's no PB) needs this rule. */
-#show-ghost-toggle.hidden {
-  display: none;
-}
-
-#show-ghost-toggle input {
-  cursor: pointer;
 }
 
 #nickname-row {

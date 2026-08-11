@@ -199,17 +199,13 @@ const pauseIndicator = document.getElementById("pause-indicator")!;
 const hudDelta = document.getElementById("hud-delta")!;
 const hudPb = document.getElementById("hud-pb")!;
 const hudObjective = document.getElementById("hud-objective")!;
-const pbGhostToggle = document.getElementById("pb-ghost-toggle") as HTMLInputElement;
-const showGhostToggle = document.getElementById("show-ghost-toggle")!;
 const playBtn = document.getElementById("play-btn") as HTMLButtonElement;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
-const viewedBestEl = document.getElementById("viewed-best")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
-const ghostHint = document.getElementById("ghost-hint")!;
 const streakBadge = document.getElementById("streak-badge")!;
 const dayDots = document.getElementById("day-dots")!;
 const progressStrip = document.getElementById("progress-strip")!;
@@ -243,43 +239,22 @@ if (document.readyState === "loading") {
   logGameStarted();
 }
 
-// The "race my own ghost" toggle is a global, session-remembered preference,
-// so flipping it here carries to every level (and mode) you browse next.
-pbGhostToggle.addEventListener("change", () => {
-  saveRacePbGhostPref(pbGhostToggle.checked);
-});
-
 function refreshViewedUi(): void {
   const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
   viewedDateEl.textContent = `${periodLabel} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
-  viewedBestEl.textContent = viewed.personalBest ? `Best: ${formatTime(viewed.personalBest.time)}` : "Best: -";
 
   // Sharing the best time is offered only for today, and only once there's a
-  // best to share (never on a shared orphan map, which has no leaderboard).
+  // best to share (never on a shared orphan map, which has no leaderboard). The
+  // button lives below the leaderboard now.
   const canShareBest = !viewed.orphan && viewedOffset === 0 && viewed.personalBest != null;
   bestShareBtn.classList.toggle("hidden", !canShareBest);
-  if (canShareBest) bestShareBtn.textContent = "Share";
-  if (viewed.personalBest) {
-    // The "show ghost" toggle (next to the best time) only appears once there's a
-    // PB to race, so a first-time player sees a clean map -> Play flow with no
-    // dead controls.
-    showGhostToggle.classList.remove("hidden");
-    pbGhostToggle.disabled = false;
-    // Global, session-remembered preference - the choice follows you between
-    // levels and across daily/weekly instead of re-checking on every level.
-    pbGhostToggle.checked = loadRacePbGhostPref();
-    hudPb.textContent = `PB: ${formatTime(viewed.personalBest.time)}`;
-    ghostHint.textContent = "Click any player in the leaderboard to race against their ghost.";
-  } else {
-    showGhostToggle.classList.add("hidden");
-    pbGhostToggle.checked = false;
-    hudPb.textContent = "";
-    // Racing others' ghosts unlocks only once you've set a time of your own.
-    ghostHint.textContent = "Set your own time here first to race other players' ghosts.";
-  }
+  if (canShareBest) bestShareBtn.textContent = "Share personal best";
+
+  hudPb.textContent = viewed.personalBest ? `PB: ${formatTime(viewed.personalBest.time)}` : "";
 
   // Show the level's medal times immediately on navigation; the leaderboard
-  // load will refresh the champion tier once it arrives.
+  // load will refresh the champion tier once it arrives. The PB chip also
+  // reflects the current "race my PB ghost" preference.
   renderMedalTrack();
 
   // "Watch a replay" unlocks with the same personal-best gate as ghost racing.
@@ -423,8 +398,15 @@ function currentChampionTime(): number | null {
 }
 
 // Icon for the personal-best chip - the player's own truck, distinct from the
-// medal icons.
+// medal icons. It always shows the truck; the PB-ghost on/off state is conveyed
+// by an inner glow (and a brief text flash on toggle), not by swapping the icon.
 const PB_ICON = "\u{1F69A}"; // 🚚
+
+// When the PB chip is clicked, it briefly shows "Ghost enabled/disabled" before
+// settling into its new state. pbFlashMsg holds the message during that window.
+const PB_FLASH_MS = 850;
+let pbFlashMsg: string | null = null;
+let pbFlashTimer: number | undefined;
 
 // Per-medal glow colours ("r, g, b" triples), matching the streak dots' --glow
 // in style.css - keep the two in sync. FAINT_GLOW is a bluish grey for a PB
@@ -443,11 +425,15 @@ const FAINT_GLOW = "150, 165, 190";
  * when they exist. Each tile stacks an icon, the time's name, and the time, and
  * carries a colour glow that pulses once on hover (same flourish as the streak
  * dots). The PB tile borrows the glow of the medal immediately to its right (the
- * best medal it earned); a PB slower than every medal glows a faint bluish grey. */
+ * best medal it earned); a PB slower than every medal glows a faint bluish grey.
+ * The PB tile is also the control for racing your PB ghost: clicking it toggles
+ * the (global, session-remembered) preference, flashing a confirmation and then
+ * carrying an inner whitish-gold glow while it's on. */
 function renderMedalTrack(): void {
   const pars = viewed.pars;
   const champion = currentChampionTime();
   const pb = viewed.personalBest?.time ?? null;
+  const pbGhostOn = loadRacePbGhostPref();
 
   const chips: Array<{ icon: string; name: string; time: number; medal: Medal | null }> = [];
   if (pb != null) chips.push({ icon: PB_ICON, name: "PB", time: pb, medal: null });
@@ -459,6 +445,7 @@ function renderMedalTrack(): void {
 
   medalTrack.replaceChildren();
   chips.forEach((chip, i) => {
+    const isPb = chip.medal === null;
     const cell = document.createElement("div");
     cell.className = "medal-chip";
 
@@ -484,6 +471,40 @@ function renderMedalTrack(): void {
     cell.addEventListener("mouseenter", () => cell.classList.add("pulsing"));
     cell.addEventListener("animationend", () => cell.classList.remove("pulsing"));
 
+    // The PB chip doubles as the "race my PB ghost" switch: clicking it flips the
+    // preference, flashes a confirmation, then settles with (or without) an inner
+    // glow marking it selected.
+    if (isPb) {
+      cell.classList.add("pb-chip");
+      cell.setAttribute("role", "button");
+      cell.tabIndex = 0;
+      cell.title = pbGhostOn ? "Racing your PB ghost - click to turn off" : "Click to race your PB ghost";
+      const toggle = () => {
+        saveRacePbGhostPref(!loadRacePbGhostPref());
+        flashPbGhost(loadRacePbGhostPref());
+      };
+      cell.addEventListener("click", toggle);
+      cell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggle();
+        }
+      });
+
+      // Mid-toggle: show the transient message instead of the usual contents, and
+      // hold off the inner glow until the flash clears.
+      if (pbFlashMsg != null) {
+        cell.classList.add("flashing");
+        const flash = document.createElement("span");
+        flash.className = "medal-chip-flash";
+        flash.textContent = pbFlashMsg;
+        cell.appendChild(flash);
+        medalTrack.appendChild(cell);
+        return;
+      }
+      if (pbGhostOn) cell.classList.add("active");
+    }
+
     const icon = document.createElement("span");
     icon.className = "medal-chip-icon";
     icon.textContent = chip.icon;
@@ -499,6 +520,18 @@ function renderMedalTrack(): void {
     cell.append(icon, name, t);
     medalTrack.appendChild(cell);
   });
+}
+
+/** Flashes "Ghost enabled/disabled" inside the PB chip for a beat, then re-renders
+ * so the chip settles into its new state (inner glow on/off). */
+function flashPbGhost(on: boolean): void {
+  pbFlashMsg = on ? "Ghost enabled" : "Ghost disabled";
+  window.clearTimeout(pbFlashTimer);
+  pbFlashTimer = window.setTimeout(() => {
+    pbFlashMsg = null;
+    renderMedalTrack();
+  }, PB_FLASH_MS);
+  renderMedalTrack();
 }
 
 function renderLeaderboardList(): void {
@@ -741,7 +774,6 @@ function showOrphanSeed(seed: string, genMode: Mode): void {
   refreshViewedUi();
   paintViewedTerrainTags();
   renderMinimaps();
-  ghostHint.textContent = "This is a shared map - global leaderboards aren't available for it.";
   renderOrphanNotice();
 }
 
@@ -1075,9 +1107,10 @@ function currentBestShareText(): string | null {
 }
 
 /** Wires a Share button to copy text (from `getText`) on click, flashing a
- * transient "Copied!"/"Copy failed" label before reverting to "Share". `source`
- * labels which Share button it is in the run log (e.g. "results", "best"). */
-function attachShareHandler(btn: HTMLButtonElement, source: string, getText: () => string | null): void {
+ * transient "Copied!"/"Copy failed" label before reverting to `restLabel`.
+ * `source` labels which Share button it is in the run log (e.g. "results",
+ * "best"). */
+function attachShareHandler(btn: HTMLButtonElement, source: string, restLabel: string, getText: () => string | null): void {
   let resetTimer: number | undefined;
   btn.addEventListener("click", async () => {
     const text = getText();
@@ -1087,7 +1120,7 @@ function attachShareHandler(btn: HTMLButtonElement, source: string, getText: () 
     btn.textContent = ok ? "Copied!" : "Copy failed";
     window.clearTimeout(resetTimer);
     resetTimer = window.setTimeout(() => {
-      btn.textContent = "Share";
+      btn.textContent = restLabel;
     }, 1600);
   });
 }
@@ -1118,7 +1151,7 @@ async function copyText(text: string): Promise<boolean> {
 function beginRun(playable: Playable): void {
   active = playable;
   session = new GameSession(playable.level);
-  pbGhost = playable.personalBest && pbGhostToggle.checked ? new GhostPlayer(playable.level, playable.personalBest) : null;
+  pbGhost = playable.personalBest && loadRacePbGhostPref() ? new GhostPlayer(playable.level, playable.personalBest) : null;
   leaderboardGhost =
     selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
       ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
@@ -1589,8 +1622,8 @@ helpScreen.addEventListener("click", (e) => {
   if (e.target === helpScreen) closeHelp();
 });
 
-attachShareHandler(shareBtn, "results", () => lastShareText);
-attachShareHandler(bestShareBtn, "best", currentBestShareText);
+attachShareHandler(shareBtn, "results", "Share", () => lastShareText);
+attachShareHandler(bestShareBtn, "best", "Share personal best", currentBestShareText);
 minimapCanvas.addEventListener("click", () => {
   // A swipe gesture ends in a synthetic click on the map; don't treat it as
   // tap-to-play.

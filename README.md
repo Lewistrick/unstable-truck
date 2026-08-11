@@ -172,7 +172,11 @@ What's implemented:
   both boards. Each tile carries a colour glow (the same resting-glow +
   pulse-on-hover flourish as the streak dots); the PB tile borrows the glow of
   the medal it earned, or a faint bluish grey when it's slower than bronze. The
-  results screen shows the medal earned plus the next tier up.
+  PB tile is also the control for racing your PB ghost: clicking it toggles the
+  (global, session-remembered) preference, briefly flashing "Ghost enabled/
+  disabled" and then carrying a whitish-gold inner glow while it's on. The
+  results screen shows the medal earned plus the next
+  tier up.
 - Daily streak and a recent-days calendar on the home screen: delivering a day
   successfully is recorded in `localStorage`; a "🔥 N-day streak" badge counts
   consecutive delivered days (with a one-day grace before today's is done), and
@@ -187,8 +191,8 @@ What's implemented:
   map's seed as `?s=<seed>`, so opening it drops the recipient straight onto that
   exact day/week. The base link is the page's own hosted URL, falling back to the
   public address for local/dev play.
-  The home screen also has a Share button next to today's "Best" time that
-  copies the same kind of summary for your stored personal best (today only).
+  The home screen also has a "Share personal best" button below the leaderboard
+  that copies the same kind of summary for your stored personal best (today only).
 - Shared-map deep links: opening the game with `?s=<seed>` loads that map. A
   seed that's a still-browsable day (≤30 days) or week (≤52 weeks) lands on its
   live board; any other seed — an expired period, or a non-standard string — is
@@ -221,16 +225,17 @@ What's implemented:
   afterwards from a **Tutorial** button directly under the home screen's Play
   button, alongside a **How To** button that opens the same How-to-Play help as
   the round **?** in the header.
-- Start screen shows one day at a time (today by default), with prev/next
-  arrows beside the thumbnail to browse up to 30 days back - the date,
-  minimap, personal best, ghost toggle, and leaderboard panel all update
-  together as you navigate. You can also swipe the thumbnail left/right (or
+- Start screen shows one day at a time (today by default), with the date above
+  the thumbnail (prev/next arrows beside it to browse up to 30 days back) and the
+  streak strip sitting between the medal/PB tiles and the leaderboard - the date,
+  minimap, medal/PB tiles, and leaderboard panel all update together as you
+  navigate. You can also swipe the thumbnail left/right (or
   click-drag on desktop): it works as a carousel, the neighbouring day's map
   sliding in with your finger and snapping into place on release. (The streak calendar strip still shows just the
-  most recent week of dots.) Ghost choices are remembered for the session: a
-  "show ghost" checkbox beside the best time is a global preference that follows
-  you across every level and mode, while a selected leaderboard opponent is
-  remembered per level and re-selected when you return to it. A **Play** button
+  most recent week of dots.) Ghost choices are remembered for the session:
+  clicking the PB tile toggles racing your own PB ghost - a global preference
+  that follows you across every level and mode - while a selected leaderboard
+  opponent is remembered per level and re-selected when you return to it. A **Play** button
   (with **Tutorial** and **How To** buttons directly below it, or pressing
   Enter, or clicking the thumbnail as a shortcut) jumps into a 3-2-1-GO countdown
   and starts whichever day is showing. A results screen (showing your time against
