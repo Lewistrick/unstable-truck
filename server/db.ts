@@ -107,6 +107,7 @@ export async function ensureSchema(): Promise<void> {
  * labels (src/game/api.ts). A run emits "started" then one terminal state;
  * everything else is a home-screen / session interaction. */
 export type RunStatus =
+  | "game_started"
   | "started"
   | "finished"
   | "cargo_fell_off"
@@ -119,6 +120,8 @@ export type RunStatus =
   | "replay_stopped"
   | "help_opened"
   | "help_toggled"
+  | "tutorial_started"
+  | "tutorial_ended"
   | "username_changed";
 
 /** Appends one event to run_logs (server clock stamps it). `comment` is optional

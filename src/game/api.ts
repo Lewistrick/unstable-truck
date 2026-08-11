@@ -96,6 +96,8 @@ export type RunStatus =
   | "replay_stopped"
   | "help_opened"
   | "help_toggled"
+  | "tutorial_started"
+  | "tutorial_ended"
   | "username_changed";
 
 /** Best-effort diagnostics telemetry (see run_logs). `comment` is optional

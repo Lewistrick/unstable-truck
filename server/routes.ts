@@ -28,6 +28,7 @@ const TOP_N = 10;
 const MAX_SEED_LENGTH = 64;
 const MAX_COMMENT_LENGTH = 200;
 const RUN_STATUSES = new Set<RunStatus>([
+  "game_started",
   "started",
   "finished",
   "cargo_fell_off",
@@ -40,6 +41,8 @@ const RUN_STATUSES = new Set<RunStatus>([
   "replay_stopped",
   "help_opened",
   "help_toggled",
+  "tutorial_started",
+  "tutorial_ended",
   "username_changed",
 ]);
 // Cap the batch champions lookup so a single request can't ask for an unbounded

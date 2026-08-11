@@ -1130,6 +1130,7 @@ function refreshTutorialOverlay(): void {
  * overlay up. Rendering is driven directly from the Tutorial (see the frame
  * loop), so it doesn't touch the normal run's render state or ghosts. */
 function startTutorial(): void {
+  void logRun(viewed.seed, nickname, "tutorial_started", 0);
   tutorial = new Tutorial();
   lastTutorialTruck = null;
   camera.x = tutorial.activeTruck.pos.x;
@@ -1146,9 +1147,11 @@ function startTutorial(): void {
 }
 
 /** Leaves the tutorial (completed or skipped) back to the start screen, marking
- * it seen so it won't auto-open again. */
-function endTutorial(): void {
+ * it seen so it won't auto-open again. `reason` is logged as free-form context
+ * (e.g. how the player left: finished, skipped, escape). */
+function endTutorial(reason = "closed"): void {
   if (appState !== "tutorial") return;
+  void logRun(viewed.seed, nickname, "tutorial_ended", 0, reason);
   markTutorialSeen();
   tutorial = null;
   appState = "start";
@@ -1157,8 +1160,8 @@ function endTutorial(): void {
 }
 
 tutorialBtn.addEventListener("click", startTutorial);
-tutorialSkipBtn.addEventListener("click", endTutorial);
-tutorialDoneBtn.addEventListener("click", endTutorial);
+tutorialSkipBtn.addEventListener("click", () => endTutorial("skipped"));
+tutorialDoneBtn.addEventListener("click", () => endTutorial("finished"));
 tutorialSkipSectionBtn.addEventListener("click", () => {
   tutorial?.skipSection();
   refreshTutorialOverlay();
@@ -1428,7 +1431,7 @@ window.addEventListener("keydown", (e) => {
   // The tutorial owns its input: Escape skips it, and the normal run controls
   // (Enter/Backspace) are inert while it's up. Spacebar still steers via input.ts.
   if (appState === "tutorial") {
-    if (e.key === "Escape") endTutorial();
+    if (e.key === "Escape") endTutorial("escape");
     return;
   }
   // The replay theater: Escape stops (back to menu), Space toggles play/pause.

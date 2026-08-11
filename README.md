@@ -115,11 +115,13 @@ What's implemented:
   server is unreachable.
 - Event log (diagnostics): interactions append to a `run_logs` table, each row
   holding nickname, seed, an optional free-form `comment`, and a server
-  timestamp. A run adds a `started` row and one terminal row (`finished`,
-  `cargo_fell_off`, or `out_of_bounds`) with the warehouses collected; home-screen
-  activity adds `navigated`, `mode_switched`, `paused`/`resumed`,
-  `replay_started`/`replay_stopped`, `help_opened`/`help_toggled` (comment
-  `summary`/`full`), and `username_changed` (comment `old -> new`). This makes
+  timestamp. Loading the game adds a `game_started` row; a run adds a `started`
+  row and one terminal row (`finished`, `cargo_fell_off`, or `out_of_bounds`)
+  with the warehouses collected; home-screen activity adds `navigated`,
+  `mode_switched`, `paused`/`resumed`, `replay_started`/`replay_stopped`,
+  `help_opened`/`help_toggled` (comment `summary`/`full`),
+  `tutorial_started`/`tutorial_ended` (comment `skipped`/`finished`/`escape`),
+  and `username_changed` (comment `old -> new`). This makes
   visible what the leaderboard can't: only *successful* runs submit a score, so a
   run that ended in `cargo_fell_off` never reached the board. It's best-effort
   telemetry (POST `/api/runs`), independent of scoring, and never affects
@@ -136,7 +138,7 @@ What's implemented:
   five players, then Watch. The chosen recordings play back together on their
   own screen with a video-style player: play/pause, a **seekable** progress bar
   (replay is deterministic, so scrubbing re-simulates each racer to that exact
-  point), and Stop to return to the menu. The camera auto-frames the whole pack
+  point), and a ■ stop button to return to the menu. The camera auto-frames the whole pack
   (fit-all zoom, never past 1:1), each racer wears a coloured ring + name tag,
   the timeline runs until the slowest racer finishes, and playback pauses on the
   final frame so the finish order stays on screen.
@@ -147,7 +149,10 @@ What's implemented:
   estimate — inflated for road curvature and divided by an assumed good-driving
   speed), so they're identical for every player and work fully offline. Gold
   lands at roughly 1.36× the straight-line-at-top-speed floor on every map, so
-  difficulty stays consistent whether a track has four pickups or twenty-five. Above gold sits a Champion tier at
+  difficulty stays consistent whether a track has four pickups or twenty-five.
+  Each tier's raw time is then rounded up to a whole second with a half-second
+  of headroom first (`ceil(raw + 0.5)`), so a raw gold of 17.68s shows as a
+  clean, achievable 19s rather than a tight fractional target. Above gold sits a Champion tier at
   `gold - 3*(gold - top)/4` (three quarters of the way from the gold time down
   to the world record time); it unlocks as soon as someone sets a gold time (a record
   faster than gold). Unlike the geometry-derived tiers, the Champion threshold
@@ -206,7 +211,9 @@ What's implemented:
   The run is unfailable throughout (a `practice` game session that ignores the
   cargo and out-of-bounds game-overs), records no score, and races no ghosts. It
   auto-opens only once (a `localStorage` "seen" flag) and is always reachable
-  afterwards from a **Tutorial** button in the home screen's footer.
+  afterwards from a **Tutorial** button in the home screen's footer, alongside a
+  **How To** button that opens the same How-to-Play help as the round **?** in
+  the header.
 - Start screen shows one day at a time (today by default), with prev/next
   arrows beside the thumbnail to browse up to 30 days back - the date,
   minimap, personal best, ghost toggle, and leaderboard panel all update
@@ -327,10 +334,12 @@ Backspace/Escape (steering or restarting dismisses it). Tapping the timer at
 the bottom pauses the run - the truck, any racing ghosts, and the clock all
 freeze and a "Paused" banner shows near the top; tap it again to resume.
 
-A "?" help button in the home screen's header opens a help overlay covering the
-objective, controls, terrain, and daily/leaderboard basics (close it with the
-Close button, Escape, or by tapping the backdrop). A "Tutorial" button in the
-footer (re)starts the guided practice run described above.
+A "?" help button in the home screen's header (aligned with the title rather
+than stacked above it) opens a help overlay covering the objective, controls,
+terrain, and daily/leaderboard basics (close it with the Close button, Escape,
+or by tapping the backdrop). The footer pairs a "Tutorial" button that
+(re)starts the guided practice run described above with a "How To" button that
+opens the same help overlay.
 
 ## Project layout
 
