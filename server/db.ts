@@ -122,6 +122,7 @@ export type RunStatus =
   | "help_toggled"
   | "tutorial_started"
   | "tutorial_ended"
+  | "menu_shown"
   | "username_changed";
 
 /** Appends one event to run_logs (server clock stamps it). `comment` is optional

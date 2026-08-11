@@ -1098,6 +1098,9 @@ function goHome(): void {
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
   startScreen.classList.remove("hidden");
+  // Returning to the menu is a page-internal transition (no reload), so
+  // game_started never re-fires here - log it as its own menu-shown event.
+  void logRun(viewed.seed, nickname, "menu_shown", 0);
 }
 
 retryBtn.addEventListener("click", () => beginRun(active));

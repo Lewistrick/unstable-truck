@@ -121,7 +121,9 @@ What's implemented:
   `mode_switched`, `paused`/`resumed`, `replay_started`/`replay_stopped`,
   `help_opened`/`help_toggled` (comment `summary`/`full`),
   `tutorial_started`/`tutorial_ended` (comment `skipped`/`finished`/`escape`),
-  and `username_changed` (comment `old -> new`). This makes
+  `menu_shown` (returning to the menu from a run via Home - a page-internal
+  transition, so distinct from the page-load `game_started`), and
+  `username_changed` (comment `old -> new`). This makes
   visible what the leaderboard can't: only *successful* runs submit a score, so a
   run that ended in `cargo_fell_off` never reached the board. It's best-effort
   telemetry (POST `/api/runs`), independent of scoring, and never affects
