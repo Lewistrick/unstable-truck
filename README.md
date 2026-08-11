@@ -136,9 +136,9 @@ What's implemented:
   newest-first, 100 rows at a time with a "Show 100 more" button, backed by
   `GET /api/runs`.
 - Replay theater: watch 1–5 leaderboard runs race each other, non-interactively.
-  A "Watch a replay" button under the leaderboard (unlocked by the same
-  personal-best gate as ghost racing) turns the list into a picker — tap up to
-  five players, then Watch. The chosen recordings play back together on their
+  A "Create a replay" button under the leaderboard (unlocked by the same
+  personal-best gate as ghost racing) turns the list into a picker ("select
+  ghosts") — tap up to five players, then Show replay (or Cancel). The chosen recordings play back together on their
   own screen with a video-style player: play/pause, a **seekable** progress bar
   (replay is deterministic, so scrubbing re-simulates each racer to that exact
   point), and a ■ stop button to return to the menu. The camera auto-frames the whole pack

@@ -4,7 +4,8 @@
   padding: 0;
 }
 
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -212,7 +213,8 @@ html, body {
   font-size: clamp(1.15rem, 6vw, 1.85rem);
   font-weight: 400;
   letter-spacing: 0.1em;
-  padding-left: 0.1em; /* balance the trailing letter-spacing so it stays centered */
+  padding-left: 0.1em;
+    /* balance the trailing letter-spacing so it stays centered */
   color: #f0f2f5;
   text-align: center;
 }
@@ -398,9 +400,11 @@ html, body {
   0% {
     box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
   }
+
   35% {
     box-shadow: 0 0 10px 4px rgba(var(--glow), 0.95);
   }
+
   100% {
     box-shadow: 0 0 4px 1px rgba(var(--glow), 0.55);
   }
@@ -498,16 +502,16 @@ html, body {
   transition: transform 0.15s;
 }
 
-.detail-switch input:checked ~ .detail-switch-track {
+.detail-switch input:checked~.detail-switch-track {
   background: #3a4a63;
 }
 
-.detail-switch input:checked ~ .detail-switch-track .detail-switch-knob {
+.detail-switch input:checked~.detail-switch-track .detail-switch-knob {
   transform: translateX(18px);
   background: #f0f2f5;
 }
 
-.detail-switch input:focus-visible ~ .detail-switch-track {
+.detail-switch input:focus-visible~.detail-switch-track {
   border-color: #4a5566;
   box-shadow: 0 0 0 2px rgba(74, 85, 102, 0.6);
 }
@@ -532,8 +536,13 @@ html, body {
   color: white;
 }
 
-.tag-pickup { background: hsl(2 72% 50%); }
-.tag-destination { background: hsl(140 55% 38%); }
+.tag-pickup {
+  background: hsl(2 72% 50%);
+}
+
+.tag-destination {
+  background: hsl(140 55% 38%);
+}
 
 /* Background + text color are set inline via JS from today's actual palette
  * (road/grass/mud/rock hues are seeded per day), so only shared box styling
@@ -738,7 +747,7 @@ html, body {
 #replay-select-count {
   font-size: 0.8rem;
   color: #9aa4b2;
-  text-align: left;
+  text-align: right;
 }
 
 #replay-select-actions {
@@ -823,14 +832,17 @@ html, body {
   #replay-overlay {
     padding: 10px;
   }
+
   #replay-bar {
     gap: 8px;
     padding: 8px 10px;
   }
+
   .replay-time {
     min-width: 0;
     font-size: 0.72rem;
   }
+
   #replay-stop-btn {
     padding: 9px 12px;
   }

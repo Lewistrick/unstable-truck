@@ -474,7 +474,7 @@ function renderLeaderboardList(): void {
     return;
   }
   leaderboardHeaderEl.textContent = watchMode
-    ? `Pick racers (${describeOffset(mode, viewedOffset)})`
+    ? `Pick up to 5 racers to include in the replay`
     : `Leaderboard (${describeOffset(mode, viewedOffset)})`;
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
@@ -1322,7 +1322,7 @@ tutorialSkipSectionBtn.addEventListener("click", () => {
 // video-style player (play/pause, a seekable progress bar, and stop). Like
 // racing a ghost, it needs your own time on the level first.
 
-/** Enables the "Watch a replay" button only once there's a personal best on the
+/** Enables the "Create a replay" button only once there's a personal best on the
  * viewed level (same gate as racing a ghost). */
 function updateWatchButton(): void {
   const unlocked = viewed.personalBest != null;
@@ -1330,11 +1330,11 @@ function updateWatchButton(): void {
   watchBtn.title = unlocked ? "" : "Set your own time here first to watch replays.";
 }
 
+/** The pick-bar's prompt and "Show replay" label are static; this just gates the
+ * button on having picked at least one ghost (capped at MAX_REPLAY_RACERS by
+ * toggleWatchPick). */
 function updateWatchBar(): void {
-  const n = watchSelection.size;
-  replaySelectCount.textContent = `Pick 1–5 racers (${n}/${MAX_REPLAY_RACERS})`;
-  replayStartBtn.textContent = `Watch (${n})`;
-  replayStartBtn.disabled = n < 1;
+  replayStartBtn.disabled = watchSelection.size < 1;
 }
 
 function enterWatchMode(): void {
@@ -1343,6 +1343,8 @@ function enterWatchMode(): void {
   watchSelection.clear();
   watchBtn.classList.add("hidden");
   replaySelectBar.classList.remove("hidden");
+  // Reset any leftover prompt/label from a prior aborted attempt.
+  replayStartBtn.textContent = "Show replay";
   updateWatchBar();
   renderLeaderboardList();
 }
@@ -1385,6 +1387,7 @@ async function startReplay(): Promise<void> {
   });
   if (racers.length === 0) {
     // Offline or the recordings couldn't be fetched; stay in pick mode.
+    replayStartBtn.textContent = "Show replay";
     replaySelectCount.textContent = "Couldn't load those replays - try again.";
     updateWatchBar();
     return;
