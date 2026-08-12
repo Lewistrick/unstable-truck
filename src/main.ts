@@ -11,6 +11,7 @@ import {
 } from "./game/api.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
+import { optimalRowIndex } from "./game/leaderboard-order.js";
 import {
     MEDAL_ICON,
     MEDAL_LABEL,
@@ -610,15 +611,17 @@ function renderLeaderboardList(): void {
   renderMedalTrack();
   leaderboardList.replaceChildren();
 
-  // The solver's Optimal route (when ?optimal=true and this map is solved) sits
-  // pinned at the very top of the board - the target time to chase. In watch mode
-  // it's a pickable racer like any other row; otherwise it's just shown (it's
+  // The solver's Optimal route (when ?optimal=true and this map is solved) is a
+  // benchmark time, not a pinned banner: it's slotted into the board by its time
+  // like any other entry, so a real player who beats it ranks above it. In watch
+  // mode it's a pickable racer like any other row; otherwise it's just shown (it's
   // always raced as a ghost during play).
   const optimal = optimalForViewed();
-  if (optimal) leaderboardList.appendChild(buildOptimalRow(optimal));
 
   if (leaderboardTop.length === 0) {
-    if (!optimal) {
+    // No player times yet: show the Optimal row alone, or the "be the first" prompt.
+    if (optimal) leaderboardList.appendChild(buildOptimalRow(optimal));
+    else {
       const li = document.createElement("li");
       li.className = "leaderboard-empty";
       li.textContent = "No times yet - be the first!";
@@ -630,7 +633,14 @@ function renderLeaderboardList(): void {
   // In watch mode, rows once the 1-5 cap is hit (and not already picked) are
   // inert until something is deselected. The Optimal pick counts toward the cap.
   const capReached = totalWatchPicks() >= MAX_REPLAY_RACERS;
-  for (const entry of [...leaderboardTop, ...leaderboardContext]) {
+
+  // Slot the Optimal benchmark row into the board by its time (the board is
+  // already fastest-first), so a real player who beats it appears above it.
+  const entries = [...leaderboardTop, ...leaderboardContext];
+  const optimalIndex = optimal ? optimalRowIndex(entries.map((e) => e.time), optimal.time) : -1;
+  for (let i = 0; i < entries.length; i++) {
+    if (i === optimalIndex) leaderboardList.appendChild(buildOptimalRow(optimal!));
+    const entry = entries[i]!;
     const li = document.createElement("li");
     li.className = "leaderboard-row";
     if (entry.nickname === nickname) li.classList.add("self");
@@ -667,6 +677,8 @@ function renderLeaderboardList(): void {
     });
     leaderboardList.appendChild(li);
   }
+  // Optimal is slower than every shown entry: it goes last.
+  if (optimalIndex === entries.length) leaderboardList.appendChild(buildOptimalRow(optimal!));
 }
 
 /** Selecting a leaderboard row races their ghost alongside (or instead of)
