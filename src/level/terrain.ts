@@ -56,8 +56,15 @@ export function isOnRoad(pos: Vec2, level: Level): boolean {
 }
 
 export function sampleTerrain(truck: TruckPose, level: Level): TerrainSample {
-  const onRoad = isOnRoad(truck.pos, level);
+  return sampleTerrainWith(truck, level, isOnRoad(truck.pos, level));
+}
 
+/** The body of {@link sampleTerrain} with the (potentially expensive) on-road
+ * test lifted out, so a caller that already knows the answer - most importantly
+ * the headless solver, which resolves on-road through a fast spatial index
+ * (level/level-index.ts) - can supply it and still share this file's exact mud
+ * probing rather than reimplementing it. */
+export function sampleTerrainWith(truck: TruckPose, level: Level, onRoad: boolean): TerrainSample {
   // Probe the truck's center plus its four body corners; the truck counts as in
   // the mud if any of them fall inside a mud polygon. This makes an edge/wheel
   // over the mud register, matching the drawn patch instead of waiting for the

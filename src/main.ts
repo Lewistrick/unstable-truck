@@ -261,6 +261,9 @@ function refreshViewedUi(): void {
   updateWatchButton();
 
   updateModeSwitchVisibility();
+
+  // Solve this map for its Optimal ghost in the background (opt-in, daily-only).
+  requestOptimal(viewed);
 }
 
 /** The Daily/Weekly switch (pinned to the very bottom) is a progressive-disclosure
@@ -534,6 +537,30 @@ function flashPbGhost(on: boolean): void {
   renderMedalTrack();
 }
 
+/** Builds the pinned "Optimal" leaderboard row for the solver's route: a trophy
+ * rank marker, the label, and the solved time. Non-interactive (it's always
+ * raced, not selected) and visually distinct via the `optimal` class. */
+function buildOptimalRow(recording: GhostRecording): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "leaderboard-row optimal";
+  li.title = "Computer-solved near-optimal route - raced as a ghost";
+
+  const rankEl = document.createElement("span");
+  rankEl.className = "leaderboard-rank";
+  rankEl.textContent = "\u{1F3AF}"; // 🎯
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "leaderboard-nickname";
+  nameEl.textContent = `\u{1F916} ${OPTIMAL_LABEL}`; // 🤖 Optimal
+
+  const timeEl = document.createElement("span");
+  timeEl.className = "leaderboard-time";
+  timeEl.textContent = formatTime(recording.time);
+
+  li.append(rankEl, nameEl, timeEl);
+  return li;
+}
+
 function renderLeaderboardList(): void {
   // A shared orphan map has no leaderboard; keep its notice instead of painting
   // rows (still refresh the medal track, which is derived from the level).
@@ -548,11 +575,20 @@ function renderLeaderboardList(): void {
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
   leaderboardList.replaceChildren();
+
+  // The solver's Optimal route (when ?optimal=true and this map is solved) sits
+  // pinned at the very top of the board - it's the target time to chase, and it's
+  // always raced as a ghost, so it's shown outside watch-mode selection.
+  const optimal = optimalForViewed();
+  if (optimal && !watchMode) leaderboardList.appendChild(buildOptimalRow(optimal));
+
   if (leaderboardTop.length === 0) {
-    const li = document.createElement("li");
-    li.className = "leaderboard-empty";
-    li.textContent = "No times yet - be the first!";
-    leaderboardList.appendChild(li);
+    if (!optimal || watchMode) {
+      const li = document.createElement("li");
+      li.className = "leaderboard-empty";
+      li.textContent = "No times yet - be the first!";
+      leaderboardList.appendChild(li);
+    }
     return;
   }
 
@@ -1004,6 +1040,9 @@ let replayScrubbing = false;
 let replayResumeAfterScrub = false;
 let pbGhost: GhostPlayer | null = null;
 let leaderboardGhost: GhostPlayer | null = null;
+// The solver's "Optimal" ghost, raced alongside the others when ?optimal=true and
+// the viewed map has been solved (see the optimal-solver section below).
+let optimalGhost: GhostPlayer | null = null;
 // The collection ticks of the ghost the live split time is measured against
 // (the pb ghost when it's racing, else the leaderboard ghost), or null when no
 // ghost is raced. Precomputed once per run.
@@ -1011,6 +1050,82 @@ let referenceCollectTicks: number[] | null = null;
 let active: Playable = viewed;
 let countdownElapsed = 0;
 const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
+
+// --- "Optimal" solver ghost (opt-in via ?optimal=true) ---------------------
+// With ?optimal=true, a background Web Worker solves each daily map for a
+// near-record delivery route and surfaces it as an "Optimal" leaderboard entry
+// plus an extra ghost to race. The search is a heavy single-core compute (up to
+// ~15s), so it runs off the main thread and its result is cached per seed. The
+// daily-format solver assumes only a handful of warehouses, so it's daily-only
+// (weekly maps are far too large).
+const optimalEnabled = new URLSearchParams(window.location.search).get("optimal") === "true";
+const OPTIMAL_LABEL = "Optimal";
+const optimalRecordings = new Map<string, GhostRecording>();
+const optimalPending = new Set<string>();
+let optimalWorker: Worker | null = null;
+let optimalWorkerBroken = false;
+
+/** Lazily creates the shared solver worker, or returns null if the environment
+ * can't spin up a module worker (we fall back to an on-thread solve then). */
+function getOptimalWorker(): Worker | null {
+  if (optimalWorker) return optimalWorker;
+  if (optimalWorkerBroken) return null;
+  try {
+    const w = new Worker(new URL("./game/solver-worker.js", import.meta.url), { type: "module" });
+    w.onmessage = (e: MessageEvent) => {
+      const data = e.data as { ok: boolean; seed: string; recording?: GhostRecording };
+      optimalPending.delete(data.seed);
+      if (data.ok && data.recording) receiveOptimal(data.seed, data.recording);
+    };
+    w.onerror = () => {
+      optimalWorkerBroken = true;
+    };
+    optimalWorker = w;
+    return w;
+  } catch {
+    optimalWorkerBroken = true;
+    return null;
+  }
+}
+
+/** Records a solved route and, if it's for the map on screen, repaints the board
+ * so the "Optimal" row appears. */
+function receiveOptimal(seed: string, recording: GhostRecording): void {
+  optimalRecordings.set(seed, recording);
+  if (viewed.seed === seed) renderLeaderboardList();
+}
+
+/** Kicks off (or reuses a cached) optimal solve for a daily seed when
+ * ?optimal=true. No-op for weekly maps, orphan maps, or when already solved/in
+ * flight. */
+function requestOptimal(playable: Playable): void {
+  const { seed, level } = playable;
+  if (!optimalEnabled || level.kind !== "daily") return;
+  if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
+  optimalPending.add(seed);
+
+  const worker = getOptimalWorker();
+  if (worker) {
+    worker.postMessage({ seed });
+    return;
+  }
+  // No module-worker support: fall back to a shorter on-thread solve. It briefly
+  // blocks the tab, but ?optimal=true is an explicit power-user flag, and the
+  // solver module is only fetched in this fallback path.
+  void import("./game/solver.js").then(({ solve }) => {
+    const result = solve(level, { timeBudgetMs: 5000 });
+    optimalPending.delete(seed);
+    if (result.success) {
+      receiveOptimal(seed, { seed, time: result.time, stability: result.stability, inputLog: result.inputLog });
+    }
+  });
+}
+
+/** The optimal recording for the viewed seed once solved (null otherwise, or
+ * when the feature is off). */
+function optimalForViewed(): GhostRecording | null {
+  return optimalEnabled ? optimalRecordings.get(viewed.seed) ?? null : null;
+}
 
 // A `?s=<seed>` deep link opens that exact map (the matching live day/week, or a
 // generated orphan when it's expired/non-standard); otherwise start on today.
@@ -1156,6 +1271,9 @@ function beginRun(playable: Playable): void {
     selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
       ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
       : null;
+  // The Optimal ghost races whenever it's been solved for this map (?optimal=true).
+  const optimalRec = optimalEnabled ? optimalRecordings.get(playable.seed) : undefined;
+  optimalGhost = optimalRec ? new GhostPlayer(playable.level, optimalRec) : null;
 
   // Live split time is measured against the pb ghost whenever it's racing (even
   // alongside a leaderboard ghost); otherwise the leaderboard ghost if that's
@@ -1309,6 +1427,7 @@ function goHome(): void {
   setMenuOpen(false);
   session = null;
   pbGhost = null;
+  optimalGhost = null;
   leaderboardGhost = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
@@ -1691,6 +1810,9 @@ function renderScene(activeSession: GameSession, frameDt: number): void {
   updateCamera(camera, activeSession.truck, frameDt);
   const ghostViews: GhostView[] = [];
   if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargoBoxes: pbGhost.cargoBoxes, label: "pb" });
+  if (optimalGhost) {
+    ghostViews.push({ truck: optimalGhost.truck, cargoBoxes: optimalGhost.cargoBoxes, label: "optimal" });
+  }
   if (leaderboardGhost) {
     ghostViews.push({
       truck: leaderboardGhost.truck,
@@ -1763,6 +1885,7 @@ function frame(now: number): void {
       while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
         session.update(FIXED_DT, input.held);
         pbGhost?.update(FIXED_DT);
+        optimalGhost?.update(FIXED_DT);
         leaderboardGhost?.update(FIXED_DT);
         accumulator -= FIXED_DT;
         steps++;

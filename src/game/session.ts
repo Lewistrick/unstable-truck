@@ -29,15 +29,18 @@ export interface SessionOptions {
 // A little forgiveness added to the truck's radius so grazing a building's edge
 // still counts as reaching it.
 const COLLECT_PAD = 2;
-const ROCK_IMPACT_STABILITY_HIT = 22;
+// Stability drained from every cargo box on a rock impact. Exported so the
+// headless solver sim (game/sim.ts) can mirror this run's rules exactly instead
+// of hard-coding a copy that could silently drift from live play.
+export const ROCK_IMPACT_STABILITY_HIT = 22;
 // How many consecutive ticks the truck may be pinned against the map edge
 // before the run ends as "out of bounds". At 60 ticks/s this is ~0.4s, long
 // enough that clipping a corner on a wide turn slides off harmlessly but
 // actually driving into the edge ends the run.
-const OUT_OF_BOUNDS_TICKS = 24;
+export const OUT_OF_BOUNDS_TICKS = 24;
 // Half the truck body length, used as the hitch point the first cargo box
 // trails behind.
-const TRUCK_HITCH_HALF_LENGTH = 16;
+export const TRUCK_HITCH_HALF_LENGTH = 16;
 
 function findWarehouse(level: Level, kind: Warehouse["kind"]): Warehouse {
   const wh = level.warehouses.find((w) => w.kind === kind);

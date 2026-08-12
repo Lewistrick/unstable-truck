@@ -356,17 +356,67 @@ or by tapping the backdrop). The footer pairs a "Tutorial" button that
 (re)starts the guided practice run described above with a "How To" button that
 opens the same help overlay.
 
+## The "Optimal" ghost (route solver)
+
+The game ships a headless solver that computes a near-record route for a daily
+map and races it as an extra **Optimal** ghost.
+
+Add `?optimal=true` to the URL. On each daily map you browse, a background Web
+Worker solves that seed for a fast delivery route; when it finishes, an
+**Optimal** row (🤖, gold-tinted) is pinned to the top of the leaderboard, and
+whenever you play that map the solved route drives alongside you as a ghost
+labelled "optimal". Weekly maps are far too large for the daily-format solver, so
+it stays daily-only; the search runs off the main thread, so the page never
+janks while it thinks.
+
+You can also run the solver from the command line, which prints the toggle-tick
+input log (the exact array a ghost recording stores) to stdout:
+
+```bash
+npm run build:client && node scripts/solve.mjs 2026-08-11
+```
+
+**How it works.** The only control is one bit per physics tick (hold = steer
+right, release = drift left; the truck always accelerates), so the raw search
+tree is 2^ticks - astronomically large. The solver tames it with:
+
+- **A fixed visiting order.** On the small daily maps the fastest route visits
+  the pickups in one sensible order, so a 2-opt tour is pinned up front. That
+  turns "which pickups are done" from a 2^pickups bitmask into a single count,
+  keeping the state space linear in pickup count.
+- **A lattice over the truck's continuous state.** Position, heading, speed and
+  turn rate are bucketed; only the fastest arrival in each cell is kept. What
+  remains is a shortest-path problem solved with **hybrid A***, using an
+  admissible "remaining distance through the ordered waypoints / top speed"
+  heuristic and variable-length edges (hold one steering input until the lattice
+  cell changes, so a from-rest start still makes progress).
+- **An anytime weight ladder.** A greedy-best-first pass dives to a valid route
+  fast (even with eight pickups), then successively smaller heuristic weights
+  re-search, pruned by the best time so far, tightening toward optimal until the
+  time budget runs out. It returns the best route it reached - strong and
+  gold-medal in practice, though not a proven global optimum.
+
+Every edge is expanded with the **real physics engine** (the exact
+`updateTruck` / `resolveRockCollision` / cargo / terrain functions live play
+uses, via `game/sim.ts`), so any route found is genuinely drivable and its
+cargo never falls off. The result is verified by replaying it through a real
+`GameSession` before it's reported. The solver runs on a single core within a
+~15s budget and well under the 1.5 GB memory limit; on today's daily maps it
+reliably finds gold-medal routes.
+
 ## Project layout
 
 ```
 src/                frontend (compiles to dist/, loaded by the browser)
   util/     seeded RNG, value noise, vector math
   level/    procedural generation (roads, warehouses, obstacles, palette,
-            biome themes, decorative scenery) + terrain queries
+            biome themes, decorative scenery) + terrain queries; level-index.ts
+            is a road spatial index for fast exact on-road tests
   physics/  truck and cargo simulation, shared fixed-timestep constant
   game/     input handling, canvas rendering, game session/state machine,
             API client, medal thresholds, localStorage (personal bests,
-            nickname, completion history)
+            nickname, completion history); the route solver (solver.ts), its
+            headless sim (sim.ts) and Web Worker (solver-worker.ts)
     props/  one file per scenery sprite (cow, palm, tractor, windmill, …),
             with shared drawing helpers and a kind->drawer registry (index.ts)
   main.ts   DOM wiring and the render loop
