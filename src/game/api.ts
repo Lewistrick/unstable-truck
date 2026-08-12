@@ -154,6 +154,21 @@ export async function fetchChampionTimes(seeds: string[]): Promise<Record<string
   }
 }
 
+/** The server's precomputed near-optimal solver route for a daily seed, if it's
+ * been solved and stored. Returns null on a 404 (not computed yet) or when the
+ * server is unreachable, so the caller can fall back to solving locally. */
+export async function fetchOptimalRoute(
+  seed: string,
+): Promise<{ seed: string; time: number; stability: number; inputLog: number[] } | null> {
+  try {
+    const res = await fetch(apiUrl(`api/optimal/${seed}`));
+    if (!res.ok) return null;
+    return (await res.json()) as { seed: string; time: number; stability: number; inputLog: number[] };
+  } catch {
+    return null;
+  }
+}
+
 /** A specific player's full recording for a seed, used to build their ghost
  * when selected from the leaderboard. */
 export async function fetchPlayerRecording(seed: string, nickname: string): Promise<RemoteRecording | null> {

@@ -138,7 +138,10 @@ What's implemented:
 - Replay theater: watch 1–5 leaderboard runs race each other, non-interactively.
   A "Create a replay" button under the leaderboard (unlocked by the same
   personal-best gate as ghost racing) turns the list into a picker ("select
-  ghosts") — tap up to five players, then Show replay (or Cancel). The chosen recordings play back together on their
+  ghosts") — tap up to five racers, then Show replay (or Cancel). With
+  `?optimal=true`, the pinned **Optimal** row is selectable here too, so the
+  solver's route can race in the theater alongside real players (it counts toward
+  the five-racer cap). The chosen recordings play back together on their
   own screen with a video-style player: play/pause, a **seekable** progress bar
   (replay is deterministic, so scrubbing re-simulates each racer to that exact
   point), and a ■ stop button to return to the menu. The camera auto-frames the whole pack
@@ -356,25 +359,91 @@ or by tapping the backdrop). The footer pairs a "Tutorial" button that
 (re)starts the guided practice run described above with a "How To" button that
 opens the same help overlay.
 
+## The "Optimal" ghost (route solver)
+
+The game ships a headless solver that computes a near-record route for a daily
+map and races it as an extra **Optimal** ghost.
+
+Add `?optimal=true` to the URL. On each daily map you browse, an **Optimal** row
+(🤖, gold-tinted) is pinned to the top of the leaderboard, and whenever you play
+that map the solved route drives alongside you as a ghost labelled "optimal". It
+can also be picked in the replay theater, so the solver's route can race against
+real players. Weekly maps are far too large for the daily-format solver, so it
+stays daily-only.
+
+**Routes are precomputed, so nobody waits on the solve.** The server solves every
+browsable daily map ahead of time on a worker thread and stores the route in
+Postgres (`optimal_routes` table); the client just fetches it from
+`GET /api/optimal/:seed`. A startup sweep fills the whole window (today first,
+then a couple of days ahead, then 30 days back) and re-runs daily so each new
+day is solved automatically. If the server hasn't solved a map yet (a brand-new
+day before the sweep reaches it) or is unreachable (offline/static hosting), the
+client falls back to solving locally in a background Web Worker that one time, so
+the page never janks.
+
+You can also run the solver from the command line, which prints the toggle-tick
+input log (the exact array a ghost recording stores) to stdout:
+
+```bash
+npm run build:client && node scripts/solve.mjs 2026-08-11
+```
+
+**How it works.** The only control is one bit per physics tick (hold = steer
+right, release = drift left; the truck always accelerates), so the raw search
+tree is 2^ticks - astronomically large. The solver tames it with:
+
+- **A fixed visiting order.** On the small daily maps the fastest route visits
+  the pickups in one sensible order, so a 2-opt tour is pinned up front. That
+  turns "which pickups are done" from a 2^pickups bitmask into a single count,
+  keeping the state space linear in pickup count.
+- **A lattice over the truck's continuous state.** Position, heading, speed and
+  turn rate are bucketed; only the fastest arrival in each cell is kept. What
+  remains is a shortest-path problem solved with **hybrid A***, using an
+  admissible "remaining distance through the ordered waypoints / top speed"
+  heuristic and variable-length edges (hold one steering input until the lattice
+  cell changes, so a from-rest start still makes progress).
+- **An anytime weight ladder.** A greedy-best-first pass dives to a valid route
+  fast (even with eight pickups), then successively smaller heuristic weights
+  re-search, pruned by the best time so far, tightening toward optimal until the
+  time budget runs out. It returns the best route it reached - strong and
+  gold-medal in practice, though not a proven global optimum.
+
+Every edge is expanded with the **real physics engine** (the exact
+`updateTruck` / `resolveRockCollision` / cargo / terrain functions live play
+uses, via `game/sim.ts`), so any route found is genuinely drivable and its
+cargo never falls off. The result is verified by replaying it through a real
+`GameSession` before it's reported. The solver runs on a single core within a
+~15s budget and well under the 1.5 GB memory limit; on today's daily maps it
+reliably finds gold-medal routes. The exact same solver module runs in three
+places - the CLI above, the client's fallback Web Worker, and the server's
+precompute worker thread - so there's one implementation, not three.
+
 ## Project layout
 
 ```
 src/                frontend (compiles to dist/, loaded by the browser)
   util/     seeded RNG, value noise, vector math
   level/    procedural generation (roads, warehouses, obstacles, palette,
-            biome themes, decorative scenery) + terrain queries
+            biome themes, decorative scenery) + terrain queries; level-index.ts
+            is a road spatial index for fast exact on-road tests
   physics/  truck and cargo simulation, shared fixed-timestep constant
   game/     input handling, canvas rendering, game session/state machine,
             API client, medal thresholds, localStorage (personal bests,
-            nickname, completion history)
+            nickname, completion history); the route solver (solver.ts), its
+            headless sim (sim.ts) and Web Worker (solver-worker.ts)
     props/  one file per scenery sprite (cow, palm, tractor, windmill, …),
             with shared drawing helpers and a kind->drawer registry (index.ts)
   main.ts   DOM wiring and the render loop
 
 server/             backend (own tsconfig, compiles to server/dist/)
-  index.ts  Express app: serves the static frontend + mounts the API
-  routes.ts /api/scores/* and /api/champions handlers (submit, leaderboard,
-             single recording, champion-threshold read/backfill)
+  index.ts  Express app: serves the static frontend + mounts the API, and
+             starts the daily optimal-route precompute sweep
+  routes.ts /api/scores/*, /api/champions, and /api/optimal/:seed handlers
+             (submit, leaderboard, single recording, champion threshold,
+             precomputed optimal route)
+  optimal.ts       queues + persists precomputed daily solver routes, off the
+             request path on a worker thread; sweeps the browsable window daily
+  optimal-worker.ts worker thread that runs the client-build solver headlessly
   db.ts     Postgres queries (pg), incl. ensureSchema() run at startup
 
 db/init.sql          Postgres schema (scores + champions tables), applied

@@ -85,6 +85,18 @@ export async function ensureSchema(): Promise<void> {
      )`,
   );
   await pool.query(
+    `CREATE TABLE IF NOT EXISTS optimal_routes (
+       seed TEXT PRIMARY KEY,
+       time_seconds DOUBLE PRECISION NOT NULL,
+       stability DOUBLE PRECISION NOT NULL,
+       input_log JSONB NOT NULL,
+       ticks INTEGER,
+       method TEXT,
+       solver_ms INTEGER,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+     )`,
+  );
+  await pool.query(
     `CREATE TABLE IF NOT EXISTS run_logs (
        id BIGSERIAL PRIMARY KEY,
        nickname TEXT NOT NULL,
@@ -248,6 +260,66 @@ export async function getChampionTimes(seeds: string[]): Promise<Record<string, 
   const map: Record<string, number> = {};
   for (const row of result.rows) map[row.seed] = row.champion_time;
   return map;
+}
+
+// --- Precomputed "Optimal" solver routes -----------------------------------
+// One row per daily seed: the near-optimal route the solver found, stored in the
+// same input-log format a leaderboard ghost uses so the client can race it
+// directly. Computed ahead of time (see server/optimal.ts) so no player ever
+// waits on the ~15s solve, and frozen once written - a daily map never changes.
+
+export interface OptimalRoute {
+  seed: string;
+  time: number;
+  stability: number;
+  inputLog: number[];
+}
+
+/** The precomputed optimal route for a seed, or null if it hasn't been solved
+ * (and stored) yet. */
+export async function getOptimalRoute(seed: string): Promise<OptimalRoute | null> {
+  const result = await pool.query<{ time_seconds: number; stability: number; input_log: number[] }>(
+    `SELECT time_seconds, stability, input_log FROM optimal_routes WHERE seed = $1`,
+    [seed],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { seed, time: row.time_seconds, stability: row.stability, inputLog: row.input_log };
+}
+
+/** Stores a solved route for a seed if none is stored yet (ON CONFLICT DO
+ * NOTHING freezes the first result, so a daily map's Optimal ghost is stable).
+ * `ticks`, `method`, and `solverMs` are diagnostics. Returns whether a row was
+ * written. */
+export async function saveOptimalRoute(params: {
+  seed: string;
+  time: number;
+  stability: number;
+  inputLog: number[];
+  ticks?: number;
+  method?: string;
+  solverMs?: number;
+}): Promise<boolean> {
+  const { seed, time, stability, inputLog, ticks, method, solverMs } = params;
+  const result = await pool.query(
+    `INSERT INTO optimal_routes (seed, time_seconds, stability, input_log, ticks, method, solver_ms)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+     ON CONFLICT (seed) DO NOTHING
+     RETURNING seed`,
+    [seed, time, stability, JSON.stringify(inputLog), ticks ?? null, method ?? null, solverMs ?? null],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** Which of the given seeds already have a stored optimal route, so a precompute
+ * sweep can skip them without a query per seed. */
+export async function getSolvedSeeds(seeds: string[]): Promise<Set<string>> {
+  if (seeds.length === 0) return new Set();
+  const result = await pool.query<{ seed: string }>(
+    `SELECT seed FROM optimal_routes WHERE seed = ANY($1)`,
+    [seeds],
+  );
+  return new Set(result.rows.map((r) => r.seed));
 }
 
 export async function checkDatabaseHealth(): Promise<void> {

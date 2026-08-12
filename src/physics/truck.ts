@@ -18,8 +18,13 @@ export function createTruck(pos: Vec2, heading: number): TruckState {
   return { pos: { ...pos }, vel: v(0, 0), heading, angularVel: 0, speed: 0, radius: 14, atBoundary: false };
 }
 
-const BASE_MAX_SPEED = 260;
-const MAX_TURN_RATE = 2.6;
+// Exported so the headless solver can size its search: BASE_MAX_SPEED is the
+// truck's absolute speed ceiling (used as the per-tick distance bound in the
+// solver's admissible heuristic and to bucket speed), MAX_TURN_RATE the steering
+// extreme (used to bucket angular velocity). Keeping them here, not copied, means
+// a physics tweak can't silently desync the solver's state discretization.
+export const BASE_MAX_SPEED = 260;
+export const MAX_TURN_RATE = 2.6;
 const TURN_RESPONSIVENESS = 4.2;
 
 // Terrain-dependent accel/drag: roads let the truck build speed quickly with

@@ -28,6 +28,22 @@ CREATE TABLE IF NOT EXISTS champions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Precomputed "Optimal" solver routes: one row per daily seed, holding the
+-- near-optimal delivery route the headless solver found (server/optimal.ts),
+-- stored as the same tick-index input_log a ghost replays from. Solved ahead of
+-- time so no player waits on the ~15s search, and frozen once written (a daily
+-- map never changes). ticks/method/solver_ms are diagnostics.
+CREATE TABLE IF NOT EXISTS optimal_routes (
+  seed TEXT PRIMARY KEY,
+  time_seconds DOUBLE PRECISION NOT NULL,
+  stability DOUBLE PRECISION NOT NULL,
+  input_log JSONB NOT NULL,
+  ticks INTEGER,
+  method TEXT,
+  solver_ms INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Append-only run log: one row per run-lifecycle event, for inspecting what
 -- players actually do (e.g. why a finish never reached the leaderboard). A run
 -- emits a "started" row when it begins and one terminal row - "finished",

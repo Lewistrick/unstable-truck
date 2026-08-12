@@ -2,6 +2,7 @@ import {
     backfillChampionTime,
     fetchChampionTimes,
     fetchLeaderboard,
+    fetchOptimalRoute,
     fetchPlayerRecording,
     logRun,
     submitScore,
@@ -261,6 +262,9 @@ function refreshViewedUi(): void {
   updateWatchButton();
 
   updateModeSwitchVisibility();
+
+  // Solve this map for its Optimal ghost in the background (opt-in, daily-only).
+  requestOptimal(viewed);
 }
 
 /** The Daily/Weekly switch (pinned to the very bottom) is a progressive-disclosure
@@ -534,6 +538,63 @@ function flashPbGhost(on: boolean): void {
   renderMedalTrack();
 }
 
+/** Builds the pinned "Optimal" leaderboard row for the solver's route: a trophy
+ * rank marker, the label, and the solved time. Visually distinct via the
+ * `optimal` class. Outside watch mode it's non-interactive (it's always raced as
+ * a ghost during play); in watch mode it's a pickable racer like any leaderboard
+ * row, so it can be included in a replay. */
+function buildOptimalRow(recording: GhostRecording): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "leaderboard-row optimal";
+
+  if (watchMode) {
+    const capReached = totalWatchPicks() >= MAX_REPLAY_RACERS;
+    li.classList.add("pickable");
+    if (optimalPicked) li.classList.add("picked");
+    else if (capReached) li.classList.add("pick-disabled");
+    const check = document.createElement("span");
+    check.className = "leaderboard-check";
+    check.textContent = optimalPicked ? "✓" : "";
+    li.appendChild(check);
+    li.addEventListener("click", toggleOptimalPick);
+  } else {
+    li.title = "Computer-solved near-optimal route - raced as a ghost";
+  }
+
+  const rankEl = document.createElement("span");
+  rankEl.className = "leaderboard-rank";
+  rankEl.textContent = "\u{1F3AF}"; // 🎯
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "leaderboard-nickname";
+  nameEl.textContent = `\u{1F916} ${OPTIMAL_LABEL}`; // 🤖 Optimal
+
+  const timeEl = document.createElement("span");
+  timeEl.className = "leaderboard-time";
+  timeEl.textContent = formatTime(recording.time);
+
+  li.append(rankEl, nameEl, timeEl);
+  return li;
+}
+
+/** Total racers currently picked for a replay: leaderboard players plus the
+ * Optimal ghost if it's selected. Bounded by MAX_REPLAY_RACERS. */
+function totalWatchPicks(): number {
+  return watchSelection.size + (optimalPicked ? 1 : 0);
+}
+
+/** Toggles the Optimal ghost in/out of the replay selection, respecting the cap. */
+function toggleOptimalPick(): void {
+  if (optimalPicked) {
+    optimalPicked = false;
+  } else {
+    if (totalWatchPicks() >= MAX_REPLAY_RACERS) return;
+    optimalPicked = true;
+  }
+  updateWatchBar();
+  renderLeaderboardList();
+}
+
 function renderLeaderboardList(): void {
   // A shared orphan map has no leaderboard; keep its notice instead of painting
   // rows (still refresh the medal track, which is derived from the level).
@@ -548,17 +609,27 @@ function renderLeaderboardList(): void {
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
   leaderboardList.replaceChildren();
+
+  // The solver's Optimal route (when ?optimal=true and this map is solved) sits
+  // pinned at the very top of the board - the target time to chase. In watch mode
+  // it's a pickable racer like any other row; otherwise it's just shown (it's
+  // always raced as a ghost during play).
+  const optimal = optimalForViewed();
+  if (optimal) leaderboardList.appendChild(buildOptimalRow(optimal));
+
   if (leaderboardTop.length === 0) {
-    const li = document.createElement("li");
-    li.className = "leaderboard-empty";
-    li.textContent = "No times yet - be the first!";
-    leaderboardList.appendChild(li);
+    if (!optimal) {
+      const li = document.createElement("li");
+      li.className = "leaderboard-empty";
+      li.textContent = "No times yet - be the first!";
+      leaderboardList.appendChild(li);
+    }
     return;
   }
 
   // In watch mode, rows once the 1-5 cap is hit (and not already picked) are
-  // inert until something is deselected.
-  const capReached = watchSelection.size >= MAX_REPLAY_RACERS;
+  // inert until something is deselected. The Optimal pick counts toward the cap.
+  const capReached = totalWatchPicks() >= MAX_REPLAY_RACERS;
   for (const entry of [...leaderboardTop, ...leaderboardContext]) {
     const li = document.createElement("li");
     li.className = "leaderboard-row";
@@ -994,6 +1065,10 @@ hudTimer.addEventListener("click", () => {
 // plays those recordings back together, non-interactively, on their own screen.
 let watchMode = false;
 const watchSelection = new Set<string>();
+// Whether the solver's Optimal ghost is picked for the replay (tracked separately
+// from the nickname set, since it isn't a server player recording). Counts toward
+// the 1-5 racer cap.
+let optimalPicked = false;
 let replay: ReplayTheater | null = null;
 let replayLevel: Level | null = null;
 // The replay's own fit-all camera (kept separate from the live-play camera).
@@ -1004,6 +1079,9 @@ let replayScrubbing = false;
 let replayResumeAfterScrub = false;
 let pbGhost: GhostPlayer | null = null;
 let leaderboardGhost: GhostPlayer | null = null;
+// The solver's "Optimal" ghost, raced alongside the others when ?optimal=true and
+// the viewed map has been solved (see the optimal-solver section below).
+let optimalGhost: GhostPlayer | null = null;
 // The collection ticks of the ghost the live split time is measured against
 // (the pb ghost when it's racing, else the leaderboard ghost), or null when no
 // ghost is raced. Precomputed once per run.
@@ -1011,6 +1089,100 @@ let referenceCollectTicks: number[] | null = null;
 let active: Playable = viewed;
 let countdownElapsed = 0;
 const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
+
+// --- "Optimal" solver ghost (opt-in via ?optimal=true) ---------------------
+// With ?optimal=true, a background Web Worker solves each daily map for a
+// near-record delivery route and surfaces it as an "Optimal" leaderboard entry
+// plus an extra ghost to race. The search is a heavy single-core compute (up to
+// ~15s), so it runs off the main thread and its result is cached per seed. The
+// daily-format solver assumes only a handful of warehouses, so it's daily-only
+// (weekly maps are far too large).
+const optimalEnabled = new URLSearchParams(window.location.search).get("optimal") === "true";
+const OPTIMAL_LABEL = "Optimal";
+const optimalRecordings = new Map<string, GhostRecording>();
+const optimalPending = new Set<string>();
+let optimalWorker: Worker | null = null;
+let optimalWorkerBroken = false;
+
+/** Lazily creates the shared solver worker, or returns null if the environment
+ * can't spin up a module worker (we fall back to an on-thread solve then). */
+function getOptimalWorker(): Worker | null {
+  if (optimalWorker) return optimalWorker;
+  if (optimalWorkerBroken) return null;
+  try {
+    const w = new Worker(new URL("./game/solver-worker.js", import.meta.url), { type: "module" });
+    w.onmessage = (e: MessageEvent) => {
+      const data = e.data as { ok: boolean; seed: string; recording?: GhostRecording };
+      optimalPending.delete(data.seed);
+      if (data.ok && data.recording) receiveOptimal(data.seed, data.recording);
+    };
+    w.onerror = () => {
+      optimalWorkerBroken = true;
+    };
+    optimalWorker = w;
+    return w;
+  } catch {
+    optimalWorkerBroken = true;
+    return null;
+  }
+}
+
+/** Records a solved route and, if it's for the map on screen, repaints the board
+ * so the "Optimal" row appears. */
+function receiveOptimal(seed: string, recording: GhostRecording): void {
+  optimalRecordings.set(seed, recording);
+  if (viewed.seed === seed) renderLeaderboardList();
+}
+
+/** Kicks off (or reuses a cached) optimal route for a daily seed when
+ * ?optimal=true. Prefers the server's precomputed route (no wait); only if the
+ * server hasn't solved it yet - or is unreachable - does it fall back to solving
+ * locally. No-op for weekly maps, orphan maps, or when already solved/in flight. */
+function requestOptimal(playable: Playable): void {
+  const { seed, level } = playable;
+  if (!optimalEnabled || level.kind !== "daily") return;
+  if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
+  optimalPending.add(seed);
+
+  // Server precompute first - the common case is an instant cache hit.
+  void fetchOptimalRoute(seed).then((remote) => {
+    if (remote && Array.isArray(remote.inputLog)) {
+      optimalPending.delete(seed);
+      receiveOptimal(seed, { seed, time: remote.time, stability: remote.stability, inputLog: remote.inputLog });
+    } else {
+      solveOptimalLocally(playable);
+    }
+  });
+}
+
+/** Fallback when the server has no precomputed route (fresh day not yet solved,
+ * offline, or static hosting): solve on the client. Uses the background worker
+ * when available, else a shorter on-thread solve. Assumes `seed` is already
+ * marked pending by requestOptimal. */
+function solveOptimalLocally(playable: Playable): void {
+  const { seed, level } = playable;
+  const worker = getOptimalWorker();
+  if (worker) {
+    worker.postMessage({ seed });
+    return;
+  }
+  // No module-worker support: fall back to a shorter on-thread solve. It briefly
+  // blocks the tab, but ?optimal=true is an explicit power-user flag, and the
+  // solver module is only fetched in this fallback path.
+  void import("./game/solver.js").then(({ solve }) => {
+    const result = solve(level, { timeBudgetMs: 5000 });
+    optimalPending.delete(seed);
+    if (result.success) {
+      receiveOptimal(seed, { seed, time: result.time, stability: result.stability, inputLog: result.inputLog });
+    }
+  });
+}
+
+/** The optimal recording for the viewed seed once solved (null otherwise, or
+ * when the feature is off). */
+function optimalForViewed(): GhostRecording | null {
+  return optimalEnabled ? optimalRecordings.get(viewed.seed) ?? null : null;
+}
 
 // A `?s=<seed>` deep link opens that exact map (the matching live day/week, or a
 // generated orphan when it's expired/non-standard); otherwise start on today.
@@ -1156,6 +1328,9 @@ function beginRun(playable: Playable): void {
     selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
       ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
       : null;
+  // The Optimal ghost races whenever it's been solved for this map (?optimal=true).
+  const optimalRec = optimalEnabled ? optimalRecordings.get(playable.seed) : undefined;
+  optimalGhost = optimalRec ? new GhostPlayer(playable.level, optimalRec) : null;
 
   // Live split time is measured against the pb ghost whenever it's racing (even
   // alongside a leaderboard ghost); otherwise the leaderboard ghost if that's
@@ -1309,6 +1484,7 @@ function goHome(): void {
   setMenuOpen(false);
   session = null;
   pbGhost = null;
+  optimalGhost = null;
   leaderboardGhost = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
@@ -1400,16 +1576,17 @@ function updateWatchButton(): void {
 }
 
 /** The pick-bar's prompt and "Show replay" label are static; this just gates the
- * button on having picked at least one ghost (capped at MAX_REPLAY_RACERS by
- * toggleWatchPick). */
+ * button on having picked at least one racer - a leaderboard player or the
+ * Optimal ghost (capped at MAX_REPLAY_RACERS by the toggles). */
 function updateWatchBar(): void {
-  replayStartBtn.disabled = watchSelection.size < 1;
+  replayStartBtn.disabled = totalWatchPicks() < 1;
 }
 
 function enterWatchMode(): void {
   if (viewed.personalBest == null) return; // gated, mirrors the button state
   watchMode = true;
   watchSelection.clear();
+  optimalPicked = false;
   watchBtn.classList.add("hidden");
   replaySelectBar.classList.remove("hidden");
   // Reset any leftover prompt/label from a prior aborted attempt.
@@ -1422,35 +1599,44 @@ function exitWatchMode(): void {
   if (!watchMode) return;
   watchMode = false;
   watchSelection.clear();
+  optimalPicked = false;
   replaySelectBar.classList.add("hidden");
   watchBtn.classList.remove("hidden");
   renderLeaderboardList();
 }
 
-/** Toggles a player into/out of the replay selection, capped at 5. */
+/** Toggles a player into/out of the replay selection, capped at 5 (the Optimal
+ * ghost, if picked, counts toward that cap). */
 function toggleWatchPick(nickname: string): void {
   if (watchSelection.has(nickname)) {
     watchSelection.delete(nickname);
   } else {
-    if (watchSelection.size >= MAX_REPLAY_RACERS) return;
+    if (totalWatchPicks() >= MAX_REPLAY_RACERS) return;
     watchSelection.add(nickname);
   }
   updateWatchBar();
   renderLeaderboardList();
 }
 
-/** Fetches the selected players' recordings and opens the replay theater. */
+/** Fetches the selected players' recordings and opens the replay theater. The
+ * picked Optimal ghost (if any) is included directly from its solved recording -
+ * no fetch, since it isn't a server player. */
 async function startReplay(): Promise<void> {
   const seed = viewed.seed;
   const level = viewed.level;
   const nicknames = [...watchSelection];
-  if (nicknames.length === 0) return;
+  const optimalRecording = optimalPicked ? optimalRecordings.get(seed) : undefined;
+  if (nicknames.length === 0 && !optimalRecording) return;
 
   replayStartBtn.disabled = true;
   replayStartBtn.textContent = "Loading…";
   const recordings = await Promise.all(nicknames.map((n) => fetchPlayerRecording(seed, n)));
 
   const racers: ReplayRacer[] = [];
+  // The Optimal ghost leads the pack (first colour) when picked.
+  if (optimalRecording) {
+    racers.push({ label: OPTIMAL_LABEL, color: REPLAY_COLORS[0]!, recording: optimalRecording });
+  }
   recordings.forEach((rec, i) => {
     if (rec) racers.push({ label: nicknames[i]!, color: REPLAY_COLORS[racers.length]!, recording: rec });
   });
@@ -1691,6 +1877,9 @@ function renderScene(activeSession: GameSession, frameDt: number): void {
   updateCamera(camera, activeSession.truck, frameDt);
   const ghostViews: GhostView[] = [];
   if (pbGhost) ghostViews.push({ truck: pbGhost.truck, cargoBoxes: pbGhost.cargoBoxes, label: "pb" });
+  if (optimalGhost) {
+    ghostViews.push({ truck: optimalGhost.truck, cargoBoxes: optimalGhost.cargoBoxes, label: "optimal" });
+  }
   if (leaderboardGhost) {
     ghostViews.push({
       truck: leaderboardGhost.truck,
@@ -1763,6 +1952,7 @@ function frame(now: number): void {
       while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
         session.update(FIXED_DT, input.held);
         pbGhost?.update(FIXED_DT);
+        optimalGhost?.update(FIXED_DT);
         leaderboardGhost?.update(FIXED_DT);
         accumulator -= FIXED_DT;
         steps++;

@@ -2,6 +2,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkDatabaseHealth, ensureSchema, pruneOldRunLogs } from "./db.js";
+import { startPrecomputeSchedule } from "./optimal.js";
 import { scoresRouter } from "./routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,9 +43,17 @@ const port = Number(process.env.PORT) || 8080;
 // Ensure newer tables exist (init.sql only runs on first DB init) before
 // serving. Best-effort: a DB hiccup here shouldn't stop the app from booting,
 // since scoring is already resilient to the DB being unreachable.
-ensureSchema().catch((err) => {
-  console.error("Schema check failed:", (err as Error).message);
-});
+ensureSchema()
+  .then(() => {
+    // Once the optimal_routes table is guaranteed to exist, begin precomputing
+    // (and daily-refreshing) the "Optimal" solver route for every browsable
+    // daily map, so players never wait on the solve. Best-effort and off the
+    // request path (it runs on a worker thread).
+    startPrecomputeSchedule();
+  })
+  .catch((err) => {
+    console.error("Schema check failed:", (err as Error).message);
+  });
 
 // Retention: drop run_logs rows older than 7 days, at boot and once a day after.
 // Best-effort - a failure just leaves old rows for the next sweep.
