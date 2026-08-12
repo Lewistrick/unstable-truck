@@ -361,13 +361,20 @@ opens the same help overlay.
 The game ships a headless solver that computes a near-record route for a daily
 map and races it as an extra **Optimal** ghost.
 
-Add `?optimal=true` to the URL. On each daily map you browse, a background Web
-Worker solves that seed for a fast delivery route; when it finishes, an
-**Optimal** row (🤖, gold-tinted) is pinned to the top of the leaderboard, and
-whenever you play that map the solved route drives alongside you as a ghost
-labelled "optimal". Weekly maps are far too large for the daily-format solver, so
-it stays daily-only; the search runs off the main thread, so the page never
-janks while it thinks.
+Add `?optimal=true` to the URL. On each daily map you browse, an **Optimal** row
+(🤖, gold-tinted) is pinned to the top of the leaderboard, and whenever you play
+that map the solved route drives alongside you as a ghost labelled "optimal".
+Weekly maps are far too large for the daily-format solver, so it stays daily-only.
+
+**Routes are precomputed, so nobody waits on the solve.** The server solves every
+browsable daily map ahead of time on a worker thread and stores the route in
+Postgres (`optimal_routes` table); the client just fetches it from
+`GET /api/optimal/:seed`. A startup sweep fills the whole window (today first,
+then a couple of days ahead, then 30 days back) and re-runs daily so each new
+day is solved automatically. If the server hasn't solved a map yet (a brand-new
+day before the sweep reaches it) or is unreachable (offline/static hosting), the
+client falls back to solving locally in a background Web Worker that one time, so
+the page never janks.
 
 You can also run the solver from the command line, which prints the toggle-tick
 input log (the exact array a ghost recording stores) to stdout:
@@ -402,7 +409,9 @@ uses, via `game/sim.ts`), so any route found is genuinely drivable and its
 cargo never falls off. The result is verified by replaying it through a real
 `GameSession` before it's reported. The solver runs on a single core within a
 ~15s budget and well under the 1.5 GB memory limit; on today's daily maps it
-reliably finds gold-medal routes.
+reliably finds gold-medal routes. The exact same solver module runs in three
+places - the CLI above, the client's fallback Web Worker, and the server's
+precompute worker thread - so there's one implementation, not three.
 
 ## Project layout
 
@@ -422,9 +431,14 @@ src/                frontend (compiles to dist/, loaded by the browser)
   main.ts   DOM wiring and the render loop
 
 server/             backend (own tsconfig, compiles to server/dist/)
-  index.ts  Express app: serves the static frontend + mounts the API
-  routes.ts /api/scores/* and /api/champions handlers (submit, leaderboard,
-             single recording, champion-threshold read/backfill)
+  index.ts  Express app: serves the static frontend + mounts the API, and
+             starts the daily optimal-route precompute sweep
+  routes.ts /api/scores/*, /api/champions, and /api/optimal/:seed handlers
+             (submit, leaderboard, single recording, champion threshold,
+             precomputed optimal route)
+  optimal.ts       queues + persists precomputed daily solver routes, off the
+             request path on a worker thread; sweeps the browsable window daily
+  optimal-worker.ts worker thread that runs the client-build solver headlessly
   db.ts     Postgres queries (pg), incl. ensureSchema() run at startup
 
 db/init.sql          Postgres schema (scores + champions tables), applied

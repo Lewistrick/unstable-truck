@@ -3,6 +3,7 @@ import {
   backfillChampionTime,
   getChampionTime,
   getChampionTimes,
+  getOptimalRoute,
   getScore,
   getSeedLeaderboard,
   listRuns,
@@ -11,6 +12,7 @@ import {
   upsertScoreIfBetter,
   type RunStatus,
 } from "./db.js";
+import { ensureOptimalRoute } from "./optimal.js";
 
 export const scoresRouter = Router();
 
@@ -226,6 +228,31 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
   }
 
   res.json({ seed, top, context, championTime, total: all.length });
+});
+
+/** The precomputed near-optimal solver route for a daily seed, as a ghost
+ * recording the client can race. Returns 404 when it hasn't been solved yet and
+ * kicks off a background solve (the client falls back to solving locally that
+ * once); the sweep in server/optimal.ts keeps the whole window filled so this is
+ * usually a cache hit. Daily maps only - the solver targets the daily format. */
+scoresRouter.get("/api/optimal/:seed", async (req: Request<{ seed: string }>, res) => {
+  const { seed } = req.params;
+  if (!DAILY_SEED_PATTERN.test(seed)) {
+    res.status(400).json({ error: "optimal routes are only computed for daily (YYYY-MM-DD) seeds" });
+    return;
+  }
+  try {
+    const route = await getOptimalRoute(seed);
+    if (route) {
+      res.json(route);
+      return;
+    }
+    void ensureOptimalRoute(seed); // start solving in the background for next time
+    res.status(404).json({ error: "not computed yet" });
+  } catch (err) {
+    console.error(`optimal route lookup failed for seed ${seed}:`, (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
+  }
 });
 
 /** A specific player's full recording for a seed, for racing their ghost. */

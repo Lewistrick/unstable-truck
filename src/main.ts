@@ -2,6 +2,7 @@ import {
     backfillChampionTime,
     fetchChampionTimes,
     fetchLeaderboard,
+    fetchOptimalRoute,
     fetchPlayerRecording,
     logRun,
     submitScore,
@@ -1095,15 +1096,33 @@ function receiveOptimal(seed: string, recording: GhostRecording): void {
   if (viewed.seed === seed) renderLeaderboardList();
 }
 
-/** Kicks off (or reuses a cached) optimal solve for a daily seed when
- * ?optimal=true. No-op for weekly maps, orphan maps, or when already solved/in
- * flight. */
+/** Kicks off (or reuses a cached) optimal route for a daily seed when
+ * ?optimal=true. Prefers the server's precomputed route (no wait); only if the
+ * server hasn't solved it yet - or is unreachable - does it fall back to solving
+ * locally. No-op for weekly maps, orphan maps, or when already solved/in flight. */
 function requestOptimal(playable: Playable): void {
   const { seed, level } = playable;
   if (!optimalEnabled || level.kind !== "daily") return;
   if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
   optimalPending.add(seed);
 
+  // Server precompute first - the common case is an instant cache hit.
+  void fetchOptimalRoute(seed).then((remote) => {
+    if (remote && Array.isArray(remote.inputLog)) {
+      optimalPending.delete(seed);
+      receiveOptimal(seed, { seed, time: remote.time, stability: remote.stability, inputLog: remote.inputLog });
+    } else {
+      solveOptimalLocally(playable);
+    }
+  });
+}
+
+/** Fallback when the server has no precomputed route (fresh day not yet solved,
+ * offline, or static hosting): solve on the client. Uses the background worker
+ * when available, else a shorter on-thread solve. Assumes `seed` is already
+ * marked pending by requestOptimal. */
+function solveOptimalLocally(playable: Playable): void {
+  const { seed, level } = playable;
   const worker = getOptimalWorker();
   if (worker) {
     worker.postMessage({ seed });
