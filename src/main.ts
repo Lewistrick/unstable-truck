@@ -539,12 +539,27 @@ function flashPbGhost(on: boolean): void {
 }
 
 /** Builds the pinned "Optimal" leaderboard row for the solver's route: a trophy
- * rank marker, the label, and the solved time. Non-interactive (it's always
- * raced, not selected) and visually distinct via the `optimal` class. */
+ * rank marker, the label, and the solved time. Visually distinct via the
+ * `optimal` class. Outside watch mode it's non-interactive (it's always raced as
+ * a ghost during play); in watch mode it's a pickable racer like any leaderboard
+ * row, so it can be included in a replay. */
 function buildOptimalRow(recording: GhostRecording): HTMLLIElement {
   const li = document.createElement("li");
   li.className = "leaderboard-row optimal";
-  li.title = "Computer-solved near-optimal route - raced as a ghost";
+
+  if (watchMode) {
+    const capReached = totalWatchPicks() >= MAX_REPLAY_RACERS;
+    li.classList.add("pickable");
+    if (optimalPicked) li.classList.add("picked");
+    else if (capReached) li.classList.add("pick-disabled");
+    const check = document.createElement("span");
+    check.className = "leaderboard-check";
+    check.textContent = optimalPicked ? "✓" : "";
+    li.appendChild(check);
+    li.addEventListener("click", toggleOptimalPick);
+  } else {
+    li.title = "Computer-solved near-optimal route - raced as a ghost";
+  }
 
   const rankEl = document.createElement("span");
   rankEl.className = "leaderboard-rank";
@@ -560,6 +575,24 @@ function buildOptimalRow(recording: GhostRecording): HTMLLIElement {
 
   li.append(rankEl, nameEl, timeEl);
   return li;
+}
+
+/** Total racers currently picked for a replay: leaderboard players plus the
+ * Optimal ghost if it's selected. Bounded by MAX_REPLAY_RACERS. */
+function totalWatchPicks(): number {
+  return watchSelection.size + (optimalPicked ? 1 : 0);
+}
+
+/** Toggles the Optimal ghost in/out of the replay selection, respecting the cap. */
+function toggleOptimalPick(): void {
+  if (optimalPicked) {
+    optimalPicked = false;
+  } else {
+    if (totalWatchPicks() >= MAX_REPLAY_RACERS) return;
+    optimalPicked = true;
+  }
+  updateWatchBar();
+  renderLeaderboardList();
 }
 
 function renderLeaderboardList(): void {
@@ -578,13 +611,14 @@ function renderLeaderboardList(): void {
   leaderboardList.replaceChildren();
 
   // The solver's Optimal route (when ?optimal=true and this map is solved) sits
-  // pinned at the very top of the board - it's the target time to chase, and it's
-  // always raced as a ghost, so it's shown outside watch-mode selection.
+  // pinned at the very top of the board - the target time to chase. In watch mode
+  // it's a pickable racer like any other row; otherwise it's just shown (it's
+  // always raced as a ghost during play).
   const optimal = optimalForViewed();
-  if (optimal && !watchMode) leaderboardList.appendChild(buildOptimalRow(optimal));
+  if (optimal) leaderboardList.appendChild(buildOptimalRow(optimal));
 
   if (leaderboardTop.length === 0) {
-    if (!optimal || watchMode) {
+    if (!optimal) {
       const li = document.createElement("li");
       li.className = "leaderboard-empty";
       li.textContent = "No times yet - be the first!";
@@ -594,8 +628,8 @@ function renderLeaderboardList(): void {
   }
 
   // In watch mode, rows once the 1-5 cap is hit (and not already picked) are
-  // inert until something is deselected.
-  const capReached = watchSelection.size >= MAX_REPLAY_RACERS;
+  // inert until something is deselected. The Optimal pick counts toward the cap.
+  const capReached = totalWatchPicks() >= MAX_REPLAY_RACERS;
   for (const entry of [...leaderboardTop, ...leaderboardContext]) {
     const li = document.createElement("li");
     li.className = "leaderboard-row";
@@ -1031,6 +1065,10 @@ hudTimer.addEventListener("click", () => {
 // plays those recordings back together, non-interactively, on their own screen.
 let watchMode = false;
 const watchSelection = new Set<string>();
+// Whether the solver's Optimal ghost is picked for the replay (tracked separately
+// from the nickname set, since it isn't a server player recording). Counts toward
+// the 1-5 racer cap.
+let optimalPicked = false;
 let replay: ReplayTheater | null = null;
 let replayLevel: Level | null = null;
 // The replay's own fit-all camera (kept separate from the live-play camera).
@@ -1538,16 +1576,17 @@ function updateWatchButton(): void {
 }
 
 /** The pick-bar's prompt and "Show replay" label are static; this just gates the
- * button on having picked at least one ghost (capped at MAX_REPLAY_RACERS by
- * toggleWatchPick). */
+ * button on having picked at least one racer - a leaderboard player or the
+ * Optimal ghost (capped at MAX_REPLAY_RACERS by the toggles). */
 function updateWatchBar(): void {
-  replayStartBtn.disabled = watchSelection.size < 1;
+  replayStartBtn.disabled = totalWatchPicks() < 1;
 }
 
 function enterWatchMode(): void {
   if (viewed.personalBest == null) return; // gated, mirrors the button state
   watchMode = true;
   watchSelection.clear();
+  optimalPicked = false;
   watchBtn.classList.add("hidden");
   replaySelectBar.classList.remove("hidden");
   // Reset any leftover prompt/label from a prior aborted attempt.
@@ -1560,35 +1599,44 @@ function exitWatchMode(): void {
   if (!watchMode) return;
   watchMode = false;
   watchSelection.clear();
+  optimalPicked = false;
   replaySelectBar.classList.add("hidden");
   watchBtn.classList.remove("hidden");
   renderLeaderboardList();
 }
 
-/** Toggles a player into/out of the replay selection, capped at 5. */
+/** Toggles a player into/out of the replay selection, capped at 5 (the Optimal
+ * ghost, if picked, counts toward that cap). */
 function toggleWatchPick(nickname: string): void {
   if (watchSelection.has(nickname)) {
     watchSelection.delete(nickname);
   } else {
-    if (watchSelection.size >= MAX_REPLAY_RACERS) return;
+    if (totalWatchPicks() >= MAX_REPLAY_RACERS) return;
     watchSelection.add(nickname);
   }
   updateWatchBar();
   renderLeaderboardList();
 }
 
-/** Fetches the selected players' recordings and opens the replay theater. */
+/** Fetches the selected players' recordings and opens the replay theater. The
+ * picked Optimal ghost (if any) is included directly from its solved recording -
+ * no fetch, since it isn't a server player. */
 async function startReplay(): Promise<void> {
   const seed = viewed.seed;
   const level = viewed.level;
   const nicknames = [...watchSelection];
-  if (nicknames.length === 0) return;
+  const optimalRecording = optimalPicked ? optimalRecordings.get(seed) : undefined;
+  if (nicknames.length === 0 && !optimalRecording) return;
 
   replayStartBtn.disabled = true;
   replayStartBtn.textContent = "Loading…";
   const recordings = await Promise.all(nicknames.map((n) => fetchPlayerRecording(seed, n)));
 
   const racers: ReplayRacer[] = [];
+  // The Optimal ghost leads the pack (first colour) when picked.
+  if (optimalRecording) {
+    racers.push({ label: OPTIMAL_LABEL, color: REPLAY_COLORS[0]!, recording: optimalRecording });
+  }
   recordings.forEach((rec, i) => {
     if (rec) racers.push({ label: nicknames[i]!, color: REPLAY_COLORS[racers.length]!, recording: rec });
   });

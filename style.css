@@ -703,6 +703,11 @@ body {
   cursor: default;
 }
 
+/* In watch mode the Optimal row is a pickable racer, so it takes a pointer. */
+.leaderboard-row.optimal.pickable {
+  cursor: pointer;
+}
+
 .leaderboard-row.optimal .leaderboard-rank,
 .leaderboard-row.optimal .leaderboard-time {
   color: #ffd873;

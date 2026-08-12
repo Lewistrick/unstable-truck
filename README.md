@@ -138,7 +138,10 @@ What's implemented:
 - Replay theater: watch 1–5 leaderboard runs race each other, non-interactively.
   A "Create a replay" button under the leaderboard (unlocked by the same
   personal-best gate as ghost racing) turns the list into a picker ("select
-  ghosts") — tap up to five players, then Show replay (or Cancel). The chosen recordings play back together on their
+  ghosts") — tap up to five racers, then Show replay (or Cancel). With
+  `?optimal=true`, the pinned **Optimal** row is selectable here too, so the
+  solver's route can race in the theater alongside real players (it counts toward
+  the five-racer cap). The chosen recordings play back together on their
   own screen with a video-style player: play/pause, a **seekable** progress bar
   (replay is deterministic, so scrubbing re-simulates each racer to that exact
   point), and a ■ stop button to return to the menu. The camera auto-frames the whole pack
@@ -363,8 +366,10 @@ map and races it as an extra **Optimal** ghost.
 
 Add `?optimal=true` to the URL. On each daily map you browse, an **Optimal** row
 (🤖, gold-tinted) is pinned to the top of the leaderboard, and whenever you play
-that map the solved route drives alongside you as a ghost labelled "optimal".
-Weekly maps are far too large for the daily-format solver, so it stays daily-only.
+that map the solved route drives alongside you as a ghost labelled "optimal". It
+can also be picked in the replay theater, so the solver's route can race against
+real players. Weekly maps are far too large for the daily-format solver, so it
+stays daily-only.
 
 **Routes are precomputed, so nobody waits on the solve.** The server solves every
 browsable daily map ahead of time on a worker thread and stores the route in
