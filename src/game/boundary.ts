@@ -130,11 +130,22 @@ interface RailSeg {
   a: number;
   w: number;
 }
-interface Vein {
+interface Facet {
   a: number;
-  y: number;
-  dx: number;
-  dy: number;
+  p: number;
+  pts: { x: number; y: number }[];
+  fill: string;
+}
+interface Poly {
+  a: number;
+  p: number;
+  pts: { x: number; y: number }[];
+}
+interface Speck {
+  a: number;
+  p: number;
+  r: number;
+  light: boolean;
 }
 interface Wave {
   wl1: number;
@@ -155,9 +166,12 @@ interface EdgeGeom {
   posts?: number[];
   rails?: RailSeg[];
   planks?: Plank[];
-  jag?: number[];
-  veins?: Vein[];
-  lava?: number[];
+  jag?: number[]; // inner (into-map) jagged edge of the rock ledge
+  outer?: number[]; // outer lip of the ledge (slightly overhanging the chasm)
+  facets?: Facet[]; // tonal rock planes
+  cracks?: Poly[]; // wandering shadow cracks
+  speckles?: Speck[]; // grit
+  lava?: Poly[]; // glowing seams (volcanic)
   wave?: Wave;
   lights?: Light[];
 }
@@ -176,7 +190,9 @@ interface BoundaryColors {
   water?: string;
   foam?: string;
   rock?: string;
-  vein?: string;
+  crack?: string;
+  grit?: string;
+  lip?: string;
 }
 interface BoundaryGeom {
   kind: BoundaryKind;
@@ -202,9 +218,11 @@ const DISC_TANG = 8;
 const FENCE_POST_SPACING = 64;
 const FENCE_SEG = 22;
 const FENCE_BREAK = 0.11;
-const CLIFF_LEDGE = 22;
+const CLIFF_LEDGE = 24;
 const CLIFF_STEP = 24;
-const CLIFF_VEIN = 16;
+const CLIFF_FACET = 15;
+const CLIFF_CRACK_CELL = 46;
+const CLIFF_SPECK = 16;
 const CANDY_SPACING = 56;
 const FEST_LIGHT = 22;
 const CORE_W: Record<string, number> = { hedge: 26, crater: 22, snow: 24 };
@@ -256,23 +274,95 @@ function buildFence(seed: string, edge: number, len: number): EdgeGeom {
   return { posts, rails, planks };
 }
 
-function buildCliff(seed: string, style: BoundaryStyle, edge: number, len: number): EdgeGeom {
+/** A short wandering polyline (random-walk) starting somewhere in `[cellBase,
+ * cellBase+cellSize)` along the edge and on the rock ledge - used for cracks and
+ * lava seams so they meander instead of sitting as straight, even strokes. */
+function makeWander(rng: Rng, cellBase: number, cellSize: number): Poly {
+  const a = cellBase + rng() * cellSize;
+  const p = 3 + rng() * (CLIFF_LEDGE - 6);
+  let ang = (rng() * 2 - 1) * 1.3;
+  let px = 0;
+  let py = 0;
+  const pts = [{ x: 0, y: 0 }];
+  const segs = 2 + Math.floor(rng() * 3);
+  for (let s = 0; s < segs; s++) {
+    ang += (rng() - 0.5) * 1.5;
+    const step = 5 + rng() * 8;
+    px += Math.cos(ang) * step;
+    py += Math.sin(ang) * step * 0.75;
+    pts.push({ x: px, y: py });
+  }
+  return { a, p, pts };
+}
+
+// Builds a rocky ledge: a jagged inner edge and slightly overhanging outer lip,
+// filled with irregular tonal facets (rock planes catching light differently),
+// wandering shadow cracks at non-uniform positions, and scattered grit - so it
+// reads as stone rather than a flat band with even stripes.
+function buildCliff(
+  seed: string,
+  style: BoundaryStyle,
+  edge: number,
+  len: number,
+  base: { h: number; s: number; l: number },
+): EdgeGeom {
   const jag: number[] = [];
+  const outer: number[] = [];
   const cells = Math.ceil(len / CLIFF_STEP) + 1;
   for (let i = 0; i <= cells; i++) {
     const rng = keyRng(seed, `cliff:${edge}:${i}`);
     jag.push(CLIFF_LEDGE + (rng() * 16 - 6));
+    outer.push(-2 - rng() * 5);
   }
-  // Veins sit ON the rock ledge (inside the ledge band, y in [~4, LEDGE-2]) so
-  // they read as cracks on the rock face rather than floating in the chasm.
-  const veins: Vein[] = [];
-  for (let i = 0; i * CLIFF_VEIN <= len; i++) {
-    const rng = keyRng(seed, `cvein:${edge}:${i}`);
-    veins.push({ a: i * CLIFF_VEIN, y: 4 + rng() * 4, dx: (rng() - 0.5) * 8, dy: 6 + rng() * 8 });
+
+  const facets: Facet[] = [];
+  for (let i = 0; i * CLIFF_FACET <= len; i++) {
+    const rng = keyRng(seed, `cface:${edge}:${i}`);
+    const a = i * CLIFF_FACET + (rng() - 0.5) * CLIFF_FACET * 0.9;
+    const p = 2 + rng() * (CLIFF_LEDGE - 4);
+    const rad = 6 + rng() * 9;
+    const nv = 4 + Math.floor(rng() * 3); // 4-6 sided shard
+    const start = rng() * Math.PI * 2;
+    const pts: { x: number; y: number }[] = [];
+    for (let k = 0; k < nv; k++) {
+      const ang = start + (k / nv) * Math.PI * 2 + (rng() - 0.5) * 0.6;
+      const rr = rad * (0.7 + rng() * 0.6);
+      pts.push({ x: Math.cos(ang) * rr, y: Math.sin(ang) * rr * 0.66 }); // squashed along the band
+    }
+    const dl = rng() * 2 - 1;
+    const fill = hsl(base.h + (rng() - 0.5) * 10, base.s + (rng() - 0.5) * 10, base.l + (dl < 0 ? dl * 15 : dl * 18));
+    facets.push({ a, p, pts, fill });
   }
-  const lava: number[] | undefined = style.lava ? [] : undefined;
-  if (lava) for (let i = 0; i * 60 <= len; i++) lava.push(i * 60);
-  return { jag, veins, lava };
+
+  const cracks: Poly[] = [];
+  for (let i = 0; i * CLIFF_CRACK_CELL <= len; i++) {
+    const rng = keyRng(seed, `ccrack:${edge}:${i}`);
+    const count = rng() < 0.55 ? 1 : rng() < 0.75 ? 2 : 0;
+    for (let c = 0; c < count; c++) cracks.push(makeWander(rng, i * CLIFF_CRACK_CELL, CLIFF_CRACK_CELL));
+  }
+
+  const speckles: Speck[] = [];
+  for (let i = 0; i * CLIFF_SPECK <= len; i++) {
+    const rng = keyRng(seed, `cspk:${edge}:${i}`);
+    if (rng() < 0.45) continue;
+    speckles.push({
+      a: i * CLIFF_SPECK + (rng() - 0.5) * CLIFF_SPECK,
+      p: 2 + rng() * (CLIFF_LEDGE - 3),
+      r: 0.6 + rng() * 1.3,
+      light: rng() < 0.5,
+    });
+  }
+
+  let lava: Poly[] | undefined;
+  if (style.lava) {
+    lava = [];
+    for (let i = 0; i * 70 <= len; i++) {
+      const rng = keyRng(seed, `clava:${edge}:${i}`);
+      if (rng() < 0.5) lava.push(makeWander(rng, i * 70, 70));
+    }
+  }
+
+  return { jag, outer, facets, cracks, speckles, lava };
 }
 
 function buildWave(seed: string, tag: string, edge: number, base: number): Wave {
@@ -353,12 +443,16 @@ export function buildBoundaryGeometry(level: Level): BoundaryGeom {
       colors.foam = style.foam!;
       for (let e = 0; e < 4; e++) edges[e] = { wave: buildWave(seed, "shore", e, 110) };
       break;
-    case "cliff":
-      colors.rock = shift(level.palette.rock, 0, 10);
-      colors.shadow = shift(level.palette.rock, 0, -16);
-      colors.vein = shift(level.palette.rock, -6, 26);
-      for (let e = 0; e < 4; e++) edges[e] = buildCliff(seed, style, e, lens[e]!);
+    case "cliff": {
+      const base = parseHsl(level.palette.rock);
+      colors.rock = hsl(base.h, base.s, Math.min(80, base.l + 6));
+      colors.shadow = hsl(base.h, base.s + 4, Math.max(10, base.l - 18));
+      colors.crack = hsl(base.h, base.s + 8, Math.max(8, base.l - 24));
+      colors.grit = hsl(base.h, Math.max(0, base.s - 6), Math.min(92, base.l + 30));
+      colors.lip = hsl(base.h, base.s, Math.min(90, base.l + 22));
+      for (let e = 0; e < 4; e++) edges[e] = buildCliff(seed, style, e, lens[e]!, base);
       break;
+    }
     case "festive":
       for (let e = 0; e < 4; e++) edges[e] = buildFestive(seed, e, lens[e]!);
       break;
@@ -526,50 +620,97 @@ function drawShoreEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, ge
   }
 }
 
+function tracePoly(ctx: CanvasRenderingContext2D, a: number, p: number, pts: { x: number; y: number }[]): void {
+  ctx.beginPath();
+  for (let k = 0; k < pts.length; k++) {
+    const px = a + pts[k]!.x;
+    const py = p + pts[k]!.y;
+    k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+}
+
 function drawCliffEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, geom: BoundaryGeom, edge: number): void {
   const eg = geom.edges[edge]!;
   const jag = eg.jag!;
-  const { rock, shadow, vein } = geom.colors;
-  const i0 = Math.max(0, Math.floor(x0 / CLIFF_STEP));
-  const i1 = Math.min(jag.length - 1, Math.ceil(x1 / CLIFF_STEP));
-  if (i1 > i0) {
+  const outer = eg.outer!;
+  const { rock, shadow, crack, grit, lip } = geom.colors;
+  const step = CLIFF_STEP;
+  const i0 = Math.max(0, Math.floor(x0 / step));
+  const i1 = Math.min(jag.length - 1, Math.ceil(x1 / step));
+  if (i1 <= i0) return;
+
+  // The ledge outline: outer lip along the top, jagged inner edge along the bottom.
+  const band = (): void => {
     ctx.beginPath();
-    ctx.moveTo(i0 * CLIFF_STEP, -3);
-    ctx.lineTo(i1 * CLIFF_STEP, -3);
-    for (let i = i1; i >= i0; i--) ctx.lineTo(i * CLIFF_STEP, jag[i]!);
+    ctx.moveTo(i0 * step, outer[i0]!);
+    for (let i = i0 + 1; i <= i1; i++) ctx.lineTo(i * step, outer[i]!);
+    for (let i = i1; i >= i0; i--) ctx.lineTo(i * step, jag[i]!);
     ctx.closePath();
-    ctx.fillStyle = rock!;
+  };
+
+  band();
+  ctx.fillStyle = rock!;
+  ctx.fill();
+
+  // Everything textured is clipped to the ledge so nothing spills into the map
+  // or the chasm.
+  ctx.save();
+  band();
+  ctx.clip();
+
+  for (const f of eg.facets!) {
+    if (f.a < x0 - 20 || f.a > x1 + 20) continue;
+    ctx.fillStyle = f.fill;
+    tracePoly(ctx, f.a, f.p, f.pts);
+    ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = shadow!;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    for (let i = i0; i <= i1; i++) {
-      const y = jag[i]!;
-      i === i0 ? ctx.moveTo(i * CLIFF_STEP, y) : ctx.lineTo(i * CLIFF_STEP, y);
-    }
-    ctx.stroke();
   }
-  // Veins/cracks on the rock ledge itself (inside the ledge, not out in the void).
-  ctx.strokeStyle = vein!;
-  ctx.lineWidth = 1.5;
-  for (const v of eg.veins!) {
-    if (v.a < x0 || v.a > x1) continue;
-    ctx.beginPath();
-    ctx.moveTo(v.a, v.y);
-    ctx.lineTo(v.a + v.dx, v.y + v.dy);
+  for (const s of eg.speckles!) {
+    if (s.a < x0 || s.a > x1) continue;
+    disc(ctx, s.a, s.p, s.r, s.light ? grit! : crack!);
+  }
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = crack!;
+  ctx.lineWidth = 1.4;
+  for (const cr of eg.cracks!) {
+    if (cr.a < x0 - 20 || cr.a > x1 + 20) continue;
+    tracePoly(ctx, cr.a, cr.p, cr.pts);
     ctx.stroke();
   }
   if (eg.lava) {
-    ctx.strokeStyle = "rgba(255, 110, 40, 0.85)";
-    ctx.lineWidth = 2;
-    for (const a of eg.lava) {
-      if (a < x0 || a > x1) continue;
-      ctx.beginPath();
-      ctx.moveTo(a - 6, 4);
-      ctx.lineTo(a + 5, 9);
+    for (const lv of eg.lava) {
+      if (lv.a < x0 - 20 || lv.a > x1 + 20) continue;
+      ctx.strokeStyle = "rgba(255, 110, 35, 0.85)";
+      ctx.lineWidth = 3;
+      tracePoly(ctx, lv.a, lv.p, lv.pts);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255, 225, 140, 0.95)"; // hot core
+      ctx.lineWidth = 1.1;
+      tracePoly(ctx, lv.a, lv.p, lv.pts);
       ctx.stroke();
     }
   }
+  ctx.restore();
+
+  // A lit lip catching light and a dark inner line where the ledge meets the map.
+  ctx.lineCap = "round";
+  ctx.strokeStyle = lip!;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = i0; i <= i1; i++) {
+    const y = outer[i]!;
+    i === i0 ? ctx.moveTo(i * step, y) : ctx.lineTo(i * step, y);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = shadow!;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i = i0; i <= i1; i++) {
+    const y = jag[i]!;
+    i === i0 ? ctx.moveTo(i * step, y) : ctx.lineTo(i * step, y);
+  }
+  ctx.stroke();
 }
 
 function drawBarrierEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number): void {
