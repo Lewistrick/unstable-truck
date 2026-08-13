@@ -324,7 +324,10 @@ function currentStreak(completed: Set<string>): number {
 function renderProgressStrip(): void {
   const completed = loadCompletedDays();
   const streak = currentStreak(completed);
-  streakBadge.textContent = streak > 0 ? `\u{1F525} ${streak}-day streak` : "";
+  // Hide the streak counter entirely until there's a streak to show.
+  const hasStreak = streak > 0;
+  streakBadge.textContent = hasStreak ? `\u{1F525} ${streak}-day streak` : "";
+  streakBadge.classList.toggle("hidden", !hasStreak);
 
   dayDots.replaceChildren();
   for (let offset = -STREAK_STRIP_DAYS; offset <= 0; offset++) {
@@ -344,7 +347,6 @@ function renderProgressStrip(): void {
       dot.addEventListener("mouseenter", () => dot.classList.add("pulsing"));
       dot.addEventListener("animationend", () => dot.classList.remove("pulsing"));
     }
-    if (offset === 0) dot.classList.add("today");
     dot.title = medal ? `${seed} - ${MEDAL_LABEL[medal]}` : seed;
     dayDots.appendChild(dot);
   }
@@ -748,6 +750,13 @@ async function refreshLeaderboard(): Promise<void> {
 // --- Period navigation (day or week) ----------------------------------
 
 function updateNavButtons(): void {
+  // Brand-new players (nothing delivered yet) get a decluttered home: hide the
+  // browse arrows until they've completed at least one map. Swiping the map
+  // thumbnail still navigates, so nothing is lost - only the extra chrome.
+  const hasPlayed = loadCompletedDays().size > 0;
+  navPrevBtn.classList.toggle("hidden", !hasPlayed);
+  navNextBtn.classList.toggle("hidden", !hasPlayed);
+
   // A shared orphan map isn't part of the browsable day/week timeline, so there's
   // nowhere to step to - use the Daily/Weekly toggle to return to a live period.
   if (viewed.orphan) {
@@ -1502,6 +1511,9 @@ function goHome(): void {
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
   startScreen.classList.remove("hidden");
+  // A just-finished first delivery flips "has played", which reveals the browse
+  // arrows - re-evaluate their visibility now that we're back on the menu.
+  updateNavButtons();
   // Returning to the menu is a page-internal transition (no reload), so
   // game_started never re-fires here - log it as its own menu-shown event.
   void logRun(viewed.seed, nickname, "menu_shown", 0);
