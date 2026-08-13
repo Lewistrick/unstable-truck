@@ -69,10 +69,17 @@ What's implemented:
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
   decorative houses (no value, no collision) fleshing out the road network
   (weekly roads are straight lines, not curves), and much denser obstacles.
-  Because the map is big, a small arrow next
-  to the truck points to the nearest unvisited warehouse (red), turning green
-  and pointing to the drop-off once every warehouse has been visited. Weekly
-  boards can be browsed up to 52 weeks back, each with its own leaderboard. The
+  Because the map is big, arrows pinned to the screen edges point toward any
+  off-screen objective: while pickups remain, each uncollected warehouse that's
+  off-screen gets a red arrow on the border in its direction; once every
+  warehouse has been visited, a single green arrow points to the drop-off (and
+  only while it too is off-screen), launching out from the truck to the border
+  the moment you collect the last pickup so the finish is easy to spot. Each
+  arrow shrinks with distance (nearer = bigger), and an objective already on
+  screen gets none. The same edge arrows
+  run on daily maps too, though they matter most on the sprawling weekly one.
+  Weekly boards can be browsed up to 52 weeks back, each with its own
+  leaderboard. The
   Daily/Weekly toggle is a progressive-disclosure unlock: it sits at the very
   bottom of the home screen and only appears - under a "Want a bigger challenge?"
   invite - once you've earned gold on the viewed level, so first-timers aren't
