@@ -64,6 +64,19 @@ What's implemented:
   drivable path. They're drawn as small code-authored vector sprites (trees
   scaled up as landmarks), culled to the visible viewport so even a dense weekly
   map only draws what's on screen.
+- Biome boundaries: each biome fences its map edge in a fitting style — grassland/
+  forest/easter/autumn get a hedge, farmland/town/savanna a post-and-rail fence
+  (with a few planks fallen off), beach/swamp a wavy shoreline with sea/bog
+  beyond, desert/volcanic a jagged rock ledge dropping into a chasm (volcanic
+  adds lava seams), the moon a crater rim against star-flecked space, city a
+  concrete barrier, snow a snowbank, candyland zig-zagged candy-cane posts, and
+  New Year's a light-strung barricade. Where it fits, the area beyond the edge is
+  a different material (beach → sea, moon → space, cliff → chasm); otherwise it
+  stays the biome's grass. The decoration is purely cosmetic — the play boundary
+  is unchanged. Every detail (circle sizes and offsets, wave lengths, jagged
+  lines, which planks dropped) is seeded from the level seed so a day's edges are
+  identical each frame and on replay, and it's drawn per edge and culled to the
+  viewport so only on-screen edges cost anything.
 - Weekly board: a Daily/Weekly toggle switches to a much
   larger map (5x in every dimension) seeded from the ISO year+week
   (`YYYY-Www`, e.g. `2026-W32`), with 15-25 warehouses and 30-40 purely
@@ -437,10 +450,11 @@ src/                frontend (compiles to dist/, loaded by the browser)
             biome themes, decorative scenery) + terrain queries; level-index.ts
             is a road spatial index for fast exact on-road tests
   physics/  truck and cargo simulation, shared fixed-timestep constant
-  game/     input handling, canvas rendering, game session/state machine,
-            API client, medal thresholds, localStorage (personal bests,
-            nickname, completion history); the route solver (solver.ts), its
-            headless sim (sim.ts) and Web Worker (solver-worker.ts)
+  game/     input handling, canvas rendering, biome map boundaries
+            (boundary.ts), game session/state machine, API client, medal
+            thresholds, localStorage (personal bests, nickname, completion
+            history); the route solver (solver.ts), its headless sim (sim.ts)
+            and Web Worker (solver-worker.ts)
     props/  one file per scenery sprite (cow, palm, tractor, windmill, …),
             with shared drawing helpers and a kind->drawer registry (index.ts)
   main.ts   DOM wiring and the render loop

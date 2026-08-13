@@ -1,5 +1,6 @@
 import { getTheme, type TextureStyle } from "../level/themes.js";
 import type { Level, MudObstacle, RockObstacle, Warehouse } from "../level/types.js";
+import { beyondFill, drawBoundary } from "./boundary.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import { mulberry32, randRange, seedFromString, type Rng } from "../util/rng.js";
@@ -1024,9 +1025,10 @@ function paintWorld(
   canvasW: number,
   canvasH: number,
 ): void {
-  // Area beyond the level bounds (visible near the world's edges) matches the
-  // grass color instead of a hardcoded dark void.
-  ctx.fillStyle = level.palette.grass;
+  // Area beyond the level bounds (visible near the world's edges) is the biome's
+  // out-of-bounds material: sea for beaches, space for the moon, a chasm for
+  // cliffs, and the ordinary grass color everywhere else.
+  ctx.fillStyle = beyondFill(level);
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   // Center the camera on screen, then scale about that center so the truck
@@ -1062,6 +1064,9 @@ function paintWorld(
   // Scenery sits on the grass (placed off-road), drawn under the warehouses so
   // gameplay markers stay on top.
   drawScenery(ctx, level, viewBounds);
+  // Decorative biome boundary around the map edges (never occludes the
+  // objectives, which are drawn next, or the truck, drawn after paintWorld).
+  drawBoundary(ctx, level, viewBounds);
   drawWarehouses(ctx, level, visited);
 }
 
