@@ -143,7 +143,7 @@ export function markTutorialSeen(): void {
 }
 
 const NICKNAME_KEY = "unstable-truck:nickname";
-const MAX_NICKNAME_LENGTH = 24;
+const MAX_NICKNAME_LENGTH = 16;
 
 /** Returns the stored nickname, generating and persisting a friendly default
  * on first visit so score submission works without forcing input up front. */
