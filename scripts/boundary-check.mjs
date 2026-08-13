@@ -5,7 +5,7 @@
 // The boundary decoration itself is canvas-only, but two pure parts drive it:
 // every theme must map to a boundary style, and beyondFill() must return the
 // right out-of-bounds material per biome (sea/space/chasm vs. ordinary grass).
-import { BOUNDARY_STYLES, beyondFill } from "../dist/game/boundary.js";
+import { BOUNDARY_STYLES, beyondFill, buildBoundaryGeometry } from "../dist/game/boundary.js";
 import { THEMES } from "../dist/level/themes.js";
 
 let failures = 0;
@@ -55,6 +55,22 @@ const rock = "hsl(20 40% 44%)";
 const chasm = beyondFill(lvl("desert", grass, rock));
 check("desert cliff -> chasm darker than its rock", lightnessOf(chasm) < 44 && chasm !== grass);
 check("volcanic is a lava cliff", BOUNDARY_STYLES.volcanic.kind === "cliff" && BOUNDARY_STYLES.volcanic.lava === true);
+
+// --- Geometry is precomputed, deterministic, and independent of the camera ---
+// The jagged cliff line used to be sampled at camera-relative x, so it shimmered
+// every frame. It's now precomputed per level: a pure function of the seed +
+// dimensions, at fixed grid positions, so it stays put.
+const cliffLvl = (seed) => ({ ...lvl("desert", grass, rock), seed, width: 2000, height: 1300 });
+const g1 = buildBoundaryGeometry(cliffLvl("2026-08-05"));
+const g2 = buildBoundaryGeometry(cliffLvl("2026-08-05"));
+check("boundary geometry is deterministic for a seed", JSON.stringify(g1.edges) === JSON.stringify(g2.edges));
+check("cliff has precomputed jagged vertices", Array.isArray(g1.edges[0].jag) && g1.edges[0].jag.length > 10);
+const g3 = buildBoundaryGeometry(cliffLvl("2026-08-06"));
+check("a different seed gives a different jagged line", JSON.stringify(g1.edges[0].jag) !== JSON.stringify(g3.edges[0].jag));
+
+// Volcanic lava seams are precomputed too; desert has none.
+check("volcanic cliff precomputes lava seams", Array.isArray(buildBoundaryGeometry({ ...cliffLvl("2026-08-05"), theme: "volcanic" }).edges[0].lava));
+check("desert cliff has no lava seams", buildBoundaryGeometry(cliffLvl("2026-08-05")).edges[0].lava === undefined);
 
 if (failures > 0) {
   console.error(`\n${failures} boundary check(s) failed`);

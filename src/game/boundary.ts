@@ -6,15 +6,16 @@ import type { Level } from "../level/types.js";
 // Each biome fences its map edge in a fitting style: farmland gets a post-and-
 // rail fence, grassland a hedge, beach a shoreline with sea beyond, and so on.
 // The decoration is purely cosmetic - it never changes the play area (the truck
-// is still clamped by the same bounds as before). Everything here is seeded from
-// the level seed (never the generation RNG), so a given day's edges look
-// identical every frame and on replay, but each seed varies size, spacing,
-// jitter, wave length, and which planks have fallen off.
+// is still clamped by the same bounds as before).
 //
-// Rendering is done per edge in a rotated local frame (x runs along the edge,
-// +y points into the map, y<0 is out of bounds), so each style is authored once
-// for a horizontal top edge and reused on all four sides. Only the on-screen
-// span of each edge is drawn, so even the huge weekly map stays cheap.
+// The full-perimeter geometry (every disc size/offset, jagged vertex, fallen
+// plank, wave, light) is computed ONCE per level from the level seed - never the
+// generation RNG - and cached, so it's identical every frame and on replay and
+// costs nothing to keep still. Each frame just draws the cached geometry, culled
+// to the visible edges, so even the huge weekly map only pays for what's on
+// screen. Styles are authored once for a horizontal top edge and reused on all
+// four sides via a rotated local frame (x runs along the edge, +y points into
+// the map, y<0 is out of bounds).
 
 export type BoundaryKind =
   | "hedge"
@@ -38,7 +39,7 @@ export interface BoundaryStyle {
 }
 
 /** The boundary style each biome uses. Several biomes share a style (tinted per
- * biome at draw time); a few have their own. Every ThemeId must appear here. */
+ * biome at build time); a few have their own. Every ThemeId must appear here. */
 export const BOUNDARY_STYLES: Record<ThemeId, BoundaryStyle> = {
   grassland: { kind: "hedge" },
   forest: { kind: "hedge" },
@@ -101,7 +102,7 @@ export function beyondFill(level: Level): string {
   }
 }
 
-// --- Geometry helpers ------------------------------------------------------
+// --- Precomputed geometry --------------------------------------------------
 
 export interface ViewRect {
   minX: number;
@@ -110,11 +111,275 @@ export interface ViewRect {
   maxY: number;
 }
 
+interface Disc {
+  a: number; // along the edge
+  p: number; // perpendicular offset (+ = into map)
+  r: number;
+}
+interface Star {
+  a: number;
+  p: number;
+  r: number;
+}
+interface Plank {
+  a: number;
+  p: number;
+  ang: number;
+}
+interface RailSeg {
+  a: number;
+  w: number;
+}
+interface Vein {
+  a: number;
+  y: number;
+  dx: number;
+  dy: number;
+}
+interface Wave {
+  wl1: number;
+  a1: number;
+  p1: number;
+  wl2: number;
+  a2: number;
+  p2: number;
+}
+interface Light {
+  a: number;
+  ci: number;
+}
+
+interface EdgeGeom {
+  discs?: Disc[];
+  stars?: Star[];
+  posts?: number[];
+  rails?: RailSeg[];
+  planks?: Plank[];
+  jag?: number[];
+  veins?: Vein[];
+  lava?: number[];
+  wave?: Wave;
+  lights?: Light[];
+}
+interface Pole {
+  x: number;
+  y: number;
+  alt: boolean;
+}
+interface BoundaryColors {
+  body?: string;
+  hi?: string;
+  shadow?: string;
+  coreW?: number;
+  sand?: string;
+  wet?: string;
+  water?: string;
+  foam?: string;
+  rock?: string;
+  vein?: string;
+}
+interface BoundaryGeom {
+  kind: BoundaryKind;
+  edges: EdgeGeom[]; // one per side: 0 top, 1 right, 2 bottom, 3 left
+  poles: Pole[]; // candy only
+  colors: BoundaryColors;
+}
+
+const geomCache = new WeakMap<Level, BoundaryGeom>();
+
 /** Position-keyed RNG: stable per (seed, tag), independent of the generation
- * stream, so decoration is identical every frame and only depends on the seed. */
+ * stream. Only used at build time. */
 function keyRng(seed: string, tag: string): Rng {
   return mulberry32(seedFromString(`${seed}#bnd#${tag}`));
 }
+
+// Layout constants (world units, tuned against the ~2000-wide daily map).
+const DISC_SPACING = 30;
+const DISC_R0 = 15;
+const DISC_RVAR = 12;
+const DISC_PERP = 12;
+const DISC_TANG = 8;
+const FENCE_POST_SPACING = 64;
+const FENCE_SEG = 22;
+const FENCE_BREAK = 0.11;
+const CLIFF_LEDGE = 22;
+const CLIFF_STEP = 24;
+const CLIFF_VEIN = 16;
+const CANDY_SPACING = 56;
+const FEST_LIGHT = 22;
+const CORE_W: Record<string, number> = { hedge: 26, crater: 22, snow: 24 };
+
+function buildDiscs(seed: string, tag: string, edge: number, len: number): Disc[] {
+  const out: Disc[] = [];
+  const n = Math.ceil(len / DISC_SPACING);
+  for (let i = 0; i <= n; i++) {
+    const rng = keyRng(seed, `${tag}:${edge}:${i}`);
+    out.push({
+      r: DISC_R0 + rng() * DISC_RVAR,
+      a: i * DISC_SPACING + (rng() - 0.5) * DISC_TANG,
+      p: (rng() - 0.5) * DISC_PERP,
+    });
+  }
+  return out;
+}
+
+function buildStars(seed: string, edge: number, len: number, coreW: number): Star[] {
+  const out: Star[] = [];
+  const n = Math.ceil(len / DISC_SPACING);
+  for (let i = 0; i <= n; i++) {
+    const rng = keyRng(seed, `star:${edge}:${i}`);
+    out.push({
+      a: i * DISC_SPACING + (rng() - 0.5) * 24,
+      p: -coreW / 2 - 6 - rng() * (BAND - 20),
+      r: rng() < 0.5 ? 1.5 : 0.9,
+    });
+  }
+  return out;
+}
+
+function buildFence(seed: string, edge: number, len: number): EdgeGeom {
+  const posts: number[] = [];
+  for (let i = 0; i * FENCE_POST_SPACING <= len; i++) posts.push(i * FENCE_POST_SPACING);
+  const rails: RailSeg[] = [];
+  const planks: Plank[] = [];
+  const n = Math.ceil(len / FENCE_SEG);
+  for (let i = 0; i <= n; i++) {
+    const rng = keyRng(seed, `fence:${edge}:${i}`);
+    const a = i * FENCE_SEG;
+    if (rng() < FENCE_BREAK) {
+      // A broken section: leave a gap in the rail and drop the plank inside.
+      planks.push({ a: a + FENCE_SEG / 2, p: 8 + rng() * 18, ang: (rng() - 0.5) * 1.8 });
+    } else {
+      rails.push({ a, w: FENCE_SEG - 3 });
+    }
+  }
+  return { posts, rails, planks };
+}
+
+function buildCliff(seed: string, style: BoundaryStyle, edge: number, len: number): EdgeGeom {
+  const jag: number[] = [];
+  const cells = Math.ceil(len / CLIFF_STEP) + 1;
+  for (let i = 0; i <= cells; i++) {
+    const rng = keyRng(seed, `cliff:${edge}:${i}`);
+    jag.push(CLIFF_LEDGE + (rng() * 16 - 6));
+  }
+  // Veins sit ON the rock ledge (inside the ledge band, y in [~4, LEDGE-2]) so
+  // they read as cracks on the rock face rather than floating in the chasm.
+  const veins: Vein[] = [];
+  for (let i = 0; i * CLIFF_VEIN <= len; i++) {
+    const rng = keyRng(seed, `cvein:${edge}:${i}`);
+    veins.push({ a: i * CLIFF_VEIN, y: 4 + rng() * 4, dx: (rng() - 0.5) * 8, dy: 6 + rng() * 8 });
+  }
+  const lava: number[] | undefined = style.lava ? [] : undefined;
+  if (lava) for (let i = 0; i * 60 <= len; i++) lava.push(i * 60);
+  return { jag, veins, lava };
+}
+
+function buildWave(seed: string, tag: string, edge: number, base: number): Wave {
+  const rng = keyRng(seed, `${tag}:${edge}`);
+  return {
+    wl1: base + rng() * (base * 0.7),
+    a1: 8 + rng() * 7,
+    p1: rng() * Math.PI * 2,
+    wl2: base * 0.37 + rng() * (base * 0.27),
+    a2: 4 + rng() * 4,
+    p2: rng() * Math.PI * 2,
+  };
+}
+
+function buildFestive(seed: string, edge: number, len: number): EdgeGeom {
+  const lights: Light[] = [];
+  for (let i = 0; i * FEST_LIGHT <= len; i++) lights.push({ a: i * FEST_LIGHT, ci: ((i % 4) + 4) % 4 });
+  return { wave: buildWave(seed, "fest", edge, 90), lights };
+}
+
+function buildPoles(level: Level): Pole[] {
+  const { width: W, height: H } = level;
+  const out: Pole[] = [];
+  const line = (horiz: boolean, fixed: number, along: number): void => {
+    for (let i = 0; i * CANDY_SPACING <= along; i++) {
+      const t = i * CANDY_SPACING;
+      const alt = (i & 1) === 1;
+      if (horiz) out.push({ x: t, y: fixed + (alt ? 6 : -6), alt });
+      else out.push({ x: fixed + (alt ? 12 : -4), y: t, alt });
+    }
+  };
+  line(true, 0, W);
+  line(true, H, W);
+  line(false, 0, H);
+  line(false, W, H);
+  return out;
+}
+
+/** Precomputes the whole-perimeter boundary geometry for a level, purely from
+ * its seed and dimensions (never the camera). Exported for the determinism
+ * check; callers should use drawBoundary, which caches this per level. */
+export function buildBoundaryGeometry(level: Level): BoundaryGeom {
+  const style = BOUNDARY_STYLES[level.theme];
+  const { width: W, height: H } = level;
+  const lens = [W, H, W, H];
+  const edges: EdgeGeom[] = [{}, {}, {}, {}];
+  const colors: BoundaryColors = {};
+  const seed = level.seed;
+
+  switch (style.kind) {
+    case "hedge":
+      colors.body = shift(level.palette.grass, 16, -34);
+      colors.hi = shift(level.palette.grass, 6, 8);
+      colors.coreW = CORE_W.hedge;
+      for (let e = 0; e < 4; e++) edges[e] = { discs: buildDiscs(seed, "hedge", e, lens[e]!) };
+      break;
+    case "crater":
+      colors.body = level.palette.rock;
+      colors.hi = shift(level.palette.rock, -2, 22);
+      colors.coreW = CORE_W.crater;
+      for (let e = 0; e < 4; e++)
+        edges[e] = { discs: buildDiscs(seed, "crater", e, lens[e]!), stars: buildStars(seed, e, lens[e]!, CORE_W.crater!) };
+      break;
+    case "snowbank":
+      colors.body = "#ffffff";
+      colors.hi = "#f4f9ff";
+      colors.shadow = "#c3d6e8";
+      colors.coreW = CORE_W.snow;
+      for (let e = 0; e < 4; e++) edges[e] = { discs: buildDiscs(seed, "snow", e, lens[e]!) };
+      break;
+    case "fence":
+      for (let e = 0; e < 4; e++) edges[e] = buildFence(seed, e, lens[e]!);
+      break;
+    case "shore":
+      colors.sand = level.palette.grass;
+      colors.wet = shift(level.palette.grass, 4, -12);
+      colors.water = style.water!;
+      colors.foam = style.foam!;
+      for (let e = 0; e < 4; e++) edges[e] = { wave: buildWave(seed, "shore", e, 110) };
+      break;
+    case "cliff":
+      colors.rock = shift(level.palette.rock, 0, 10);
+      colors.shadow = shift(level.palette.rock, 0, -16);
+      colors.vein = shift(level.palette.rock, -6, 26);
+      for (let e = 0; e < 4; e++) edges[e] = buildCliff(seed, style, e, lens[e]!);
+      break;
+    case "festive":
+      for (let e = 0; e < 4; e++) edges[e] = buildFestive(seed, e, lens[e]!);
+      break;
+    case "barrier":
+    case "candy":
+      break; // no per-edge randomness
+  }
+
+  return { kind: style.kind, edges, poles: style.kind === "candy" ? buildPoles(level) : [], colors };
+}
+
+function getGeom(level: Level): BoundaryGeom {
+  let g = geomCache.get(level);
+  if (!g) {
+    g = buildBoundaryGeometry(level);
+    geomCache.set(level, g);
+  }
+  return g;
+}
+
+// --- Drawing ---------------------------------------------------------------
 
 function disc(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void {
   ctx.fillStyle = color;
@@ -123,12 +388,11 @@ function disc(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, co
   ctx.fill();
 }
 
-type LocalDrawer = (ctx: CanvasRenderingContext2D, x0: number, x1: number, len: number, edge: number) => void;
+type LocalDrawer = (ctx: CanvasRenderingContext2D, x0: number, x1: number, edge: number) => void;
 
-/** Runs `draw` once per map edge in a local frame where x runs along the edge
- * (0..edge length), +y points into the map and y<0 is out of bounds. Skips
- * edges that are off screen and clips the drawn span to the visible range (plus
- * a corner overlap so neighbouring edges join up). */
+/** Runs `draw` once per map edge in a local frame where x runs along the edge,
+ * +y points into the map and y<0 is out of bounds. Skips edges that are off
+ * screen and clips the drawn span to the visible range (plus a corner overlap). */
 function withEdges(ctx: CanvasRenderingContext2D, level: Level, vb: ViewRect, draw: LocalDrawer): void {
   const { width: W, height: H } = level;
   const edges = [
@@ -152,94 +416,64 @@ function withEdges(ctx: CanvasRenderingContext2D, level: Level, vb: ViewRect, dr
     ] as const) {
       const dx = X - e.tx;
       const dy = Y - e.ty;
-      const lx = dx * cos + dy * sin; // inverse rotation (R(-a))
+      const lx = dx * cos + dy * sin; // inverse rotation R(-a)
       const ly = -dx * sin + dy * cos;
       lxMin = Math.min(lxMin, lx);
       lxMax = Math.max(lxMax, lx);
       lyMin = Math.min(lyMin, ly);
       lyMax = Math.max(lyMax, ly);
     }
-    if (lyMax < -BAND || lyMin > BAND) continue; // this edge's band isn't visible
+    if (lyMax < -BAND || lyMin > BAND) continue;
     const x0 = Math.max(-OVERLAP, lxMin - BAND);
     const x1 = Math.min(e.len + OVERLAP, lxMax + BAND);
     if (x1 <= x0) continue;
     ctx.save();
     ctx.translate(e.tx, e.ty);
     ctx.rotate(e.a);
-    draw(ctx, x0, x1, e.len, e.i);
+    draw(ctx, x0, x1, e.i);
     ctx.restore();
   }
 }
 
-// --- Circular styles (hedge / crater rim / snowbank) -----------------------
-// A lumpy line of overlapping discs whose radius and offset-from-the-edge both
-// vary per disc, over a solid core band so the gaps read as one continuous wall.
-
-const DISC_SPACING = 30;
-const DISC_R0 = 15;
-const DISC_RVAR = 12;
-const DISC_PERP = 12; // perpendicular (offset-to-edge) jitter
-const DISC_TANG = 8; // along-edge jitter
-
-function drawCircularEdge(
-  ctx: CanvasRenderingContext2D,
-  x0: number,
-  x1: number,
-  edge: number,
-  level: Level,
-  tag: string,
-  coreW: number,
-  body: string,
-  highlight: string,
-  shadow: string | null,
-  stars: boolean,
-): void {
-  ctx.fillStyle = body;
-  ctx.fillRect(x0, -coreW / 2, x1 - x0, coreW);
-  const from = Math.floor(x0 / DISC_SPACING);
-  const to = Math.ceil(x1 / DISC_SPACING);
-  for (let i = from; i <= to; i++) {
-    const rng = keyRng(level.seed, `${tag}:${edge}:${i}`);
-    const r = DISC_R0 + rng() * DISC_RVAR;
-    const along = i * DISC_SPACING + (rng() - 0.5) * DISC_TANG;
-    const perp = (rng() - 0.5) * DISC_PERP;
-    if (stars) {
-      // A couple of faint stars out in the void near this rock.
-      disc(ctx, along + (rng() - 0.5) * 24, -coreW / 2 - 6 - rng() * (BAND - 20), rng() < 0.5 ? 1.5 : 0.9, "rgba(255,255,255,0.8)");
+function drawDiscEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, geom: BoundaryGeom, edge: number): void {
+  const { body, hi, shadow, coreW } = geom.colors;
+  ctx.fillStyle = body!;
+  ctx.fillRect(x0, -coreW! / 2, x1 - x0, coreW!);
+  const eg = geom.edges[edge]!;
+  if (eg.stars) {
+    for (const s of eg.stars) {
+      if (s.a < x0 - 2 || s.a > x1 + 2) continue;
+      disc(ctx, s.a, s.p, s.r, "rgba(255,255,255,0.8)");
     }
-    if (along < x0 - r || along > x1 + r) continue;
-    if (shadow) disc(ctx, along + 2, perp + 3, r, shadow);
-    disc(ctx, along, perp, r, body);
-    disc(ctx, along - r * 0.3, perp - r * 0.34, r * 0.42, highlight);
+  }
+  for (const d of eg.discs!) {
+    if (d.a < x0 - d.r || d.a > x1 + d.r) continue;
+    if (shadow) disc(ctx, d.a + 2, d.p + 3, d.r, shadow);
+    disc(ctx, d.a, d.p, d.r, body!);
+    disc(ctx, d.a - d.r * 0.3, d.p - d.r * 0.34, d.r * 0.42, hi!);
   }
 }
 
-// --- Post-and-rail fence ---------------------------------------------------
-
-const FENCE_POST_SPACING = 64;
-
-function drawFenceEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, edge: number, level: Level): void {
+function drawFenceEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, geom: BoundaryGeom, edge: number): void {
   const wood = "#8a5e36";
   const dark = "#6f4a29";
+  const eg = geom.edges[edge]!;
   ctx.fillStyle = wood;
-  ctx.fillRect(x0, -11, x1 - x0, 4);
-  ctx.fillRect(x0, -4, x1 - x0, 4);
-  ctx.fillStyle = dark;
-  for (let i = Math.floor(x0 / FENCE_POST_SPACING); i <= Math.ceil(x1 / FENCE_POST_SPACING); i++) {
-    const bx = i * FENCE_POST_SPACING;
-    if (bx < x0 - 8 || bx > x1 + 8) continue;
-    ctx.fillRect(bx - 6, -16, 12, 26);
+  for (const r of eg.rails!) {
+    if (r.a + r.w < x0 || r.a > x1) continue;
+    ctx.fillRect(r.a, -11, r.w, 4);
+    ctx.fillRect(r.a, -4, r.w, 4);
   }
-  // Fallen-off planks: some rail sections drop just inside the fence line.
-  const step = 18;
-  for (let i = Math.floor(x0 / step); i <= Math.ceil(x1 / step); i++) {
-    const rng = keyRng(level.seed, `fence:${edge}:${i}`);
-    if (rng() >= 0.12) continue;
-    const bx = i * step;
-    if (bx < x0 || bx > x1) continue;
+  ctx.fillStyle = dark;
+  for (const a of eg.posts!) {
+    if (a < x0 - 8 || a > x1 + 8) continue;
+    ctx.fillRect(a - 6, -16, 12, 26);
+  }
+  for (const p of eg.planks!) {
+    if (p.a < x0 - 20 || p.a > x1 + 20) continue;
     ctx.save();
-    ctx.translate(bx, 8 + rng() * 18);
-    ctx.rotate((rng() - 0.5) * 1.8);
+    ctx.translate(p.a, p.p);
+    ctx.rotate(p.ang);
     ctx.fillStyle = wood;
     ctx.fillRect(-15, -3, 30, 6);
     ctx.fillStyle = "rgba(0,0,0,0.18)";
@@ -248,34 +482,19 @@ function drawFenceEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, ed
   }
 }
 
-// --- Shoreline -------------------------------------------------------------
-// The straight sand edge is broken into a wavy shore (two summed sine waves of
-// different wavelengths), with sand tongues reaching into the water and water
-// tongues biting into the sand, a wet-sand rim, and foam lines out in the sea.
-
-function drawShoreEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, edge: number, level: Level, style: BoundaryStyle): void {
-  const rng = keyRng(level.seed, `shore:${edge}`);
-  const wl1 = 110 + rng() * 80;
-  const a1 = 8 + rng() * 7;
-  const p1 = rng() * Math.PI * 2;
-  const wl2 = 41 + rng() * 30;
-  const a2 = 4 + rng() * 4;
-  const p2 = rng() * Math.PI * 2;
-  const amp = a1 + a2 + 2;
+function drawShoreEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, geom: BoundaryGeom, edge: number): void {
+  const w = geom.edges[edge]!.wave!;
+  const { sand, wet, water, foam } = geom.colors;
+  const amp = w.a1 + w.a2 + 2;
   const step = 6;
-  const waveAt = (x: number): number => -(Math.sin(x / wl1 + p1) * a1 + Math.sin(x / wl2 + p2) * a2);
-  const sand = level.palette.grass;
-  const water = style.water!;
-  const wet = shift(sand, 4, -12);
+  const waveAt = (x: number): number => -(Math.sin(x / w.wl1 + w.p1) * w.a1 + Math.sin(x / w.wl2 + w.p2) * w.a2);
 
-  // Sand from the wave inward; then water from the wave outward. Their shared
-  // border is the wave line, so together they carve the wavy shore.
   ctx.beginPath();
   ctx.moveTo(x0, amp);
   for (let x = x0; x <= x1; x += step) ctx.lineTo(x, waveAt(x));
   ctx.lineTo(x1, amp);
   ctx.closePath();
-  ctx.fillStyle = sand;
+  ctx.fillStyle = sand!;
   ctx.fill();
 
   ctx.beginPath();
@@ -283,10 +502,10 @@ function drawShoreEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, ed
   for (let x = x0; x <= x1; x += step) ctx.lineTo(x, waveAt(x));
   ctx.lineTo(x1, -amp - 60);
   ctx.closePath();
-  ctx.fillStyle = water;
+  ctx.fillStyle = water!;
   ctx.fill();
 
-  ctx.strokeStyle = wet;
+  ctx.strokeStyle = wet!;
   ctx.lineWidth = 5;
   ctx.beginPath();
   for (let x = x0; x <= x1; x += step) {
@@ -295,82 +514,63 @@ function drawShoreEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, ed
   }
   ctx.stroke();
 
-  ctx.strokeStyle = style.foam!;
+  ctx.strokeStyle = foam!;
   ctx.lineWidth = 2;
   for (const off of [amp + 12, amp + 28]) {
     ctx.beginPath();
     for (let x = x0; x <= x1; x += step) {
-      const y = -off + Math.sin(x / wl2 + p2) * a2;
+      const y = -off + Math.sin(x / w.wl2 + w.p2) * w.a2;
       x === x0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.stroke();
   }
 }
 
-// --- Rock ledge / cliff ----------------------------------------------------
-// A rock lip along the inside of the edge with a randomly jagged inner border;
-// the drop (out of bounds) is the dark chasm from beyondFill(). Veins/shadows
-// always point outward, into the chasm.
-
-const CLIFF_LEDGE = 22;
-
-function drawCliffEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, edge: number, level: Level, style: BoundaryStyle): void {
-  const rock = shift(level.palette.rock, 0, 10);
-  const shadow = shift(level.palette.rock, 0, -16);
-  const vein = shift(level.palette.rock, -6, 26);
-  const step = 24;
-  const jag = (x: number): number => {
-    const rng = keyRng(level.seed, `cliff:${edge}:${Math.round(x / step)}`);
-    return CLIFF_LEDGE + (rng() * 16 - 6);
-  };
-
-  ctx.beginPath();
-  ctx.moveTo(x0, -3);
-  ctx.lineTo(x1, -3);
-  for (let x = x1; x >= x0; x -= step) ctx.lineTo(x, jag(x));
-  ctx.closePath();
-  ctx.fillStyle = rock;
-  ctx.fill();
-
-  ctx.strokeStyle = shadow;
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  for (let x = x0; x <= x1; x += step) {
-    const y = jag(x);
-    x === x0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-
-  // Veins pointing outward into the chasm.
-  ctx.strokeStyle = vein;
-  ctx.lineWidth = 1.5;
-  const vstep = 16;
-  for (let i = Math.floor(x0 / vstep); i <= Math.ceil(x1 / vstep); i++) {
-    const bx = i * vstep;
-    if (bx < x0 || bx > x1) continue;
-    const rng = keyRng(level.seed, `cvein:${edge}:${i}`);
+function drawCliffEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, geom: BoundaryGeom, edge: number): void {
+  const eg = geom.edges[edge]!;
+  const jag = eg.jag!;
+  const { rock, shadow, vein } = geom.colors;
+  const i0 = Math.max(0, Math.floor(x0 / CLIFF_STEP));
+  const i1 = Math.min(jag.length - 1, Math.ceil(x1 / CLIFF_STEP));
+  if (i1 > i0) {
     ctx.beginPath();
-    ctx.moveTo(bx, -2);
-    ctx.lineTo(bx + (rng() - 0.5) * 8, -2 - (6 + rng() * 12));
+    ctx.moveTo(i0 * CLIFF_STEP, -3);
+    ctx.lineTo(i1 * CLIFF_STEP, -3);
+    for (let i = i1; i >= i0; i--) ctx.lineTo(i * CLIFF_STEP, jag[i]!);
+    ctx.closePath();
+    ctx.fillStyle = rock!;
+    ctx.fill();
+    ctx.strokeStyle = shadow!;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let i = i0; i <= i1; i++) {
+      const y = jag[i]!;
+      i === i0 ? ctx.moveTo(i * CLIFF_STEP, y) : ctx.lineTo(i * CLIFF_STEP, y);
+    }
     ctx.stroke();
   }
-
-  if (style.lava) {
+  // Veins/cracks on the rock ledge itself (inside the ledge, not out in the void).
+  ctx.strokeStyle = vein!;
+  ctx.lineWidth = 1.5;
+  for (const v of eg.veins!) {
+    if (v.a < x0 || v.a > x1) continue;
+    ctx.beginPath();
+    ctx.moveTo(v.a, v.y);
+    ctx.lineTo(v.a + v.dx, v.y + v.dy);
+    ctx.stroke();
+  }
+  if (eg.lava) {
     ctx.strokeStyle = "rgba(255, 110, 40, 0.85)";
     ctx.lineWidth = 2;
-    const ls = 60;
-    for (let i = Math.floor(x0 / ls); i <= Math.ceil(x1 / ls); i++) {
-      const bx = i * ls;
-      if (bx < x0 || bx > x1) continue;
+    for (const a of eg.lava) {
+      if (a < x0 || a > x1) continue;
       ctx.beginPath();
-      ctx.moveTo(bx - 8, -1);
-      ctx.lineTo(bx + 6, -1);
+      ctx.moveTo(a - 6, 4);
+      ctx.lineTo(a + 5, 9);
       ctx.stroke();
     }
   }
 }
-
-// --- Concrete barrier ------------------------------------------------------
 
 function drawBarrierEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number): void {
   const w = x1 - x0;
@@ -393,9 +593,8 @@ function drawBarrierEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number):
   }
 }
 
-// --- Festive barricade -----------------------------------------------------
-
-function drawFestiveEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, edge: number, level: Level): void {
+function drawFestiveEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, geom: BoundaryGeom, edge: number): void {
+  const eg = geom.edges[edge]!;
   const w = x1 - x0;
   ctx.fillStyle = "#f2f4f8";
   ctx.fillRect(x0, -6, w, 12);
@@ -413,14 +612,8 @@ function drawFestiveEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, 
   }
   ctx.restore();
 
-  const rng = keyRng(level.seed, `fest:${edge}`);
-  const wl1 = 90 + rng() * 60;
-  const a1 = 6 + rng() * 5;
-  const p1 = rng() * Math.PI * 2;
-  const wl2 = 33 + rng() * 20;
-  const a2 = 3 + rng() * 3;
-  const p2 = rng() * Math.PI * 2;
-  const garland = (x: number): number => -20 - (Math.sin(x / wl1 + p1) * a1 + Math.sin(x / wl2 + p2) * a2);
+  const g = eg.wave!;
+  const garland = (x: number): number => -20 - (Math.sin(x / g.wl1 + g.p1) * g.a1 + Math.sin(x / g.wl2 + g.p2) * g.a2);
   ctx.strokeStyle = "rgba(255,255,255,0.4)";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -430,18 +623,11 @@ function drawFestiveEdge(ctx: CanvasRenderingContext2D, x0: number, x1: number, 
   }
   ctx.stroke();
   const cols = ["#ffd54a", "#ff5a4a", "#4ad06a", "#4aa8ff"];
-  const s = 22;
-  for (let i = Math.floor(x0 / s); i <= Math.ceil(x1 / s); i++) {
-    const bx = i * s;
-    if (bx < x0 || bx > x1) continue;
-    disc(ctx, bx, garland(bx), 3, cols[((i % 4) + 4) % 4]!);
+  for (const l of eg.lights!) {
+    if (l.a < x0 || l.a > x1) continue;
+    disc(ctx, l.a, garland(l.a), 3, cols[l.ci]!);
   }
 }
-
-// --- Candy-cane fence ------------------------------------------------------
-// Upright candy-cane posts (drawn in world space, always standing up like the
-// game's other props), zig-zagged perpendicular to the edge so neighbours never
-// overlap, on a pink rail.
 
 function candyCane(ctx: CanvasRenderingContext2D, cx: number, cy: number, alt: boolean): void {
   ctx.save();
@@ -465,89 +651,51 @@ function candyCane(ctx: CanvasRenderingContext2D, cx: number, cy: number, alt: b
   ctx.restore();
 }
 
-function candyLine(ctx: CanvasRenderingContext2D, horiz: boolean, fixed: number, along: number, min: number, max: number): void {
-  const s = 56;
-  for (let i = Math.floor((min - 40) / s); i <= Math.ceil((max + 40) / s); i++) {
-    const t = i * s;
-    if (t < 0 || t > along) continue;
-    const alt = (i & 1) === 1;
-    if (horiz) candyCane(ctx, t, fixed + (alt ? 6 : -6), alt);
-    else candyCane(ctx, fixed + (alt ? 12 : -4), t, alt);
-  }
-}
-
-function drawCandy(ctx: CanvasRenderingContext2D, level: Level, vb: ViewRect): void {
+function drawCandy(ctx: CanvasRenderingContext2D, geom: BoundaryGeom, level: Level, vb: ViewRect): void {
   const { width: W, height: H } = level;
-  const rail = "#ffd6e6";
   const vx0 = Math.max(0, vb.minX);
   const vx1 = Math.min(W, vb.maxX);
   const vy0 = Math.max(0, vb.minY);
   const vy1 = Math.min(H, vb.maxY);
-  ctx.fillStyle = rail;
-  if (vb.minY <= BAND && vx1 > vx0) {
-    ctx.fillRect(vx0, -2, vx1 - vx0, 6);
-    candyLine(ctx, true, 0, W, vx0, vx1);
-  }
-  if (vb.maxY >= H - BAND && vx1 > vx0) {
-    ctx.fillStyle = rail;
-    ctx.fillRect(vx0, H - 4, vx1 - vx0, 6);
-    candyLine(ctx, true, H, W, vx0, vx1);
-  }
-  if (vb.minX <= BAND && vy1 > vy0) {
-    ctx.fillStyle = rail;
-    ctx.fillRect(-2, vy0, 6, vy1 - vy0);
-    candyLine(ctx, false, 0, H, vy0, vy1);
-  }
-  if (vb.maxX >= W - BAND && vy1 > vy0) {
-    ctx.fillStyle = rail;
-    ctx.fillRect(W - 4, vy0, 6, vy1 - vy0);
-    candyLine(ctx, false, W, H, vy0, vy1);
+  ctx.fillStyle = "#ffd6e6";
+  if (vb.minY <= BAND && vx1 > vx0) ctx.fillRect(vx0, -2, vx1 - vx0, 6);
+  if (vb.maxY >= H - BAND && vx1 > vx0) ctx.fillRect(vx0, H - 4, vx1 - vx0, 6);
+  if (vb.minX <= BAND && vy1 > vy0) ctx.fillRect(-2, vy0, 6, vy1 - vy0);
+  if (vb.maxX >= W - BAND && vy1 > vy0) ctx.fillRect(W - 4, vy0, 6, vy1 - vy0);
+  for (const p of geom.poles) {
+    if (p.x < vb.minX - 20 || p.x > vb.maxX + 20 || p.y < vb.minY - 24 || p.y > vb.maxY + 24) continue;
+    candyCane(ctx, p.x, p.y, p.alt);
   }
 }
 
 /** Draws the biome's decorative map boundary around every visible edge/corner,
- * culled to `vb` (the visible world rect). Call inside the world transform. */
+ * from the level's cached geometry, culled to `vb` (the visible world rect).
+ * Call inside the world transform. */
 export function drawBoundary(ctx: CanvasRenderingContext2D, level: Level, vb: ViewRect): void {
-  const style = BOUNDARY_STYLES[level.theme];
-  switch (style.kind) {
-    case "hedge": {
-      const foliage = shift(level.palette.grass, 16, -34);
-      const highlight = shift(level.palette.grass, 6, 8);
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) =>
-        drawCircularEdge(c, x0, x1, e, level, "hedge", 26, foliage, highlight, null, false),
-      );
-      break;
-    }
-    case "crater": {
-      const body = shift(level.palette.rock, 0, 0);
-      const highlight = shift(level.palette.rock, -2, 22);
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) =>
-        drawCircularEdge(c, x0, x1, e, level, "crater", 22, body, highlight, null, true),
-      );
-      break;
-    }
+  const geom = getGeom(level);
+  switch (geom.kind) {
+    case "hedge":
+    case "crater":
     case "snowbank":
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) =>
-        drawCircularEdge(c, x0, x1, e, level, "snow", 24, "#ffffff", "#f4f9ff", "#c3d6e8", false),
-      );
+      withEdges(ctx, level, vb, (c, x0, x1, e) => drawDiscEdge(c, x0, x1, geom, e));
       break;
     case "fence":
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) => drawFenceEdge(c, x0, x1, e, level));
+      withEdges(ctx, level, vb, (c, x0, x1, e) => drawFenceEdge(c, x0, x1, geom, e));
       break;
     case "shore":
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) => drawShoreEdge(c, x0, x1, e, level, style));
+      withEdges(ctx, level, vb, (c, x0, x1, e) => drawShoreEdge(c, x0, x1, geom, e));
       break;
     case "cliff":
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) => drawCliffEdge(c, x0, x1, e, level, style));
+      withEdges(ctx, level, vb, (c, x0, x1, e) => drawCliffEdge(c, x0, x1, geom, e));
       break;
     case "barrier":
       withEdges(ctx, level, vb, (c, x0, x1) => drawBarrierEdge(c, x0, x1));
       break;
     case "festive":
-      withEdges(ctx, level, vb, (c, x0, x1, _l, e) => drawFestiveEdge(c, x0, x1, e, level));
+      withEdges(ctx, level, vb, (c, x0, x1, e) => drawFestiveEdge(c, x0, x1, geom, e));
       break;
     case "candy":
-      drawCandy(ctx, level, vb);
+      drawCandy(ctx, geom, level, vb);
       break;
   }
 }
