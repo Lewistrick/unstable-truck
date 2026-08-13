@@ -383,13 +383,78 @@ export function getTheme(id: ThemeId): Theme {
   return THEMES[id];
 }
 
-/** Deterministic theme for a seed. Holidays win; otherwise a hash independent
- * of the main level rng stream picks from the random pool, so adding themes
- * never shifts hub/road/warehouse/obstacle generation - only palette and
- * texture change for existing seeds. */
-export function pickTheme(seed: string): Theme {
+/** The ISO year+week containing `date` (weeks start Monday; week 1 holds the
+ * year's first Thursday) - the inverse of isoWeekMonday(). */
+function isoWeekOf(date: Date): { year: number; week: number } {
+  // The Thursday of date's week fixes the ISO week-numbering year.
+  const thursday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayNum = (thursday.getDay() + 6) % 7; // Mon = 0 .. Sun = 6
+  thursday.setDate(thursday.getDate() - dayNum + 3);
+  const isoYear = thursday.getFullYear();
+  const week1Monday = isoWeekMonday(isoYear, 1);
+  const week = 1 + Math.round((thursday.getTime() - week1Monday.getTime()) / (7 * 86_400_000));
+  return { year: isoYear, week };
+}
+
+/** The seed for the period immediately before a live seed: the previous day for
+ * a daily seed (YYYY-MM-DD), the previous ISO week for a weekly seed (YYYY-Www).
+ * Null for anything else (orphan/custom seeds), which keeps their raw pick. */
+function previousSeed(seed: string): string | null {
+  const daily = seed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (daily) {
+    const date = new Date(Number(daily[1]), Number(daily[2]) - 1, Number(daily[3]) - 1);
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${date.getFullYear()}-${m}-${d}`;
+  }
+  const weekly = seed.match(/^(\d{4})-W(\d{2})$/);
+  if (weekly) {
+    const monday = isoWeekMonday(Number(weekly[1]), Number(weekly[2]));
+    monday.setDate(monday.getDate() - 7); // a date in the previous ISO week
+    const { year, week } = isoWeekOf(monday);
+    return `${year}-W${String(week).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+/** The random-pool pick for a seed. salt 0 is the original, history-stable pick
+ * (identical to the pre-anti-repeat hash); a nonzero salt re-rolls a colliding
+ * day to a different theme. */
+function rawPoolThemeId(seed: string, salt: number): ThemeId {
+  const key = salt === 0 ? `${seed}#theme` : `${seed}#theme#${salt}`;
+  return RANDOM_POOL[seedFromString(key) % RANDOM_POOL.length]!;
+}
+
+// How far back resolveThemeId() may walk to break a run of repeats. Each step
+// costs a couple of hashes; a 200-year simulation never needed more than 4, so
+// 32 is astronomically safe while staying trivially cheap.
+const MAX_THEME_LOOKBACK = 32;
+
+/** Resolves a seed's theme id, guaranteeing it differs from the previous
+ * period's resolved theme (holidays are exempt and always win). It walks back
+ * through resolved themes, but the chain terminates almost immediately: ~86% of
+ * days already differ from the day before, so no re-roll is needed. The theme
+ * hash stays independent of the main level rng stream, so this only changes
+ * palette/texture/scenery for the rare colliding day - never the road network,
+ * warehouses, or obstacles - and every non-colliding day keeps its exact
+ * current theme (salt 0). */
+function resolveThemeId(seed: string, budget: number): ThemeId {
   const override = holidayOverride(seed);
-  if (override) return THEMES[override];
-  const idx = seedFromString(`${seed}#theme`) % RANDOM_POOL.length;
-  return THEMES[RANDOM_POOL[idx]!]!;
+  if (override) return override;
+  const prevSeed = budget > 0 ? previousSeed(seed) : null;
+  if (!prevSeed) return rawPoolThemeId(seed, 0);
+  const prev = resolveThemeId(prevSeed, budget - 1);
+  const id = rawPoolThemeId(seed, 0);
+  if (id !== prev) return id;
+  // Collision: re-roll deterministically from the pool minus the previous
+  // theme, so the day is guaranteed to look different from its predecessor.
+  const alt = RANDOM_POOL.filter((t) => t !== prev);
+  return alt[seedFromString(`${seed}#theme#alt`) % alt.length]!;
+}
+
+/** Deterministic theme for a seed. Holidays win; otherwise a random-pool pick
+ * that is guaranteed to differ from the previous day's/week's theme (see
+ * resolveThemeId). */
+export function pickTheme(seed: string): Theme {
+  return THEMES[resolveThemeId(seed, MAX_THEME_LOOKBACK)];
 }
