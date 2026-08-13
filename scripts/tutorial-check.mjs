@@ -10,6 +10,7 @@
 // the time limit sends the player back to the explanation), which are checked
 // here too.
 import { COUNTDOWN_DURATION } from "../dist/game/countdown.js";
+import { isOnRoad } from "../dist/level/terrain.js";
 import { GameSession } from "../dist/game/session.js";
 import { PLAY_TIME_LIMIT, Tutorial } from "../dist/game/tutorial.js";
 import {
@@ -49,20 +50,88 @@ for (const [name, level] of [
   check(`${name} level has exactly one base`, kindCount(level, "base"), 1);
   check(`${name} level has exactly one drop-off`, kindCount(level, "destination"), 1);
   check(`${name} level has a road`, level.roads.length > 0, true);
+  // Every warehouse is placed by hand on a hand-written road path, so a typo in
+  // either would strand an objective out on the grass. These levels are also
+  // hand-sized, so nothing may poke outside the map.
+  for (const wh of level.warehouses) {
+    check(`${name} level's ${wh.kind} sits on the road`, isOnRoad(wh.pos, level), true);
+    const inside =
+      wh.pos.x > wh.width && wh.pos.x < level.width - wh.width &&
+      wh.pos.y > wh.height && wh.pos.y < level.height - wh.height;
+    check(`${name} level's ${wh.kind} is inside the map`, inside, true);
+  }
+  for (const rock of [...level.rocks, ...level.muds]) {
+    const inside =
+      rock.pos.x - rock.radius > 0 && rock.pos.x + rock.radius < level.width &&
+      rock.pos.y - rock.radius > 0 && rock.pos.y + rock.radius < level.height;
+    check(`${name} level's obstacles are inside the map`, inside, true);
+  }
 }
 
 // The lesson each section is built to teach: only the mud level carries mud,
 // only the rock level carries rock, and the steering/road lanes carry neither.
-check("steering level has no obstacles", buildSteeringLevel().rocks.length + buildSteeringLevel().muds.length, 0);
-check("road level has no obstacles", buildRoadLevel().rocks.length + buildRoadLevel().muds.length, 0);
-check("mud level has mud", buildMudLevel().muds.length > 0, true);
-check("mud level has no rock", buildMudLevel().rocks.length, 0);
-check("rock level has rock", buildRockLevel().rocks.length > 0, true);
-check("rock level has no mud", buildRockLevel().muds.length, 0);
+const steering = buildSteeringLevel();
+const road = buildRoadLevel();
+const mud = buildMudLevel();
+const rock = buildRockLevel();
+
+check("steering level has no obstacles", steering.rocks.length + steering.muds.length, 0);
+check("road level has no obstacles", road.rocks.length + road.muds.length, 0);
+check("mud level has mud", mud.muds.length > 0, true);
+check("mud level has no rock", mud.rocks.length, 0);
+check("rock level has rock", rock.rocks.length > 0, true);
+check("rock level has no mud", rock.muds.length, 0);
 
 // The steering lane is a pure "reach the drop-off" run: nothing to collect.
-check("steering level has no pickups", kindCount(buildSteeringLevel(), "pickup"), 0);
+check("steering level has no pickups", kindCount(steering, "pickup"), 0);
 check("cargo level has one pickup", kindCount(buildCargoLevel(), "pickup"), 1);
+
+/** How far the truck has to drive, as the crow flies, from base to drop-off. */
+function runLength(level) {
+  const from = level.warehouses.find((w) => w.kind === "base").pos;
+  const to = level.warehouses.find((w) => w.kind === "destination").pos;
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+/** The obstacle nearest a point, and how far its edge is from it. */
+function nearestGap(obstacles, pos) {
+  return Math.min(...obstacles.map((o) => Math.hypot(o.pos.x - pos.x, o.pos.y - pos.y) - o.radius));
+}
+
+const baseOf = (level) => level.warehouses.find((w) => w.kind === "base").pos;
+
+// The lane shapes each lesson leans on. Section 1 forgives a wobble with a road
+// far broader than the standard one; section 3 is a long, dead-straight run to
+// practise holding a line on.
+check("steering road is much broader than a normal one", steering.roads[0].width > road.roads[0].width * 2, true);
+check("steering lane is one straight piece", steering.roads.length, 1);
+check("road lane is one straight piece", road.roads.length, 1);
+check("road lane is a longer run than the steering lane", runLength(road) > runLength(steering) * 2, true);
+check("mud lane zig-zags", mud.roads.length >= 3, true);
+check("rock lane is an L", rock.roads.length, 2);
+
+// Both obstacle sections put one obstacle just south of the start line: it's
+// what a phone player can see below the coach card while reading the
+// explanation. It has to be clear of the truck, and off the road (it's there to
+// be looked at, not driven into on the first tick).
+for (const [name, level, obstacles] of [
+  ["mud", mud, mud.muds],
+  ["rock", rock, rock.rocks],
+]) {
+  const start = baseOf(level);
+  const south = obstacles.filter((o) => o.pos.y > start.y && Math.abs(o.pos.x - start.x) < 100);
+  check(`${name} lane has an obstacle just south of the start`, south.length, 1);
+  check(`${name} lane's southern obstacle is off the road`, isOnRoad(south[0].pos, level), false);
+  check(`${name} lane's southern obstacle is clear of the truck`, nearestGap(south, start) > 40, true);
+  // Close enough to be on screen with the truck (the view spans at least 640
+  // world units on the short axis, and this sits along the long one).
+  check(`${name} lane's southern obstacle is on screen`, south[0].pos.y - start.y < 320, true);
+  // ...and the rest are out on the route, where they have to be driven around.
+  check(`${name} lane's other obstacles block the route`, obstacles.length - south.length, 2);
+  for (const o of obstacles.filter((x) => x !== south[0])) {
+    check(`${name} lane's route obstacle sits on the road`, isOnRoad(o.pos, level), true);
+  }
+}
 
 // The closing section looks like a real map: three pickups to collect, a road
 // network that deliberately doesn't connect everything, and both obstacle types.

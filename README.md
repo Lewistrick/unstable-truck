@@ -242,18 +242,28 @@ What's implemented:
   Every section is shaped like a real level (truck starts at a `base`, cargo
   sits in `W` warehouses, the run ends at the `D` drop-off) and is played by an
   ordinary practice `GameSession`, so there are no tutorial-only goal markers or
-  rules. The six sections:
+  rules. Each level's shape is what teaches its lesson:
   1. **Steering** — you always move forward and only steer: do nothing to curve
-     left, hold (screen, spacebar or mouse) to curve right, alternate to go
-     straight. Drive an empty lane to the drop-off.
+     left, hold (screen, spacebar or mouse) to curve right. Its road is nearly
+     three times the usual width, so working that out doesn't put you on the
+     grass.
   2. **Cargo** — collect the `W`, haul it to the `D`, and feel it sway behind you.
-  3. **Roads** — the road is the fast lane, the grass beside it drags you down.
-  4. **Mud** — a puddle across the lane, faster to steer around than through.
-  5. **Rocks** — a solid boulder in the lane, with no way but around.
+  3. **Roads** — going straight means alternating hold and release, so this one
+     is a long dead-straight run to practise it on, where drifting onto the
+     slower grass visibly costs you.
+  4. **Mud** — a zig-zag road with a puddle across each of its two turns, where
+     cutting the corner beats ploughing through.
+  5. **Rocks** — a big L-shaped road with a boulder planted on each leg, so both
+     a straight and a corner have to be driven around one.
   6. **A real map** — "Now you know everything you need to know about the game":
      a base, three `W` warehouses, a `D` drop-off, a road network that
      deliberately doesn't connect everything, plus mud and rock. It's big enough
      that objectives fall off a phone screen, so the edge arrows earn their keep.
+
+  Sections 4 and 5 also park one extra obstacle just *south* of the start line,
+  clear of both the truck and the road: the coach card covers the top of a phone
+  screen while a section is being explained, so the ground below the truck is
+  what a phone player can actually see the lesson in.
 
   On sections 1-5 a play part is cut short by driving out of bounds or by taking
   longer than 30 seconds (a countdown of the seconds left shows in the banner):
@@ -261,7 +271,10 @@ What's implemented:
   what happened. Section 6 is untimed — it's a real run, and a real run takes as
   long as it takes. A **Skip section** button moves on without clearing the
   current one; the persistent **Skip tutorial** button (or Escape) leaves to the
-  main menu at any point.
+  main menu at any point. The coach card never takes more than 40% of the screen
+  height for its text — a longer explanation scrolls inside the card instead of
+  growing it — and its buttons sit outside that box, so they stay on screen and
+  the game stays visible underneath on a phone.
 
   The driving is unfailable throughout (a `practice` game session that ignores
   the cargo and out-of-bounds game-overs — the tutorial's own setbacks replace

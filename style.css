@@ -1213,12 +1213,15 @@ button:active {
 }
 
 /* The coach text is one string with a newline between paragraphs, so pre-line
-   turns those into visible paragraph breaks without building any DOM. The
-   'explain' parts are several paragraphs long, so on short screens the card
-   scrolls rather than growing over the whole viewport. */
+   turns those into visible paragraph breaks without building any DOM.
+   Text past 40% of the viewport height scrolls inside this element rather than
+   growing the card: that keeps the game visible below it on a phone, and keeps
+   the buttons (which sit outside this box, so they never count towards the 40%)
+   on screen no matter how long an explanation runs. */
 #tutorial-prompt {
-  max-height: 46vh;
+  max-height: 40vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   font-size: 1.05rem;
   line-height: 1.45;
   white-space: pre-line;

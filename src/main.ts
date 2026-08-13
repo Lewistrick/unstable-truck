@@ -1538,13 +1538,14 @@ retryBtn.addEventListener("click", () => beginRun(active));
 homeBtn.addEventListener("click", goHome);
 
 // --- New-player tutorial ---------------------------------------------------
-// A short, guided practice run on a fixed, unfailable level. It reuses the
-// normal render loop (via `active` + renderScene) but shows its own coach
-// overlay instead of the HUD, and never touches scores, ghosts, or storage
-// beyond marking itself seen on exit.
+// A short, guided course of unfailable practice sections, each explained on a
+// frozen scene and then played. It renders straight from the Tutorial rather
+// than through the normal run's render state, shows its own coach overlay
+// instead of the HUD, and never touches scores, ghosts, or storage beyond
+// marking itself seen on exit.
 
-// The active tutorial scene's truck; when this object reference changes (a new
-// section, a rock-reset, or the drive->terrain hand-off) the camera snaps to it
+// The active tutorial section's truck; when this object reference changes (a
+// new section, a retry after a setback, "Explain again") the camera snaps to it
 // instead of panning across empty ground.
 let lastTutorialTruck: TruckState | null = null;
 

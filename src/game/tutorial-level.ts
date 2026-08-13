@@ -3,7 +3,7 @@ import { generateScenery } from "../level/scenery.js";
 import { getTheme } from "../level/themes.js";
 import type { Level, MudObstacle, RockObstacle, RoadSegment, Warehouse } from "../level/types.js";
 import { mulberry32, seedFromString } from "../util/rng.js";
-import { bezierPoint, v, type Vec2 } from "../util/vec2.js";
+import { bezierPoint, distance, v, type Vec2 } from "../util/vec2.js";
 
 // The fixed levels behind the new-player tutorial's sections. Every one of them
 // is shaped like a real level - the truck starts at a `base`, any cargo sits in
@@ -14,16 +14,30 @@ import { bezierPoint, v, type Vec2 } from "../util/vec2.js";
 // A wide, forgiving road so a learner staying roughly on it keeps their cargo
 // steady (road terrain recovers stability fastest).
 const ROAD_WIDTH = 96;
-const SAMPLES_PER_SEGMENT = 24;
+// Roughly how far apart a road's pre-sampled centre points sit, in world units.
+// The on-road test measures distance to the nearest sample, so samples spaced
+// much further apart than the road is wide would scallop its edges - a long
+// straight needs proportionally more of them, not a fixed count.
+const SAMPLE_SPACING = 10;
+const MIN_SAMPLES_PER_SEGMENT = 24;
 
 /** A dead-straight road piece between two points, pre-sampled the same way the
  * generator's segments are so terrain/road queries behave identically. */
-function straightRoad(a: Vec2, b: Vec2): RoadSegment {
+function straightRoad(a: Vec2, b: Vec2, width = ROAD_WIDTH): RoadSegment {
   const p1 = v(a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3);
   const p2 = v(a.x + ((b.x - a.x) * 2) / 3, a.y + ((b.y - a.y) * 2) / 3);
+  const steps = Math.max(MIN_SAMPLES_PER_SEGMENT, Math.ceil(distance(a, b) / SAMPLE_SPACING));
   const samples: Vec2[] = [];
-  for (let i = 0; i <= SAMPLES_PER_SEGMENT; i++) samples.push(bezierPoint(a, p1, p2, b, i / SAMPLES_PER_SEGMENT));
-  return { p0: a, p1, p2, p3: b, width: ROAD_WIDTH, isBranch: false, samples };
+  for (let i = 0; i <= steps; i++) samples.push(bezierPoint(a, p1, p2, b, i / steps));
+  return { p0: a, p1, p2, p3: b, width, isBranch: false, samples };
+}
+
+/** A chain of straight road pieces through `path`. Joints are drawn with round
+ * caps, so a corner reads as a bend rather than a notch. */
+function roadPath(path: readonly Vec2[], width = ROAD_WIDTH): RoadSegment[] {
+  const roads: RoadSegment[] = [];
+  for (let i = 1; i < path.length; i++) roads.push(straightRoad(path[i - 1]!, path[i]!, width));
+  return roads;
 }
 
 /** A generously sized warehouse (bigger than the generated 30-45 range) so it's
@@ -84,54 +98,121 @@ function tutorialLevel({ seed, width, height, warehouses, roads, rocks = [], mud
 
 // --- The single-lesson lanes ------------------------------------------------
 //
-// The steering and terrain sections all share one shape: a small map with a
-// wide straight road running left-to-right, the base at the left end and the
-// drop-off at the right. The lesson is whatever sits on the lane between them.
+// One lesson per level: a road from a base to a drop-off, shaped to force the
+// thing being taught, with only that lesson's obstacle type on it. Each one
+// also puts something worth looking at just *south* of the truck, because the
+// coach card sits over the top of the screen while a section is being explained
+// - so the bottom half is what a phone player actually sees.
 
-const LANE_W = 1120;
-const LANE_H = 700;
-const LANE_Y = 360;
-const LANE_BASE = v(190, LANE_Y);
-const LANE_DROPOFF = v(950, LANE_Y);
-// Centered on the road between the base and the drop-off, where obstacles sit.
-const LANE_OBSTACLE = v(565, LANE_Y);
+/** The truck starts at `base` aimed straight at `dropoff`; both sit on `path`,
+ * the road's centreline. */
+interface LaneSpec {
+  seed: string;
+  width: number;
+  height: number;
+  path: Vec2[];
+  roadWidth?: number;
+  base: Vec2;
+  dropoff: Vec2;
+  rocks?: RockObstacle[];
+  muds?: MudObstacle[];
+}
 
-function laneLevel(seed: string, rocks: RockObstacle[] = [], muds: MudObstacle[] = []): Level {
+function laneLevel({ seed, width, height, path, roadWidth, base, dropoff, rocks, muds }: LaneSpec): Level {
   return tutorialLevel({
     seed,
-    width: LANE_W,
-    height: LANE_H,
-    // The road runs a little past both ends so the truck starts on tarmac and
-    // stays on it right up to the drop-off.
-    roads: [straightRoad(v(110, LANE_Y), v(1010, LANE_Y))],
-    warehouses: [warehouse("base", LANE_BASE), warehouse("destination", LANE_DROPOFF)],
+    width,
+    height,
+    roads: roadPath(path, roadWidth),
+    warehouses: [warehouse("base", base), warehouse("destination", dropoff)],
     rocks,
     muds,
   });
 }
 
-/** Section 1: the one control. An empty lane - nothing to dodge, nothing to
- * collect, just hold/release your way to the drop-off. */
+/** Section 1: the one control. A short lane with a road broad enough that
+ * wobbling badly while you work out hold-vs-release still leaves you on tarmac,
+ * and nothing at all to dodge or collect. */
 export function buildSteeringLevel(): Level {
-  return laneLevel("tutorial-steering");
+  const y = 360;
+  return laneLevel({
+    seed: "tutorial-steering",
+    width: 1120,
+    height: 700,
+    // The road runs past both ends, so the truck starts on tarmac and stays on
+    // it right up to the drop-off.
+    path: [v(110, y), v(1010, y)],
+    roadWidth: 280,
+    base: v(190, y),
+    dropoff: v(950, y),
+  });
 }
 
-/** Section 3: road vs grass. Also an empty lane - the lesson is that the road
- * is the fast lane and the surrounding grass drags you down. */
+/** Section 3: going straight, and what the road is worth. A long dead-straight
+ * run - long enough that you have to keep alternating hold and release to hold
+ * a line, and that drifting onto the grass visibly costs you. */
 export function buildRoadLevel(): Level {
-  return laneLevel("tutorial-road");
+  const y = 360;
+  return laneLevel({
+    seed: "tutorial-road",
+    width: 2100,
+    height: 700,
+    path: [v(110, y), v(1990, y)],
+    base: v(190, y),
+    dropoff: v(1900, y),
+  });
 }
 
-/** Section 4: mud. A puddle sits across the road (no rock here) - going around
- * it on the grass is faster than ploughing straight through. */
+/** Section 4: mud. The road zig-zags, and two puddles sit across it at the
+ * turns - the corners are exactly where cutting the corner onto the grass beats
+ * ploughing through. A third puddle sits south of the start line, in view while
+ * the section is being explained. (No rock in this one.) */
 export function buildMudLevel(): Level {
-  return laneLevel("tutorial-mud", [], [mudBlob(LANE_OBSTACLE, 62)]);
+  const base = v(180, 400);
+  const dropoff = v(1150, 400);
+  return laneLevel({
+    seed: "tutorial-mud",
+    width: 1300,
+    height: 800,
+    // A zig-zag straddling the base -> drop-off line, so the truck starts aimed
+    // down the middle of it: the first leg climbs away to the right (which is
+    // where coasting takes you) and the second dives back down (which is what
+    // holding does).
+    path: [v(116, 444), v(500, 180), v(820, 620), v(1210, 360)],
+    base,
+    dropoff,
+    muds: [
+      mudBlob(v(180, 545), 62), // the one on show during the explanation
+      mudBlob(v(660, 400), 72), // across the first turn
+      mudBlob(v(995, 503), 68), // across the second
+    ],
+  });
 }
 
-/** Section 5: rock. A boulder blocks the road (no mud here); it's solid, so the
- * player has to steer around it. */
+/** Section 5: rock. The road is a big L - right, then down - with a boulder
+ * planted on each leg, so both a straight and a turn have to be driven around
+ * one. A third sits south of the start line, in view while the section is being
+ * explained. (No mud in this one.) */
 export function buildRockLevel(): Level {
-  return laneLevel("tutorial-rock", [{ pos: LANE_OBSTACLE, radius: 54 }], []);
+  const base = v(200, 220);
+  const corner = v(1000, 220);
+  const dropoff = v(1000, 620);
+  return laneLevel({
+    seed: "tutorial-rock",
+    width: 1250,
+    height: 800,
+    // Long leg first, so the truck - which starts aimed at the drop-off, i.e.
+    // down the diagonal of the L - only has to coast a moment to line up with
+    // it, and the one deliberate turn is the corner.
+    path: [v(120, 220), corner, v(1000, 720)],
+    base,
+    dropoff,
+    rocks: [
+      { pos: v(200, 350), radius: 46 }, // the one on show during the explanation
+      { pos: v(620, 220), radius: 52 }, // on the L's long leg
+      { pos: v(1000, 440), radius: 52 }, // on the leg down to the drop-off
+    ],
+  });
 }
 
 // --- The delivery levels ----------------------------------------------------

@@ -5,12 +5,12 @@ import type { TruckState } from "../physics/truck.js";
 import { countdownLabel } from "./countdown.js";
 import { GameSession, OUT_OF_BOUNDS_TICKS } from "./session.js";
 import {
-  buildCargoLevel,
-  buildFullLevel,
-  buildMudLevel,
-  buildRoadLevel,
-  buildRockLevel,
-  buildSteeringLevel,
+    buildCargoLevel,
+    buildFullLevel,
+    buildMudLevel,
+    buildRoadLevel,
+    buildRockLevel,
+    buildSteeringLevel,
 } from "./tutorial-level.js";
 
 /** How long a timed play part may run before it's cut short and re-explained. */
@@ -52,10 +52,8 @@ function buildSections(): Section[] {
     {
       title: "Steering",
       explain: [
-        "You're driving the truck. It never stops and never reverses: it always moves forward, and steering is the only thing you do.",
-        "Do nothing and the truck curves left. Hold - press the screen, the spacebar or your mouse button - and it curves right.",
-        "So going straight means alternating: hold a moment, let go a moment, hold, let go.",
-        `Get to the D drop-off. Drive off the map, or take longer than ${PLAY_TIME_LIMIT} seconds, and you'll land back here.`,
+        "You're driving the truck. It always moves forward, and steering is the only thing you do.",
+        "Do nothing and the truck curves left. Hold (press the screen, the spacebar or your mouse button) and it curves right."
       ],
       prompt: "Steer your way to the D drop-off.",
       cleared: "That one button is the whole game.",
@@ -66,7 +64,6 @@ function buildSections(): Section[] {
       title: "Cargo",
       explain: [
         "Every run is a delivery: collect cargo at the W warehouses, then bring it to the D drop-off.",
-        "Cargo trails behind the truck and swings wide through every turn. Yank it around too hard and it falls off, which ends a real run on the spot - so keep your steering smooth.",
         "Load up at the W, then deliver to the D.",
       ],
       prompt: "Collect the W, then deliver it to the D.",
@@ -77,7 +74,8 @@ function buildSections(): Section[] {
     {
       title: "Roads",
       explain: [
-        "Roads are the fast lane. The grass beside them holds you back, so the long way round on tarmac often beats the short cut across the field.",
+        "To go straight, alternate between holding and releasing. Get to the D drop-off.",
+        "Roads are fast, grass is slower. Think about when you want to cut corners.",
         "Ride the road all the way to the drop-off.",
       ],
       prompt: "Ride the road to the D drop-off.",
@@ -88,18 +86,18 @@ function buildSections(): Section[] {
     {
       title: "Mud",
       explain: [
-        "That brown puddle is mud. It drops you to a crawl and the truck slides around instead of gripping.",
-        "Steering around a puddle is almost always faster than ploughing through it.",
+        "That brown puddle is mud. You lose most of your grip and speed.",
+        "Steering around mud is almost always faster.",
       ],
       prompt: "Get around the mud and reach the D drop-off.",
-      cleared: "Nicely dodged.",
+      cleared: "You handled that mud well.",
       level: buildMudLevel(),
       timed: true,
     },
     {
       title: "Rocks",
       explain: [
-        "Rocks are solid walls. Hit one and you bounce off, lose all your speed, and the jolt shakes whatever cargo you're carrying.",
+        "Rocks are solid walls. When hit, you come to an immediate halt.",
         "There's no way through, so go around.",
       ],
       prompt: "Steer around the rock to the D drop-off.",
@@ -110,9 +108,8 @@ function buildSections(): Section[] {
     {
       title: "A real map",
       explain: [
-        "Now you know everything you need to know about the game.",
-        "This is what a real map looks like: a base to start from, three W warehouses to collect, and one D drop-off to finish at. The roads don't reach everywhere, and there's mud and rock in the way.",
-        "Objectives off the edge of your screen get an arrow pointing at them. No time limit here - take as long as you like.",
+        "Now you know everything you need to know. Here's a real map for you.",
+        "Targets outside your screen get an arrow pointing at them.",
       ],
       prompt: "Collect all three W warehouses, then deliver to the D.",
       cleared: "That's a full run. You're ready for the real thing.",
