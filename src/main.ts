@@ -116,8 +116,9 @@ function setModeVisuals(): void {
   modeWeeklyBtn.classList.toggle("active", mode === "weekly");
   modeDailyBtn.setAttribute("aria-selected", String(mode === "daily"));
   modeWeeklyBtn.setAttribute("aria-selected", String(mode === "weekly"));
-  // The streak/calendar strip only applies to live daily play.
-  progressStrip.classList.toggle("hidden", mode !== "daily");
+  // The streak/calendar strip only applies to live daily play, and only once
+  // there's an active streak - delegate to its single visibility owner.
+  updateStreakStripVisibility();
 }
 
 function describeOffset(mode: Mode, offset: number): string {
@@ -350,6 +351,15 @@ function renderProgressStrip(): void {
     dot.title = medal ? `${seed} - ${MEDAL_LABEL[medal]}` : seed;
     dayDots.appendChild(dot);
   }
+  updateStreakStripVisibility();
+}
+
+/** The streak strip (badge + recent-day dots) shows only for live daily play,
+ * and only once the player has an active streak - a brand-new or lapsed player
+ * gets a cleaner home. Single source of truth for the strip's visibility. */
+function updateStreakStripVisibility(): void {
+  const hasStreak = currentStreak(loadCompletedDays()) > 0;
+  progressStrip.classList.toggle("hidden", mode !== "daily" || !hasStreak);
 }
 
 /** Batch-fetches the champion thresholds for the days shown in the streak strip
@@ -1408,13 +1418,6 @@ function endRun(): void {
     const medal = medalFor(session.elapsed, active.pars, champion);
     showMedal(medal, active.pars, champion);
 
-    // Mark the day delivered (drives the streak + calendar) before building
-    // the share text, so a fresh completion is reflected in the streak count.
-    // The streak is a live daily-play concept only (never a shared orphan map).
-    if (active.level.kind === "daily" && !active.orphan) {
-      recordCompletion(active.seed);
-      renderProgressStrip();
-    }
     // Capture run details so the async leaderboard callback below can fold the
     // world rank into the share text without racing a later navigation/retry.
     const sharePlayable = active;
@@ -1438,6 +1441,16 @@ function endRun(): void {
       // No navigation happens mid-run, so `active` is still `viewed` here.
       refreshViewedUi();
     }
+
+    // Mark the day delivered and repaint the streak strip - AFTER saving the
+    // personal best above, so today's dot renders with its freshly-earned medal
+    // (read from active.personalBest) instead of staying grey until a refresh.
+    // The streak is a live daily-play concept only (never a shared orphan map).
+    if (active.level.kind === "daily" && !active.orphan) {
+      recordCompletion(active.seed);
+      renderProgressStrip();
+    }
+
     resultsPersonalBest.textContent = !previousBest
       ? "New personal best!"
       : isNewBest
@@ -1591,12 +1604,12 @@ tutorialSkipSectionBtn.addEventListener("click", () => {
 // video-style player (play/pause, a seekable progress bar, and stop). Like
 // racing a ghost, it needs your own time on the level first.
 
-/** Enables the "Create a replay" button only once there's a personal best on the
- * viewed level (same gate as racing a ghost). */
+/** Shows the "Create a replay" button only once there's a personal best on the
+ * viewed level (same gate as racing a ghost); hidden entirely otherwise, rather
+ * than shown-but-disabled. */
 function updateWatchButton(): void {
   const unlocked = viewed.personalBest != null;
-  watchBtn.disabled = !unlocked;
-  watchBtn.title = unlocked ? "" : "Set your own time here first to watch replays.";
+  watchBtn.classList.toggle("hidden", !unlocked);
 }
 
 /** The pick-bar's prompt and "Show replay" label are static; this just gates the
