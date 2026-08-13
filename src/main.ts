@@ -9,6 +9,7 @@ import {
     type LeaderboardEntry,
     type RemoteRecording,
 } from "./game/api.js";
+import { countdownLabel } from "./game/countdown.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { optimalRowIndex } from "./game/leaderboard-order.js";
@@ -166,7 +167,12 @@ const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElem
 const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
 const howToBtn = document.getElementById("howto-btn") as HTMLButtonElement;
 const tutorialOverlay = document.getElementById("tutorial-overlay")!;
+const tutorialBadge = document.getElementById("tutorial-badge")!;
 const tutorialPrompt = document.getElementById("tutorial-prompt")!;
+const tutorialTimer = document.getElementById("tutorial-timer")!;
+const tutorialTryBtn = document.getElementById("tutorial-try-btn") as HTMLButtonElement;
+const tutorialAgainBtn = document.getElementById("tutorial-again-btn") as HTMLButtonElement;
+const tutorialNextBtn = document.getElementById("tutorial-next-btn") as HTMLButtonElement;
 const tutorialSkipBtn = document.getElementById("tutorial-skip-btn") as HTMLButtonElement;
 const tutorialSkipSectionBtn = document.getElementById("tutorial-skip-section-btn") as HTMLButtonElement;
 const tutorialDoneBtn = document.getElementById("tutorial-done-btn") as HTMLButtonElement;
@@ -1232,10 +1238,6 @@ if (sharedSeed) {
   void restoreSelectedLeaderboardGhost();
 }
 
-// "GO" gets its own step so it's visible for one beat before play begins.
-const COUNTDOWN_STEPS = ["3", "2", "1", "GO"];
-const COUNTDOWN_STEP_DURATION = 0.8;
-
 // --- Medal + share (results screen) ----------------------------------------
 
 let lastShareText: string | null = null;
@@ -1546,16 +1548,43 @@ homeBtn.addEventListener("click", goHome);
 // instead of panning across empty ground.
 let lastTutorialTruck: TruckState | null = null;
 
-/** Syncs the coach overlay (prompt + buttons) to the tutorial's current stage. */
+/** Syncs the coach overlay (badge, copy, timer, buttons) and the shared 3-2-1-GO
+ * overlay to the tutorial's current section and phase. */
 function refreshTutorialOverlay(): void {
   if (!tutorial) return;
-  tutorialPrompt.textContent = tutorial.prompt;
-  const done = tutorial.isDone;
-  // Once finished, "Let's go!" replaces "Skip tutorial" (they'd do the same
-  // thing, so only one shows). Per-section skip only during the terrain course.
-  tutorialDoneBtn.classList.toggle("hidden", !done);
-  tutorialSkipBtn.classList.toggle("hidden", done);
-  tutorialSkipSectionBtn.classList.toggle("hidden", !tutorial.canSkipSection);
+  const explaining = tutorial.phase === "explain";
+  const cleared = tutorial.phase === "complete";
+  const last = tutorial.isLastSection;
+
+  const badge = `${tutorial.sectionNumber}/${tutorial.sectionCount} · ${tutorial.sectionTitle}`;
+  const copy = tutorial.lines.join("\n");
+  // This runs every frame, and re-assigning identical text still rebuilds the
+  // text node - which would yank a scrolled-down explanation back to the top on
+  // the very next frame. So only write when something actually changed.
+  if (tutorialBadge.textContent !== badge) tutorialBadge.textContent = badge;
+  if (tutorialPrompt.textContent !== copy) tutorialPrompt.textContent = copy;
+  const left = tutorial.secondsLeft;
+  tutorialTimer.textContent = left === null ? "" : `${left}s left`;
+  tutorialTimer.classList.toggle("hidden", left === null);
+  // Only an 'explain' part takes pointer events (see the CSS): while playing,
+  // presses must fall through the card to the canvas to steer the truck.
+  tutorialOverlay.classList.toggle("explaining", explaining);
+
+  tutorialTryBtn.classList.toggle("hidden", !explaining);
+  // The choice offered once a section is cleared: go over it again, move on -
+  // or, on the last section, finish (which is also why "Skip tutorial" drops
+  // out there, since it would do the same thing).
+  tutorialAgainBtn.classList.toggle("hidden", !cleared);
+  tutorialNextBtn.classList.toggle("hidden", !cleared || last);
+  tutorialDoneBtn.classList.toggle("hidden", !cleared || !last);
+  tutorialSkipBtn.classList.toggle("hidden", cleared && last);
+  // Bailing out of a section is offered while working on it, never after it's
+  // been cleared (and not on the last one, where skipping is just leaving).
+  tutorialSkipSectionBtn.classList.toggle("hidden", cleared || last);
+
+  const count = tutorial.countdownLabel;
+  countdownOverlay.classList.toggle("hidden", count === null);
+  if (count !== null) countdownText.textContent = count;
 }
 
 /** Enters the tutorial from the start screen: a fresh guided run with the coach
@@ -1588,16 +1617,46 @@ function endTutorial(reason = "closed"): void {
   tutorial = null;
   appState = "start";
   tutorialOverlay.classList.add("hidden");
+  // The 3-2-1-GO overlay is shared with normal runs, so make sure a count-in
+  // that was on screen when the player bailed doesn't outlive the tutorial.
+  countdownOverlay.classList.add("hidden");
   startScreen.classList.remove("hidden");
 }
 
+/** Wires a coach-overlay button, dropping keyboard focus first: the spacebar is
+ * the steering control, so a button left focused after a click would fire again
+ * on the player's next hold. */
+function onTutorialAction(btn: HTMLButtonElement, run: () => void): void {
+  btn.addEventListener("click", () => {
+    btn.blur();
+    run();
+  });
+}
+
 tutorialBtn.addEventListener("click", startTutorial);
-tutorialSkipBtn.addEventListener("click", () => endTutorial("skipped"));
-tutorialDoneBtn.addEventListener("click", () => endTutorial("finished"));
-tutorialSkipSectionBtn.addEventListener("click", () => {
-  tutorial?.skipSection();
+onTutorialAction(tutorialSkipBtn, () => endTutorial("skipped"));
+onTutorialAction(tutorialDoneBtn, () => endTutorial("finished"));
+onTutorialAction(tutorialTryBtn, () => {
+  tutorial?.tryItOut();
   refreshTutorialOverlay();
 });
+onTutorialAction(tutorialAgainBtn, () => {
+  tutorial?.explainAgain();
+  refreshTutorialOverlay();
+});
+// "Next section" and "Skip section" do the same thing - move on - and differ
+// only in whether the section was cleared first. Neither can run out of
+// sections (both are hidden on the last one), but if one somehow did, leaving
+// the tutorial is the right landing spot.
+for (const [btn, reason] of [
+  [tutorialNextBtn, "finished"],
+  [tutorialSkipSectionBtn, "section_skipped"],
+] as const) {
+  onTutorialAction(btn, () => {
+    if (tutorial && !tutorial.nextSection()) endTutorial(reason);
+    else refreshTutorialOverlay();
+  });
+}
 
 // --- Replay theater --------------------------------------------------------
 // Pick 1-5 leaderboard players and watch their ghosts race each other, with a
@@ -1969,13 +2028,13 @@ function frame(now: number): void {
     // so a press during the countdown is already reflected in input.held
     // and takes effect on the very first physics tick once play begins.
     countdownElapsed += frameDt;
-    const stepIndex = Math.floor(countdownElapsed / COUNTDOWN_STEP_DURATION);
-    if (stepIndex >= COUNTDOWN_STEPS.length) {
+    const step = countdownLabel(countdownElapsed);
+    if (step === null) {
       appState = "playing";
       accumulator = 0;
       countdownOverlay.classList.add("hidden");
     } else {
-      countdownText.textContent = COUNTDOWN_STEPS[stepIndex]!;
+      countdownText.textContent = step;
       renderScene(session, frameDt);
       hudTimer.textContent = formatTime(0);
       hudObjective.textContent = `Pick up cargo (0/${session.pickups.length})`;
@@ -2007,23 +2066,30 @@ function frame(now: number): void {
 
     if (session.status !== "playing") endRun();
   } else if (appState === "tutorial" && tutorial) {
-    // The tutorial has no countdown: physics advance immediately so the truck's
-    // default left curve is visible while the player reads the first prompt.
-    accumulator += frameDt;
-    let steps = 0;
-    while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
-      tutorial.tick(input.held);
-      accumulator -= FIXED_DT;
-      steps++;
+    // Only a "play" part advances physics: an explanation, its 3-2-1-GO count-in
+    // and the cleared-section choice all freeze the truck on the start line (or
+    // wherever it finished), while the scene keeps re-rendering underneath.
+    const playing = tutorial.phase === "play";
+    if (playing) {
+      accumulator += frameDt;
+      let steps = 0;
+      while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+        tutorial.tick(input.held);
+        accumulator -= FIXED_DT;
+        steps++;
+      }
+    } else {
+      tutorial.advanceCountdown(frameDt); // no-op unless counting in
+      accumulator = 0;
     }
-    // A new scene (section change / rock-reset / drive->terrain) hands over a
-    // fresh truck object; snap the camera to it rather than panning across.
+    // A restart (new section, retry after a setback, "Explain again") hands over
+    // a fresh truck object; snap the camera to it rather than panning across.
     if (tutorial.activeTruck !== lastTutorialTruck) {
       camera.x = tutorial.activeTruck.pos.x;
       camera.y = tutorial.activeTruck.pos.y;
       lastTutorialTruck = tutorial.activeTruck;
     }
-    updateCamera(camera, tutorial.activeTruck, frameDt);
+    updateCamera(camera, tutorial.activeTruck, playing ? frameDt : 0);
     renderWorld(
       ctx,
       tutorial.activeLevel,
@@ -2034,7 +2100,6 @@ function frame(now: number): void {
       camera,
       canvas.clientWidth,
       canvas.clientHeight,
-      tutorial.goalMarkers,
     );
     refreshTutorialOverlay();
   } else if (appState === "replay" && replay && replayLevel) {

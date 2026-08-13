@@ -1,18 +1,24 @@
-// Framework-free checks for the new-player tutorial's "practice" mode and its
-// fixed level, run the same way as the other checks:
+// Framework-free checks for the new-player tutorial: its fixed levels, the
+// "practice" session mode they run on, and the explain/play cycle each section
+// steps through. Run the same way as the other checks:
 //   npm run build:client && node scripts/tutorial-check.mjs
 //
 // The tutorial must be *unfailable* so a learner can flail around while getting
 // the hang of the one control: a practice GameSession ignores both the
-// out-of-bounds and cargo-fell-off game-overs that a normal run ends on. These
-// guard that the practice flag actually suppresses each fail path (and that a
-// normal run still fails, so the flag isn't just disabling failure everywhere).
+// out-of-bounds and cargo-fell-off game-overs that a normal run ends on. The
+// tutorial layer adds its own, gentler setbacks on top (out of bounds or over
+// the time limit sends the player back to the explanation), which are checked
+// here too.
+import { COUNTDOWN_DURATION } from "../dist/game/countdown.js";
 import { GameSession } from "../dist/game/session.js";
+import { PLAY_TIME_LIMIT, Tutorial } from "../dist/game/tutorial.js";
 import {
-  buildMudSection,
-  buildRoadGrassSection,
-  buildRockSection,
-  buildTutorialLevel,
+  buildCargoLevel,
+  buildFullLevel,
+  buildMudLevel,
+  buildRoadLevel,
+  buildRockLevel,
+  buildSteeringLevel,
 } from "../dist/game/tutorial-level.js";
 
 let failures = 0;
@@ -25,37 +31,137 @@ function check(name, actual, expected) {
   }
 }
 
-// --- The tutorial level -----------------------------------------------------
+const kindCount = (level, kind) => level.warehouses.filter((w) => w.kind === kind).length;
 
-const level = buildTutorialLevel();
-const kinds = level.warehouses.map((w) => w.kind).sort();
-check("tutorial level has exactly one base", kinds.filter((k) => k === "base").length, 1);
-check("tutorial level has exactly one pickup", kinds.filter((k) => k === "pickup").length, 1);
-check("tutorial level has exactly one destination", kinds.filter((k) => k === "destination").length, 1);
-check("tutorial level has no rocks", level.rocks.length, 0);
-check("tutorial level has no mud", level.muds.length, 0);
+// --- The section levels -----------------------------------------------------
+// Every section is shaped like a real level - the truck starts at a base and
+// finishes at a drop-off (no bespoke goal flags anywhere) - so each one can be
+// played by an ordinary GameSession.
 
-// --- Terrain course sections ------------------------------------------------
-// Each section has a road (and grass, which is the default background); the mud
-// section carries mud but no rock, and the rock section carries rock but no mud.
+for (const [name, level] of [
+  ["steering", buildSteeringLevel()],
+  ["cargo", buildCargoLevel()],
+  ["road", buildRoadLevel()],
+  ["mud", buildMudLevel()],
+  ["rock", buildRockLevel()],
+  ["full", buildFullLevel()],
+]) {
+  check(`${name} level has exactly one base`, kindCount(level, "base"), 1);
+  check(`${name} level has exactly one drop-off`, kindCount(level, "destination"), 1);
+  check(`${name} level has a road`, level.roads.length > 0, true);
+}
 
-const road = buildRoadGrassSection();
-check("road/grass section has a road", road.level.roads.length > 0, true);
-check("road/grass section has no mud", road.level.muds.length, 0);
-check("road/grass section has no rock", road.level.rocks.length, 0);
-check("road/grass section has a goal flag", typeof road.goal.x === "number" && typeof road.goal.y === "number", true);
+// The lesson each section is built to teach: only the mud level carries mud,
+// only the rock level carries rock, and the steering/road lanes carry neither.
+check("steering level has no obstacles", buildSteeringLevel().rocks.length + buildSteeringLevel().muds.length, 0);
+check("road level has no obstacles", buildRoadLevel().rocks.length + buildRoadLevel().muds.length, 0);
+check("mud level has mud", buildMudLevel().muds.length > 0, true);
+check("mud level has no rock", buildMudLevel().rocks.length, 0);
+check("rock level has rock", buildRockLevel().rocks.length > 0, true);
+check("rock level has no mud", buildRockLevel().muds.length, 0);
 
-const mud = buildMudSection();
-check("mud section has a road", mud.level.roads.length > 0, true);
-check("mud section has mud", mud.level.muds.length > 0, true);
-check("mud section has no rock", mud.level.rocks.length, 0);
+// The steering lane is a pure "reach the drop-off" run: nothing to collect.
+check("steering level has no pickups", kindCount(buildSteeringLevel(), "pickup"), 0);
+check("cargo level has one pickup", kindCount(buildCargoLevel(), "pickup"), 1);
 
-const rock = buildRockSection();
-check("rock section has a road", rock.level.roads.length > 0, true);
-check("rock section has rock", rock.level.rocks.length > 0, true);
-check("rock section has no mud", rock.level.muds.length, 0);
+// The closing section looks like a real map: three pickups to collect, a road
+// network that deliberately doesn't connect everything, and both obstacle types.
+{
+  const full = buildFullLevel();
+  check("full level has three pickups", kindCount(full, "pickup"), 3);
+  check("full level has rocks", full.rocks.length > 0, true);
+  check("full level has mud", full.muds.length > 0, true);
+  // 5 warehouses fully connected by direct roads would be more than 4 segments;
+  // fewer means some legs of the route are open grass.
+  check("full level's roads don't connect everything", full.roads.length < full.warehouses.length - 1, true);
+  // Big enough that objectives fall off a phone screen (which is what the edge
+  // arrows are for).
+  check("full level is bigger than a phone viewport", full.width > 640 && full.height > 640, true);
+}
+
+// --- The explain -> countdown -> play -> complete cycle ---------------------
+
+/** Runs `ticks` physics ticks of a tutorial's live play part. */
+function drive(tutorial, ticks, held = false) {
+  for (let i = 0; i < ticks; i++) tutorial.tick(held);
+}
+
+{
+  const tutorial = new Tutorial();
+  check("tutorial opens on an explanation", tutorial.phase, "explain");
+  check("tutorial opens on section 1", tutorial.sectionNumber, 1);
+  check("an explanation shows no count-in", tutorial.countdownLabel, null);
+
+  // The scene is frozen while explaining: ticking does nothing at all.
+  const startX = tutorial.activeTruck.pos.x;
+  drive(tutorial, 60);
+  check("the truck doesn't move during an explanation", tutorial.activeTruck.pos.x, startX);
+
+  tutorial.tryItOut();
+  check("'Try it out' starts the count-in", tutorial.phase, "countdown");
+  check("the count-in starts at 3", tutorial.countdownLabel, "3");
+  drive(tutorial, 60);
+  check("the truck doesn't move during the count-in", tutorial.activeTruck.pos.x, startX);
+
+  tutorial.advanceCountdown(COUNTDOWN_DURATION);
+  check("play starts when the count-in runs out", tutorial.phase, "play");
+  drive(tutorial, 60);
+  check("the truck moves once play starts", tutorial.activeTruck.pos.x > startX, true);
+}
+
+{
+  // Running past the limit on a timed section drops the player back on the
+  // explanation, flagged with why, and puts the truck back on the start line.
+  const tutorial = new Tutorial();
+  tutorial.tryItOut();
+  tutorial.advanceCountdown(COUNTDOWN_DURATION);
+  const startX = tutorial.activeTruck.pos.x;
+  drive(tutorial, Math.ceil(PLAY_TIME_LIMIT * 60) + 1, true); // held: circles instead of finishing
+  check("running out of time re-explains the section", tutorial.phase, "explain");
+  check("the time-up setback is flagged as such", tutorial.setback, "timeUp");
+  check("a setback resets the truck to the start", tutorial.activeTruck.pos.x, startX);
+  check("a setback stays on the same section", tutorial.sectionNumber, 1);
+
+  tutorial.tryItOut();
+  check("trying again clears nothing but the phase", tutorial.phase, "countdown");
+  tutorial.explainAgain();
+  check("'Explain again' clears the setback note", tutorial.setback, null);
+}
+
+{
+  // The last section is untimed: a real map takes as long as it takes.
+  const tutorial = new Tutorial();
+  while (tutorial.nextSection());
+  check("advancing lands on the last section", tutorial.isLastSection, true);
+  check("the last section is section 6", tutorial.sectionNumber, 6);
+  check("'Next section' reports there's nothing after the last", tutorial.nextSection(), false);
+
+  tutorial.tryItOut();
+  tutorial.advanceCountdown(COUNTDOWN_DURATION);
+  drive(tutorial, Math.ceil(PLAY_TIME_LIMIT * 60) + 600, true);
+  check("the last section has no time limit", tutorial.phase, "play");
+  check("the last section shows no countdown clock", tutorial.secondsLeft, null);
+}
+
+{
+  // Reaching the drop-off clears the section and offers the choice screen.
+  const tutorial = new Tutorial();
+  tutorial.tryItOut();
+  tutorial.advanceCountdown(COUNTDOWN_DURATION);
+  const dropoff = tutorial.activeLevel.warehouses.find((w) => w.kind === "destination");
+  tutorial.activeTruck.pos.x = dropoff.pos.x;
+  tutorial.activeTruck.pos.y = dropoff.pos.y;
+  tutorial.tick(false);
+  check("touching the drop-off clears the section", tutorial.phase, "complete");
+  check("a cleared section shows no clock", tutorial.secondsLeft, null);
+  check("'Next section' moves on from a cleared section", tutorial.nextSection(), true);
+  check("moving on re-explains the next section", tutorial.phase, "explain");
+  check("moving on advances the section number", tutorial.sectionNumber, 2);
+}
 
 // --- Out-of-bounds: practice ignores it, a normal run ends on it ------------
+
+const level = buildCargoLevel();
 
 /** Runs `ticks` updates while pinning the truck past the map edge each tick, so
  * updateTruck clamps it and flags atBoundary - the signal a run counts up to a
@@ -76,6 +182,20 @@ function driveIntoWall(session, ticks) {
 
   const practice = driveIntoWall(new GameSession(level, { practice: true }), 40);
   check("practice run never fails out of bounds", practice.status, "playing");
+}
+
+{
+  // The tutorial layer turns that same edge-pinning into a setback instead:
+  // no game-over, just the explanation again.
+  const tutorial = new Tutorial();
+  tutorial.tryItOut();
+  tutorial.advanceCountdown(COUNTDOWN_DURATION);
+  for (let i = 0; i < 40; i++) {
+    tutorial.activeTruck.pos.x = tutorial.activeLevel.width + 1000;
+    tutorial.tick(false);
+  }
+  check("driving out of bounds re-explains the section", tutorial.phase, "explain");
+  check("the out-of-bounds setback is flagged as such", tutorial.setback, "outOfBounds");
 }
 
 // --- Cargo fell off: practice ignores it, a normal run ends on it -----------

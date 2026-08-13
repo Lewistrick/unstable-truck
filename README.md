@@ -143,7 +143,8 @@ What's implemented:
   with the warehouses collected; home-screen activity adds `navigated`,
   `mode_switched`, `paused`/`resumed`, `replay_started`/`replay_stopped`,
   `help_opened`/`help_toggled` (comment `summary`/`full`),
-  `tutorial_started`/`tutorial_ended` (comment `skipped`/`finished`/`escape`),
+  `tutorial_started`/`tutorial_ended` (comment
+  `skipped`/`finished`/`escape`/`section_skipped`),
   `menu_shown` (returning to the menu from a run via Home - a page-internal
   transition, so distinct from the page-load `game_started`), `shared`
   (tapping either Share button; comment names the source and copy result, e.g.
@@ -227,30 +228,48 @@ What's implemented:
   notice replaces the leaderboard). Use the Daily/Weekly toggle to return to a
   live period.
 - New-player tutorial: a first-time visitor (no stored progress yet) is dropped
-  straight into a short, guided, unfailable practice tutorial. A coach banner
-  walks through it step by step, gated on what the player actually does. It has
-  two parts:
-  - **Learn to drive.** On a fixed, calm grassland level (base, one pickup, one
-    drop-off along a wide road, no obstacles): hold to steer right, then release
-    to drift left, then collect the `W`, then deliver to the `D`.
-  - **A terrain course** of three hands-on sections, each a small level with a
-    goal flag to drive to: *road vs grass* (the road is the fast lane), *mud*
-    (a puddle to steer around rather than through — no rock in this one), and
-    *rock* (a solid boulder you must go around — no mud in this one; hitting it
-    restarts the section).
+  straight into a short, guided, unfailable practice tutorial. It's six sections
+  on six fixed grassland levels, and every one of them runs the same two-part
+  cycle:
+  - **Explain.** The coach banner lays out the lesson while the scene sits
+    frozen behind it — you see the map and the truck on its start line, but
+    nothing moves. A **Try it out** button starts a 3-2-1-GO count-in (the same
+    one a real run uses) and hands you the wheel.
+  - **Play.** Drive the section. Reaching the `D` drop-off clears it and offers
+    the choice of **Explain again**, **Next section**, or **Skip tutorial** — on
+    the last section, **Explain again** or **Finish tutorial**.
 
-  A **Skip section** button skips just the current section — from the steering
-  run it jumps straight to the terrain course, and within the course it moves to
-  the next section. The persistent **Skip tutorial** button (or Escape) leaves
-  to the main menu at any point. Finishing the course shows a "Let's go!" button
-  (and hides Skip tutorial, since they'd do the same thing).
+  Every section is shaped like a real level (truck starts at a `base`, cargo
+  sits in `W` warehouses, the run ends at the `D` drop-off) and is played by an
+  ordinary practice `GameSession`, so there are no tutorial-only goal markers or
+  rules. The six sections:
+  1. **Steering** — you always move forward and only steer: do nothing to curve
+     left, hold (screen, spacebar or mouse) to curve right, alternate to go
+     straight. Drive an empty lane to the drop-off.
+  2. **Cargo** — collect the `W`, haul it to the `D`, and feel it sway behind you.
+  3. **Roads** — the road is the fast lane, the grass beside it drags you down.
+  4. **Mud** — a puddle across the lane, faster to steer around than through.
+  5. **Rocks** — a solid boulder in the lane, with no way but around.
+  6. **A real map** — "Now you know everything you need to know about the game":
+     a base, three `W` warehouses, a `D` drop-off, a road network that
+     deliberately doesn't connect everything, plus mud and rock. It's big enough
+     that objectives fall off a phone screen, so the edge arrows earn their keep.
 
-  The run is unfailable throughout (a `practice` game session that ignores the
-  cargo and out-of-bounds game-overs), records no score, and races no ghosts. It
-  auto-opens only once (a `localStorage` "seen" flag) and is always reachable
-  afterwards from a **Tutorial** button directly under the home screen's Play
-  button, alongside a **How To** button that opens the same How-to-Play help as
-  the round **?** in the header.
+  On sections 1-5 a play part is cut short by driving out of bounds or by taking
+  longer than 30 seconds (a countdown of the seconds left shows in the banner):
+  either one drops you back on that section's explanation with a line saying
+  what happened. Section 6 is untimed — it's a real run, and a real run takes as
+  long as it takes. A **Skip section** button moves on without clearing the
+  current one; the persistent **Skip tutorial** button (or Escape) leaves to the
+  main menu at any point.
+
+  The driving is unfailable throughout (a `practice` game session that ignores
+  the cargo and out-of-bounds game-overs — the tutorial's own setbacks replace
+  them), records no score, and races no ghosts. It auto-opens only once (a
+  `localStorage` "seen" flag) and is always reachable afterwards from a
+  **Tutorial** button directly under the home screen's Play button, alongside a
+  **How To** button that opens the same How-to-Play help as the round **?** in
+  the header.
 - Start screen shows one day at a time (today by default), with the date above
   the thumbnail (prev/next arrows beside it to browse up to 30 days back) and the
   streak strip sitting between the medal/PB tiles and the leaderboard - the date,

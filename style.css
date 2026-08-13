@@ -1212,10 +1212,37 @@ button:active {
   border-radius: 999px;
 }
 
+/* The coach text is one string with a newline between paragraphs, so pre-line
+   turns those into visible paragraph breaks without building any DOM. The
+   'explain' parts are several paragraphs long, so on short screens the card
+   scrolls rather than growing over the whole viewport. */
 #tutorial-prompt {
+  max-height: 46vh;
+  overflow-y: auto;
   font-size: 1.05rem;
   line-height: 1.45;
+  white-space: pre-line;
   color: #f0f2f5;
+}
+
+/* While an 'explain' part is up the game is paused, so nothing is being steered
+   through the card and it can take pointer events - which is what lets a long
+   explanation be scrolled on a short screen. */
+#tutorial-overlay.explaining #tutorial-banner {
+  pointer-events: auto;
+}
+
+/* Seconds left in a timed section, shown only while one is being played. */
+#tutorial-timer {
+  margin-top: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #ffd166;
+}
+
+#tutorial-timer.hidden {
+  display: none;
 }
 
 #tutorial-actions {
