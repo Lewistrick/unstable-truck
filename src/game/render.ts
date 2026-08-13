@@ -1,5 +1,6 @@
 import { getTheme, type TextureStyle } from "../level/themes.js";
 import type { Level, MudObstacle, RockObstacle, Warehouse } from "../level/types.js";
+import { beyondFill, drawBoundary } from "./boundary.js";
 import type { CargoState } from "../physics/cargo.js";
 import type { TruckState } from "../physics/truck.js";
 import { mulberry32, randRange, seedFromString, type Rng } from "../util/rng.js";
@@ -315,47 +316,194 @@ function drawHouses(ctx: CanvasRenderingContext2D, level: Level): void {
   }
 }
 
-/** Points the player toward the nearest unvisited pickup (red), or once every
- * pickup is done, toward the destination (green). Sits just off the truck in
- * the target's direction and rotates to point at it. */
-function drawGuidanceArrow(
-  ctx: CanvasRenderingContext2D,
-  truck: TruckState,
-  level: Level,
-  visited: ReadonlySet<Warehouse>,
-): void {
-  const unvisited = level.warehouses.filter((w) => w.kind === "pickup" && !visited.has(w));
-  let target: Warehouse | undefined;
-  let done = false;
-  if (unvisited.length > 0) {
-    target = unvisited.reduce((a, b) => (distance(truck.pos, a.pos) <= distance(truck.pos, b.pos) ? a : b));
-  } else {
-    target = level.warehouses.find((w) => w.kind === "destination");
-    done = true;
+// --- Edge arrows -----------------------------------------------------------
+// Screen-space wedges pinned to the viewport borders, each pointing at an
+// off-screen objective. Big weekly maps (and even daily ones on a phone) show
+// only a slice of the world, so these keep the next objective findable without
+// cluttering the middle of the play area.
+
+// How far inside the viewport the arrow's tip sits, so the whole wedge stays
+// visible instead of poking off the edge. Also the band, measured from each
+// border, within which an objective counts as "on screen" (no arrow).
+const EDGE_ARROW_MARGIN = 16;
+// Wedge geometry at scale 1: apex-to-base length and half the base width.
+const EDGE_ARROW_LEN = 24;
+const EDGE_ARROW_HALF = 12;
+// Size scales inversely with distance: an objective right off-screen gets the
+// max scale; one at least this fraction of the map's diagonal away gets the min.
+const EDGE_ARROW_MAX_SCALE = 1.35;
+const EDGE_ARROW_MIN_SCALE = 0.325;
+const EDGE_ARROW_FAR_FRACTION = 0.6;
+
+const PICKUP_ARROW_COLOR = "#ef3b2a";
+const DROPOFF_ARROW_COLOR = "#22c55e";
+
+// Once the last pickup is collected, the single drop-off arrow launches from the
+// truck out to its border spot over this many milliseconds, to call attention to
+// where to finish. Purely a UI flourish (wall-clock driven), so it never touches
+// gameplay or deterministic replay.
+const DROPOFF_SHOOT_MS = 1000;
+// Set to the launch timestamp on the frame the last pickup is collected, then
+// used to ease the arrow outward; `dropoffWasDone` detects that transition and
+// resets when a fresh run leaves everything uncollected again.
+let dropoffShootStart: number | null = null;
+let dropoffWasDone = false;
+
+function nowMs(): number {
+  return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+}
+
+/** Arrow scale for a target `dist` world-units away on a map whose diagonal is
+ * `diag`. Nearer targets read bolder (max scale); anything past
+ * EDGE_ARROW_FAR_FRACTION of the diagonal is clamped to the min scale. Exported
+ * for the edge-arrow geometry test. */
+export function edgeArrowScale(dist: number, diag: number): number {
+  const t = Math.min(1, dist / (diag * EDGE_ARROW_FAR_FRACTION || 1));
+  return EDGE_ARROW_MAX_SCALE - (EDGE_ARROW_MAX_SCALE - EDGE_ARROW_MIN_SCALE) * t;
+}
+
+/** Where the ray from (ox,oy) toward (tx,ty) first crosses the viewport border
+ * inset by `margin`, or null if it never does within the segment. Used to pin an
+ * off-screen objective's arrow to the edge in that objective's direction.
+ * Exported for the edge-arrow geometry test. */
+export function intersectBorder(
+  ox: number,
+  oy: number,
+  tx: number,
+  ty: number,
+  margin: number,
+  canvasW: number,
+  canvasH: number,
+): Vec2 | null {
+  const dx = tx - ox;
+  const dy = ty - oy;
+  const left = margin;
+  const right = canvasW - margin;
+  const top = margin;
+  const bottom = canvasH - margin;
+  let best = Infinity;
+  let hit: Vec2 | null = null;
+  const consider = (t: number, x: number, y: number): void => {
+    // A tiny tolerance keeps a crossing exactly at a corner from being rejected
+    // by floating-point rounding on the perpendicular axis.
+    if (t >= 0 && t <= 1 && t < best && x >= left - 0.5 && x <= right + 0.5 && y >= top - 0.5 && y <= bottom + 0.5) {
+      best = t;
+      hit = { x, y };
+    }
+  };
+  if (dx !== 0) {
+    const tl = (left - ox) / dx;
+    consider(tl, left, oy + tl * dy);
+    const tr = (right - ox) / dx;
+    consider(tr, right, oy + tr * dy);
   }
-  if (!target) return;
+  if (dy !== 0) {
+    const tt = (top - oy) / dy;
+    consider(tt, ox + tt * dx, top);
+    const tb = (bottom - oy) / dy;
+    consider(tb, ox + tb * dx, bottom);
+  }
+  return hit;
+}
 
-  const dx = target.pos.x - truck.pos.x;
-  const dy = target.pos.y - truck.pos.y;
-  const len = Math.hypot(dx, dy) || 1;
-  const nx = dx / len;
-  const ny = dy / len;
-  const offset = truck.radius + 30;
-
+/** One filled wedge pinned to the border at (x,y), apex at that point pointing
+ * along `angle` (the on-screen direction to its objective), body trailing back
+ * inward, scaled by `scale`. */
+function drawEdgeArrow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angle: number,
+  scale: number,
+  color: string,
+): void {
+  const len = EDGE_ARROW_LEN * scale;
+  const half = EDGE_ARROW_HALF * scale;
   ctx.save();
-  ctx.translate(truck.pos.x + nx * offset, truck.pos.y + ny * offset);
-  ctx.rotate(Math.atan2(ny, nx));
+  ctx.translate(x, y);
+  ctx.rotate(angle);
   ctx.beginPath();
-  ctx.moveTo(20, 0);
-  ctx.lineTo(-10, -13);
-  ctx.lineTo(-10, 13);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-len, -half);
+  ctx.lineTo(-len, half);
   ctx.closePath();
-  ctx.fillStyle = done ? "#22c55e" : "#ef3b2a";
+  ctx.fillStyle = color;
   ctx.fill();
   ctx.strokeStyle = "rgba(0,0,0,0.45)";
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
+}
+
+/** Draws a border arrow for every off-screen objective. While any pickups
+ * remain, each uncollected pickup that's off-screen gets a red arrow; once all
+ * pickups are collected, a single green arrow points to the drop-off (and only
+ * while it too is off-screen). On-screen objectives get no arrow. Drawn in
+ * screen space, so it must run after the world transform is restored. Used on
+ * both daily and weekly maps. */
+function drawEdgeArrows(
+  ctx: CanvasRenderingContext2D,
+  truck: TruckState,
+  level: Level,
+  visited: ReadonlySet<Warehouse>,
+  camera: Camera,
+  zoom: number,
+  canvasW: number,
+  canvasH: number,
+): void {
+  const unvisited = level.warehouses.filter((w) => w.kind === "pickup" && !visited.has(w));
+  const done = unvisited.length === 0;
+
+  // Launch the drop-off arrow on the exact frame the last pickup is collected;
+  // reset once a fresh run has pickups outstanding again.
+  const now = nowMs();
+  if (done && !dropoffWasDone) dropoffShootStart = now;
+  dropoffWasDone = done;
+
+  let targets: Warehouse[];
+  let color: string;
+  if (!done) {
+    targets = unvisited;
+    color = PICKUP_ARROW_COLOR;
+  } else {
+    // All pickups collected: guide to the drop-off (and nothing else).
+    const dest = level.warehouses.find((w) => w.kind === "destination");
+    targets = dest ? [dest] : [];
+    color = DROPOFF_ARROW_COLOR;
+  }
+  if (targets.length === 0) return;
+
+  const toScreenX = (wx: number): number => (wx - camera.x) * zoom + canvasW / 2;
+  const toScreenY = (wy: number): number => (wy - camera.y) * zoom + canvasH / 2;
+  const ox = toScreenX(truck.pos.x);
+  const oy = toScreenY(truck.pos.y);
+  const margin = EDGE_ARROW_MARGIN;
+  const diag = Math.hypot(level.width, level.height);
+
+  // Eased 0->1 progress of the drop-off launch (fast start, settling at the
+  // border). 1 (no animation) whenever we're still collecting pickups.
+  let shoot = 1;
+  if (done && dropoffShootStart != null) {
+    const p = Math.min(1, (now - dropoffShootStart) / DROPOFF_SHOOT_MS);
+    shoot = 1 - (1 - p) ** 3;
+  }
+
+  for (const target of targets) {
+    const sx = toScreenX(target.pos.x);
+    const sy = toScreenY(target.pos.y);
+    // Objective already comfortably on screen: no arrow needed.
+    if (sx >= margin && sx <= canvasW - margin && sy >= margin && sy <= canvasH - margin) continue;
+
+    const hit = intersectBorder(ox, oy, sx, sy, margin, canvasW, canvasH);
+    if (!hit) continue;
+
+    const scale = edgeArrowScale(distance(truck.pos, target.pos), diag);
+    // While shooting (shoot < 1) the drop-off arrow rides out from the truck to
+    // its border spot; pickups and the settled drop-off arrow just sit there.
+    const x = ox + (hit.x - ox) * shoot;
+    const y = oy + (hit.y - oy) * shoot;
+    drawEdgeArrow(ctx, x, y, Math.atan2(sy - oy, sx - ox), scale, color);
+  }
 }
 
 type PaletteColorKey = keyof Level["palette"];
@@ -877,9 +1025,10 @@ function paintWorld(
   canvasW: number,
   canvasH: number,
 ): void {
-  // Area beyond the level bounds (visible near the world's edges) matches the
-  // grass color instead of a hardcoded dark void.
-  ctx.fillStyle = level.palette.grass;
+  // Area beyond the level bounds (visible near the world's edges) is the biome's
+  // out-of-bounds material: sea for beaches, space for the moon, a chasm for
+  // cliffs, and the ordinary grass color everywhere else.
+  ctx.fillStyle = beyondFill(level);
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   // Center the camera on screen, then scale about that center so the truck
@@ -915,6 +1064,9 @@ function paintWorld(
   // Scenery sits on the grass (placed off-road), drawn under the warehouses so
   // gameplay markers stay on top.
   drawScenery(ctx, level, viewBounds);
+  // Decorative biome boundary around the map edges (never occludes the
+  // objectives, which are drawn next, or the truck, drawn after paintWorld).
+  drawBoundary(ctx, level, viewBounds);
   drawWarehouses(ctx, level, visited);
 }
 
@@ -946,11 +1098,11 @@ export function renderWorld(
   drawTruckRig(ctx, truck, cargoBoxes);
   drawNameLabel(ctx, truck.pos, "you");
 
-  // The big weekly map is easy to get lost on, so guide the player to the next
-  // objective.
-  if (level.kind === "weekly") drawGuidanceArrow(ctx, truck, level, visited);
-
   ctx.restore();
+
+  // Border arrows to any off-screen objective, drawn in screen space (after the
+  // world transform is restored) so they pin to the viewport edges. Both maps.
+  drawEdgeArrows(ctx, truck, level, visited, camera, zoom, canvasW, canvasH);
 }
 
 const REPLAY_NO_VISITED: ReadonlySet<Warehouse> = new Set();
