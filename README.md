@@ -38,9 +38,12 @@ What's implemented:
   easter egg — snow around Christmas, autumn around Halloween, plus dedicated
   Easter and New Year's biomes (the latter two are seasonal-only, never in the
   random pool). Overrides apply to both daily maps (the exact dates, Easter
-  computed each year) and weekly maps (any week the holiday falls in). The
-  chosen biome's name is shown next to the date on the home screen. Themes only
-  change appearance —
+  computed each year) and weekly maps (any week the holiday falls in). To avoid
+  dull streaks, a day (or week) whose biome would match the previous period's is
+  deterministically re-rolled to a different one, so consecutive days never share
+  a biome — holidays excepted, so multi-day holidays like Christmas stay snowy.
+  The chosen biome's name is shown next to the date on the home screen. Themes
+  only change appearance —
   they never affect road/warehouse/obstacle placement, so per-seed leaderboards
   stay comparable.
 - Biome scenery: every theme scatters small, decorative, no-collision props that

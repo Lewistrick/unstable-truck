@@ -21,7 +21,7 @@ export const scoresRouter = Router();
 const DAILY_SEED_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
 const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
-const MAX_NICKNAME_LENGTH = 24;
+const MAX_NICKNAME_LENGTH = 16;
 const TOP_N = 10;
 // run_logs accepts any seed the client actually played, including shared/orphan
 // maps that aren't a live daily/weekly period, so it's length-capped rather than
