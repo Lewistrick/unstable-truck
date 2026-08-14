@@ -322,10 +322,12 @@ function refreshViewedUi(): void {
 
 /** The Daily/Weekly switch (pinned to the very bottom) is a progressive-disclosure
  * unlock: a newcomer never sees it, and it appears with a "bigger challenge"
- * invite only once they've earned gold on the viewed level. In weekly mode the
+ * invite only once they've earned gold on Hard mode. In weekly mode the
  * toggle always shows (minus the invite) so there's a way back to daily. */
 function updateModeSwitchVisibility(): void {
-  const hasGold = viewed.personalBest != null && viewed.personalBest.time <= viewed.pars.gold;
+  // Check if Hard mode has a gold medal on the viewed seed (regardless of current difficulty)
+  const hardPlayable = mode === "daily" ? getPlayable("daily", viewedOffset, "hard") : viewed;
+  const hasGold = hardPlayable.personalBest != null && hardPlayable.personalBest.time <= hardPlayable.pars.gold;
   modeSwitch.classList.toggle("hidden", !(mode === "weekly" || hasGold));
   // The invite is a daily -> weekly nudge, so it's hidden once you're on weekly.
   modeCta.classList.toggle("hidden", !(mode === "daily" && hasGold));
@@ -408,12 +410,12 @@ function renderProgressStrip(): void {
   updateStreakStripVisibility();
 }
 
-/** The streak strip (badge + recent-day dots) shows only for live daily play,
- * and only once the player has an active streak - a brand-new or lapsed player
- * gets a cleaner home. Single source of truth for the strip's visibility. */
+/** The streak strip (badge + recent-day dots) shows only for live daily play
+ * on Hard mode, and only once the player has an active streak - a brand-new or
+ * lapsed player gets a cleaner home. Single source of truth for the strip's visibility. */
 function updateStreakStripVisibility(): void {
   const hasStreak = currentStreak(loadCompletedDays()) > 0;
-  progressStrip.classList.toggle("hidden", mode !== "daily" || !hasStreak);
+  progressStrip.classList.toggle("hidden", mode !== "daily" || difficulty !== "hard" || !hasStreak);
 }
 
 /** Batch-fetches the champion thresholds for the days shown in the streak

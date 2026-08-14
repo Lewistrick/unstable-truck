@@ -10,10 +10,10 @@ import { generateWarehouses, generateWeeklyBuildings } from "./warehouses.js";
 export const WORLD_WIDTH = 2000;
 export const WORLD_HEIGHT = 1300;
 
-// The weekly map is 5x the daily map in every dimension, with many more
+// The weekly map is 3x the daily map in every dimension, with many more
 // warehouses plus decorative houses so the sprawling road network reads like a
 // real region.
-const WEEKLY_SCALE = 5;
+const WEEKLY_SCALE = 3;
 export const WEEKLY_WIDTH = WORLD_WIDTH * WEEKLY_SCALE;
 export const WEEKLY_HEIGHT = WORLD_HEIGHT * WEEKLY_SCALE;
 
@@ -52,21 +52,21 @@ export function generateLevel(seed: string): Level {
 }
 
 /** Builds a deterministic weekly level from a year+week string (e.g.
- * "2026-W31"): a much larger map with 15-25 warehouses, 30-40 decorative
+ * "2026-W31"): a much larger map with 9-15 warehouses, 18-24 decorative
  * houses on the road network, and proportionally more obstacles. */
 export function generateWeeklyLevel(seed: string): Level {
   const rng = mulberry32(seedFromString(seed));
   const noise = makeValueNoise2D(rng);
 
-  const warehouseCount = randInt(rng, 15, 25);
-  const houseCount = randInt(rng, 30, 40);
+  const warehouseCount = randInt(rng, 8, 16);
+  const houseCount = randInt(rng, 16, 32);
   const nodeCount = warehouseCount + houseCount;
 
   // Larger jitter than daily so the many hubs don't read as a grid, and
   // straight (not curved) roads between them.
   const hubs = generateHubs(rng, noise, WEEKLY_WIDTH, WEEKLY_HEIGHT, nodeCount, 0.75);
-  const mainRoads = generateRoads(rng, hubs, randInt(rng, 12, 20), true);
-  const branches = generateBranches(rng, mainRoads, WEEKLY_WIDTH, WEEKLY_HEIGHT, randInt(rng, 8, 14), true);
+  const mainRoads = generateRoads(rng, hubs, randInt(rng, 8, 12), true);
+  const branches = generateBranches(rng, mainRoads, WEEKLY_WIDTH, WEEKLY_HEIGHT, randInt(rng, 4, 12), true);
   const roads = [...mainRoads, ...branches];
   const { warehouses, houses } = generateWeeklyBuildings(rng, hubs, warehouseCount);
   const { rocks, muds } = generateObstacles(
@@ -75,7 +75,7 @@ export function generateWeeklyLevel(seed: string): Level {
     WEEKLY_WIDTH,
     WEEKLY_HEIGHT,
     warehouses,
-    { rocks: randInt(rng, 90, 180), muds: randInt(rng, 72, 132) },
+    { rocks: randInt(rng, 64, 128), muds: randInt(rng, 48, 96) },
     houses.map((h) => h.pos),
   );
   const theme = pickTheme(seed);
