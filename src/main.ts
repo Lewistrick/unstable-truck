@@ -1647,8 +1647,10 @@ function goHome(): void {
   resultsScreen.classList.add("hidden");
   startScreen.classList.remove("hidden");
   // A just-finished first delivery flips "has played", which reveals the browse
-  // arrows - re-evaluate their visibility now that we're back on the menu.
+  // arrows and the Easy/Hard switch - re-evaluate both now that we're back on
+  // the menu, rather than waiting for the next navigation/mode change to do it.
   updateNavButtons();
+  updateDifficultySwitchVisibility();
   // Returning to the menu is a page-internal transition (no reload), so
   // game_started never re-fires here - log it as its own menu-shown event.
   void logRun(viewed.seed, nickname, "menu_shown", 0);
