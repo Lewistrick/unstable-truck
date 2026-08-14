@@ -6,6 +6,7 @@ import {
     fetchPlayerRecording,
     logRun,
     submitScore,
+    type Difficulty,
     type LeaderboardEntry,
     type RemoteRecording,
 } from "./game/api.js";
@@ -17,6 +18,7 @@ import {
     MEDAL_ICON,
     MEDAL_LABEL,
     championTime,
+    computeEasyMedalPars,
     computeMedalPars,
     medalFor,
     type Medal,
@@ -29,6 +31,7 @@ import {
     getOrCreateNickname,
     hasSeenTutorial,
     loadCompletedDays,
+    loadDifficultyPref,
     loadPersonalBest,
     loadRacePbGhostPref,
     loadSelectedLeaderboardGhost,
@@ -36,6 +39,7 @@ import {
     pruneLeaderboardGhosts,
     pruneOldPersonalBests,
     recordCompletion,
+    saveDifficultyPref,
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
@@ -54,6 +58,7 @@ type Mode = "daily" | "weekly";
 interface Playable {
   seed: string;
   level: Level;
+  difficulty: Difficulty;
   personalBest: GhostRecording | null;
   pars: MedalPars;
   /** True for a shared-link seed that isn't a live daily/weekly period (expired
@@ -62,9 +67,11 @@ interface Playable {
   orphan?: boolean;
 }
 
-function makePlayable(seed: string, kind: Mode): Playable {
+function makePlayable(seed: string, kind: Mode, difficulty: Difficulty): Playable {
   const level = kind === "weekly" ? generateWeeklyLevel(seed) : generateLevel(seed);
-  return { seed, level, personalBest: loadPersonalBest(seed), pars: computeMedalPars(level) };
+  const hardPars = computeMedalPars(level);
+  const pars = difficulty === "easy" ? computeEasyMedalPars(hardPars) : hardPars;
+  return { seed, level, difficulty, personalBest: loadPersonalBest(seed, difficulty), pars };
 }
 
 // Drop any personal bests past their retention age before loading anything.
@@ -82,7 +89,12 @@ const MAX_PAST_WEEKS = 52;
 // score retention reach back MAX_PAST_DAYS, but 30+ dots would overflow the
 // strip and read as noise for an at-a-glance streak).
 const STREAK_STRIP_DAYS = 7;
-const playableCache: Record<Mode, Map<number, Playable>> = { daily: new Map(), weekly: new Map() };
+// Cached per (mode, difficulty, offset). Weekly's "easy" slot is simply never
+// populated - weekly is always played as Hard (see effectiveDifficulty).
+const playableCache: Record<Mode, Record<Difficulty, Map<number, Playable>>> = {
+  daily: { easy: new Map(), hard: new Map() },
+  weekly: { easy: new Map(), hard: new Map() },
+};
 
 // Clear out remembered leaderboard-ghost selections for any map that's aged out
 // of the browsable window (all currently-browsable daily and weekly seeds are
@@ -96,11 +108,11 @@ function seedFor(mode: Mode, offset: number): string {
   return mode === "weekly" ? weekSeed(offset) : shiftSeed(todaysSeed, offset);
 }
 
-function getPlayable(mode: Mode, offset: number): Playable {
-  const cache = playableCache[mode];
+function getPlayable(mode: Mode, offset: number, difficulty: Difficulty): Playable {
+  const cache = playableCache[mode][difficulty];
   let playable = cache.get(offset);
   if (!playable) {
-    playable = makePlayable(seedFor(mode, offset), mode);
+    playable = makePlayable(seedFor(mode, offset), mode, difficulty);
     cache.set(offset, playable);
   }
   return playable;
@@ -120,6 +132,8 @@ function setModeVisuals(): void {
   // The streak/calendar strip only applies to live daily play, and only once
   // there's an active streak - delegate to its single visibility owner.
   updateStreakStripVisibility();
+  // The Easy/Hard switch only makes sense (and only shows) in daily mode.
+  updateDifficultySwitchVisibility();
 }
 
 function describeOffset(mode: Mode, offset: number): string {
@@ -146,7 +160,35 @@ function formatTime(seconds: number): string {
 
 let mode: Mode = "daily";
 let viewedOffset = 0;
-let viewed: Playable = getPlayable(mode, 0);
+
+// --- Easy/Hard difficulty ----------------------------------------------------
+// A single global preference, independent of (and persisted across) both the
+// viewed offset and the daily/weekly mode. Weekly is always played as Hard
+// regardless of this preference - effectiveDifficulty() is the one place that
+// reconciles the two, and every level lookup goes through it rather than
+// reading `difficulty` directly.
+
+/** A brand-new player (nothing delivered yet, in either difficulty) defaults to
+ * Easy; anyone who has finished at least one run defaults to Hard. Reuses the
+ * same "hasPlayed" signal the nav arrows and the difficulty switch's own
+ * reveal condition use, so the two stay in lockstep. */
+function defaultDifficulty(): Difficulty {
+  return loadCompletedDays().size > 0 ? "hard" : "easy";
+}
+
+let difficulty: Difficulty = loadDifficultyPref() ?? defaultDifficulty();
+// Lock in that default the first time it's computed, so it doesn't silently
+// flip to "hard" the moment the player finishes their first (default-Easy)
+// run - once resolved, the choice sticks until they explicitly toggle it.
+if (loadDifficultyPref() == null) saveDifficultyPref(difficulty);
+
+/** The difficulty actually in effect for `mode`: weekly ignores the preference
+ * entirely and is always Hard (there is no Easy weekly board). */
+function effectiveDifficulty(mode: Mode): Difficulty {
+  return mode === "weekly" ? "hard" : difficulty;
+}
+
+let viewed: Playable = getPlayable(mode, 0, effectiveDifficulty(mode));
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -222,6 +264,9 @@ const modeDailyBtn = document.getElementById("mode-daily") as HTMLButtonElement;
 const modeWeeklyBtn = document.getElementById("mode-weekly") as HTMLButtonElement;
 const modeSwitch = document.getElementById("mode-switch")!;
 const modeCta = document.getElementById("mode-cta")!;
+const difficultySwitch = document.getElementById("difficulty-switch")!;
+const difficultyEasyBtn = document.getElementById("difficulty-easy") as HTMLButtonElement;
+const difficultyHardBtn = document.getElementById("difficulty-hard") as HTMLButtonElement;
 const medalTrack = document.getElementById("medal-track")!;
 
 let nickname = getOrCreateNickname();
@@ -337,11 +382,14 @@ function renderProgressStrip(): void {
   streakBadge.classList.toggle("hidden", !hasStreak);
 
   dayDots.replaceChildren();
+  // The strip only ever shows in daily mode, so this is just `difficulty` -
+  // but routed through effectiveDifficulty() to keep every lookup consistent.
+  const stripDifficulty = effectiveDifficulty("daily");
   for (let offset = -STREAK_STRIP_DAYS; offset <= 0; offset++) {
-    const playable = getPlayable("daily", offset);
+    const playable = getPlayable("daily", offset, stripDifficulty);
     const seed = playable.seed;
     const best = playable.personalBest?.time ?? null;
-    const champion = championTimeCache.get(seed) ?? null;
+    const champion = championTimeCache.get(champKey(seed, stripDifficulty)) ?? null;
     const medal = best == null ? null : medalFor(best, playable.pars, champion);
 
     const dot = document.createElement("span");
@@ -368,19 +416,22 @@ function updateStreakStripVisibility(): void {
   progressStrip.classList.toggle("hidden", mode !== "daily" || !hasStreak);
 }
 
-/** Batch-fetches the champion thresholds for the days shown in the streak strip
- * and, if anything changed, repaints it. Past days are frozen server-side so
- * this mostly settles after the first call; today's can still move as records
- * come in. Best-effort - offline just leaves the champion tint absent. */
+/** Batch-fetches the champion thresholds for the days shown in the streak
+ * strip (on the currently selected difficulty) and, if anything changed,
+ * repaints it. Past days are frozen server-side so this mostly settles after
+ * the first call; today's can still move as records come in. Best-effort -
+ * offline just leaves the champion tint absent. */
 async function refreshStripChampionTimes(): Promise<void> {
+  const stripDifficulty = effectiveDifficulty("daily");
   const seeds: string[] = [];
   for (let offset = -STREAK_STRIP_DAYS; offset <= 0; offset++) seeds.push(shiftSeed(todaysSeed, offset));
-  const times = await fetchChampionTimes(seeds);
+  const times = await fetchChampionTimes(seeds, stripDifficulty);
 
   let changed = false;
   for (const [seed, time] of Object.entries(times)) {
-    if (championTimeCache.get(seed) !== time) {
-      championTimeCache.set(seed, time);
+    const key = champKey(seed, stripDifficulty);
+    if (championTimeCache.get(key) !== time) {
+      championTimeCache.set(key, time);
       changed = true;
     }
   }
@@ -406,10 +457,14 @@ function myWorldRank(): { rank: number; total: number } | null {
 }
 
 // Champion-medal threshold (finish at or under it to earn champion) for the
-// viewed seed, plus a per-seed cache used to colour the streak calendar. The
-// server persists and freezes these per period; null means none is set yet.
+// viewed seed+difficulty, plus a per-(seed, difficulty) cache used to colour
+// the streak calendar. The server persists and freezes these per period; null
+// means none is set yet.
 let viewedChampionTime: number | null = null;
 const championTimeCache = new Map<string, number>();
+function champKey(seed: string, difficulty: Difficulty): string {
+  return `${difficulty}:${seed}`;
+}
 
 /** Champion threshold for the currently viewed level - the single source of
  * truth for whether a run earns the champion medal here. It's the server's
@@ -622,9 +677,12 @@ function renderLeaderboardList(): void {
     renderOrphanNotice();
     return;
   }
+  // The Easy/Hard split only exists in daily mode (weekly is Hard-only, so
+  // labelling it would be redundant noise).
+  const diffLabel = mode === "daily" ? ` · ${viewed.difficulty === "easy" ? "Easy" : "Hard"}` : "";
   leaderboardHeaderEl.textContent = watchMode
     ? `Pick up to 5 racers to include in the replay`
-    : `Leaderboard (${describeOffset(mode, viewedOffset)})`;
+    : `Leaderboard (${describeOffset(mode, viewedOffset)})${diffLabel}`;
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
   leaderboardList.replaceChildren();
@@ -708,28 +766,29 @@ async function toggleLeaderboardGhost(clickedNickname: string): Promise<void> {
   if (!viewed.personalBest) return;
   if (selectedGhostEntry?.nickname === clickedNickname) {
     selectedGhostEntry = null;
-    saveSelectedLeaderboardGhost(viewed.seed, null);
+    saveSelectedLeaderboardGhost(viewed.seed, viewed.difficulty, null);
     renderLeaderboardList();
     return;
   }
-  const recording = await fetchPlayerRecording(viewed.seed, clickedNickname);
+  const recording = await fetchPlayerRecording(viewed.seed, clickedNickname, viewed.difficulty);
   if (recording) {
     selectedGhostEntry = { nickname: clickedNickname, recording };
-    saveSelectedLeaderboardGhost(viewed.seed, clickedNickname);
+    saveSelectedLeaderboardGhost(viewed.seed, viewed.difficulty, clickedNickname);
   }
   renderLeaderboardList();
 }
 
-/** Re-selects the leaderboard opponent remembered for the viewed seed (if any),
- * re-fetching its recording. Racing another player's ghost requires your own
- * time on the level, matching toggleLeaderboardGhost. Guards against the view
- * having moved on during the async fetch. */
+/** Re-selects the leaderboard opponent remembered for the viewed (seed,
+ * difficulty) (if any), re-fetching its recording. Racing another player's
+ * ghost requires your own time on the level, matching toggleLeaderboardGhost.
+ * Guards against the view having moved on during the async fetch. */
 async function restoreSelectedLeaderboardGhost(): Promise<void> {
   const seed = viewed.seed;
-  const remembered = loadSelectedLeaderboardGhost(seed);
+  const requestedDifficulty = viewed.difficulty;
+  const remembered = loadSelectedLeaderboardGhost(seed, requestedDifficulty);
   if (!remembered || !viewed.personalBest) return;
-  const recording = await fetchPlayerRecording(seed, remembered);
-  if (recording && viewed.seed === seed) {
+  const recording = await fetchPlayerRecording(seed, remembered, requestedDifficulty);
+  if (recording && viewed.seed === seed && viewed.difficulty === requestedDifficulty) {
     selectedGhostEntry = { nickname: remembered, recording };
     renderLeaderboardList();
   }
@@ -737,10 +796,11 @@ async function restoreSelectedLeaderboardGhost(): Promise<void> {
 
 async function refreshLeaderboard(): Promise<void> {
   const requestedSeed = viewed.seed;
+  const requestedDifficulty = viewed.difficulty;
   const gold = viewed.pars.gold;
-  const data = await fetchLeaderboard(requestedSeed, nickname);
+  const data = await fetchLeaderboard(requestedSeed, requestedDifficulty, nickname);
   // Guard against the view having moved on while the request was in flight.
-  if (data && viewed.seed === requestedSeed) {
+  if (data && viewed.seed === requestedSeed && viewed.difficulty === requestedDifficulty) {
     leaderboardTop = data.top;
     leaderboardContext = data.context;
     leaderboardTotal = typeof data.total === "number" ? data.total : null;
@@ -754,11 +814,11 @@ async function refreshLeaderboard(): Promise<void> {
       const derived = championTime(gold, data.top[0]?.time ?? null);
       if (derived != null) {
         champion = derived;
-        void backfillChampionTime(requestedSeed, derived);
+        void backfillChampionTime(requestedSeed, requestedDifficulty, derived);
       }
     }
     viewedChampionTime = champion;
-    if (champion != null) championTimeCache.set(requestedSeed, champion);
+    if (champion != null) championTimeCache.set(champKey(requestedSeed, requestedDifficulty), champion);
   }
   renderLeaderboardList();
 }
@@ -810,26 +870,26 @@ function paintNeighbourThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElemen
     ctx.clearRect(0, 0, cv.width, cv.height);
     return;
   }
-  renderMinimap(ctx, getPlayable(mode, offset).level, 0, 0, cv.width, cv.height);
+  renderMinimap(ctx, getPlayable(mode, offset, effectiveDifficulty(mode)).level, 0, 0, cv.width, cv.height);
 }
 
 /** Re-syncs the whole home view (map, best, ghost toggle, leaderboard) to the
  * currently selected mode + offset. Also leaves any shared "orphan" seed view,
  * since a mode/offset selection is always a live period. */
 function refreshViewedSelection(): void {
-  viewed = getPlayable(mode, viewedOffset);
+  viewed = getPlayable(mode, viewedOffset, effectiveDifficulty(mode));
   // A live period has a leaderboard + streak strip again; restore the chrome
   // that showOrphanSeed() hides.
   replayControls.classList.remove("hidden");
   setModeVisuals();
   // Changing level cancels any in-progress replay-racer picking.
   exitWatchMode();
-  // A selected ghost is contextual to the exact seed it was fetched for; clear
-  // it, then restore whichever opponent was remembered for this seed (if any).
+  // A selected ghost is contextual to the exact seed+difficulty it was fetched
+  // for; clear it, then restore whichever opponent was remembered there (if any).
   selectedGhostEntry = null;
   // Seed the champion threshold from cache (frozen past days never change), so
   // the medal track is right immediately; refreshLeaderboard() refines it.
-  viewedChampionTime = championTimeCache.get(viewed.seed) ?? null;
+  viewedChampionTime = championTimeCache.get(champKey(viewed.seed, viewed.difficulty)) ?? null;
   updateNavButtons();
   refreshViewedUi();
   paintViewedTerrainTags();
@@ -863,6 +923,41 @@ function switchMode(newMode: Mode): void {
   void logRun(viewed.seed, nickname, "mode_switched", 0, `to ${newMode}`);
 }
 
+/** Syncs the Easy/Hard toggle buttons to the current `difficulty`, and shows
+ * the switch itself only where it applies (see updateDifficultySwitchVisibility). */
+function setDifficultyVisuals(): void {
+  difficultyEasyBtn.classList.toggle("active", difficulty === "easy");
+  difficultyHardBtn.classList.toggle("active", difficulty === "hard");
+  difficultyEasyBtn.setAttribute("aria-selected", String(difficulty === "easy"));
+  difficultyHardBtn.setAttribute("aria-selected", String(difficulty === "hard"));
+  updateDifficultySwitchVisibility();
+}
+
+/** The Easy/Hard switch is daily-only (weekly has no Easy board) and, like the
+ * Daily/Weekly switch, a progressive-disclosure unlock: it stays hidden until
+ * the player has finished at least one run, in either difficulty - the same
+ * "hasPlayed" signal used elsewhere (nav arrows, defaultDifficulty()). Before
+ * that, a brand-new player just plays the (default-Easy) game with no toggle
+ * to be confused by. */
+function updateDifficultySwitchVisibility(): void {
+  const hasPlayed = loadCompletedDays().size > 0;
+  difficultySwitch.classList.toggle("hidden", mode !== "daily" || !hasPlayed);
+}
+
+/** Switches the Easy/Hard preference, persists it, and reloads the viewed map
+ * on the new difficulty's board. No-op on weekly (the switch is hidden there,
+ * but this stays a hard guard in case it's ever invoked programmatically). */
+function switchDifficulty(next: Difficulty): void {
+  if (mode !== "daily" || difficulty === next) return;
+  difficulty = next;
+  saveDifficultyPref(next);
+  setDifficultyVisuals();
+  renderProgressStrip();
+  void refreshStripChampionTimes();
+  refreshViewedSelection();
+  void logRun(viewed.seed, nickname, "difficulty_switched", 0, `to ${next}`);
+}
+
 /** Shows a shared "orphan" seed - a generated map with no live leaderboard.
  * Playable (including racing your own local PB ghost), but ranking, others'
  * ghosts, replays, and score submission are all off, with a short notice in
@@ -871,7 +966,7 @@ function showOrphanSeed(seed: string, genMode: Mode): void {
   mode = genMode;
   setModeVisuals();
   progressStrip.classList.add("hidden"); // no streak strip for a one-off map
-  viewed = { ...makePlayable(seed, genMode), orphan: true };
+  viewed = { ...makePlayable(seed, genMode, effectiveDifficulty(genMode)), orphan: true };
   exitWatchMode();
   selectedGhostEntry = null;
   viewedChampionTime = null;
@@ -920,6 +1015,8 @@ navPrevBtn.addEventListener("click", () => navigateTo(viewedOffset - 1));
 navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
 modeDailyBtn.addEventListener("click", () => switchMode("daily"));
 modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
+difficultyEasyBtn.addEventListener("click", () => switchDifficulty("easy"));
+difficultyHardBtn.addEventListener("click", () => switchDifficulty("hard"));
 
 // Carousel navigation over the map thumbnail: drag/swipe right -> previous
 // (older) period, left -> next (newer). While dragging, the track follows the
@@ -1061,6 +1158,9 @@ renderProgressStrip();
 // Pull champion thresholds for the streak strip so its dots can show the
 // champion tint, then repaint.
 void refreshStripChampionTimes();
+// Sync the Easy/Hard toggle's active button and visibility to the resolved
+// starting difficulty.
+setDifficultyVisuals();
 // The initial home-screen paint / `?s=` deep-link resolution runs below, once
 // the run-state `let`s it touches (watchMode, active, camera) are declared.
 
@@ -1174,10 +1274,12 @@ function receiveOptimal(seed: string, recording: GhostRecording): void {
 /** Kicks off (or reuses a cached) optimal route for a daily seed when
  * ?optimal=true. Prefers the server's precomputed route (no wait); only if the
  * server hasn't solved it yet - or is unreachable - does it fall back to solving
- * locally. No-op for weekly maps, orphan maps, or when already solved/in flight. */
+ * locally. No-op for weekly maps, orphan maps, Easy (the solver only ever
+ * targets Hard's physics - there's no Easy optimal ghost), or when already
+ * solved/in flight. */
 function requestOptimal(playable: Playable): void {
   const { seed, level } = playable;
-  if (!optimalEnabled || level.kind !== "daily") return;
+  if (!optimalEnabled || level.kind !== "daily" || playable.difficulty !== "hard") return;
   if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
   optimalPending.add(seed);
 
@@ -1215,10 +1317,10 @@ function solveOptimalLocally(playable: Playable): void {
   });
 }
 
-/** The optimal recording for the viewed seed once solved (null otherwise, or
- * when the feature is off). */
+/** The optimal recording for the viewed seed once solved (null otherwise, when
+ * the feature is off, or on Easy - there's no Easy optimal ghost). */
 function optimalForViewed(): GhostRecording | null {
-  return optimalEnabled ? optimalRecordings.get(viewed.seed) ?? null : null;
+  return optimalEnabled && viewed.difficulty === "hard" ? optimalRecordings.get(viewed.seed) ?? null : null;
 }
 
 // A `?s=<seed>` deep link opens that exact map (the matching live day/week, or a
@@ -1294,8 +1396,11 @@ function buildShareText(
 ): string {
   const medalEmoji = medal ? ` ${MEDAL_ICON[medal]}` : "";
   const board = playable.level.kind === "weekly" ? "Weekly" : "Daily";
+  // Two separate leaderboards only exist on daily maps, so only note the
+  // difficulty there - weekly is unambiguously Hard.
+  const diffSuffix = playable.level.kind === "daily" && playable.difficulty === "easy" ? " (Easy)" : "";
   const lines = [
-    `\u{1F69A} Unstable Truck ${board} - ${playable.seed}`,
+    `\u{1F69A} Unstable Truck ${board}${diffSuffix} - ${playable.seed}`,
     `I finished in a time of ${formatTime(time)}${medalEmoji}`,
   ];
   if (rank) lines.push(`Ranked #${rank.rank} in the world`);
@@ -1355,15 +1460,19 @@ async function copyText(text: string): Promise<boolean> {
 
 function beginRun(playable: Playable): void {
   active = playable;
-  session = new GameSession(playable.level);
-  pbGhost = playable.personalBest && loadRacePbGhostPref() ? new GhostPlayer(playable.level, playable.personalBest) : null;
+  session = new GameSession(playable.level, { difficulty: playable.difficulty });
+  pbGhost =
+    playable.personalBest && loadRacePbGhostPref()
+      ? new GhostPlayer(playable.level, playable.personalBest, playable.difficulty)
+      : null;
   leaderboardGhost =
     selectedGhostEntry && selectedGhostEntry.recording.seed === playable.seed
-      ? new GhostPlayer(playable.level, selectedGhostEntry.recording)
+      ? new GhostPlayer(playable.level, selectedGhostEntry.recording, playable.difficulty)
       : null;
-  // The Optimal ghost races whenever it's been solved for this map (?optimal=true).
-  const optimalRec = optimalEnabled ? optimalRecordings.get(playable.seed) : undefined;
-  optimalGhost = optimalRec ? new GhostPlayer(playable.level, optimalRec) : null;
+  // The Optimal ghost races whenever it's been solved for this map (?optimal=true,
+  // Hard only - there's no Easy optimal ghost).
+  const optimalRec = optimalEnabled && playable.difficulty === "hard" ? optimalRecordings.get(playable.seed) : undefined;
+  optimalGhost = optimalRec ? new GhostPlayer(playable.level, optimalRec, "hard") : null;
 
   // Live split time is measured against the pb ghost whenever it's racing (even
   // alongside a leaderboard ghost); otherwise the leaderboard ghost if that's
@@ -1374,7 +1483,9 @@ function beginRun(playable: Playable): void {
       : leaderboardGhost && selectedGhostEntry
         ? selectedGhostEntry.recording
         : null;
-  referenceCollectTicks = referenceRecording ? ghostCollectTicks(playable.level, referenceRecording) : null;
+  referenceCollectTicks = referenceRecording
+    ? ghostCollectTicks(playable.level, referenceRecording, playable.difficulty)
+    : null;
   hudDelta.textContent = "";
   hudDelta.className = "";
   camera.x = session.truck.pos.x;
@@ -1409,8 +1520,11 @@ function endRun(): void {
   void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote);
   hud.classList.add("hidden");
   resultsScreen.classList.remove("hidden");
+  // The Easy/Hard split only exists on daily maps, so only label results there
+  // (weekly is unambiguously Hard).
+  const diffSuffix = active.level.kind === "daily" ? ` · ${active.difficulty === "easy" ? "Easy" : "Hard"}` : "";
   if (session.status === "success") {
-    resultsTitle.textContent = "Delivered!";
+    resultsTitle.textContent = `Delivered!${diffSuffix}`;
     resultsTime.textContent = `Time: ${formatTime(session.elapsed)}`;
     resultsStability.textContent = `Cargo stability at delivery: ${Math.round(session.stability)}%`;
 
@@ -1437,7 +1551,7 @@ function endRun(): void {
       stability: session.stability,
       inputLog: session.inputLog.slice(),
     };
-    const isNewBest = savePersonalBestIfBetter(recording);
+    const isNewBest = savePersonalBestIfBetter(recording, active.difficulty);
     if (isNewBest) {
       active.personalBest = recording;
       // No navigation happens mid-run, so `active` is still `viewed` here.
@@ -1469,30 +1583,36 @@ function endRun(): void {
       // threshold, but only for the player's current day/week so past maps stay
       // frozen.
       const submittedSeed = active.seed;
+      const submittedDifficulty = active.difficulty;
       const championCandidate = championTime(active.pars.gold, recording.time);
       const isCurrentPeriod =
         active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
       submitScore(
         submittedSeed,
         nickname,
+        submittedDifficulty,
         recording.time,
         recording.stability,
         recording.inputLog,
         championCandidate,
         isCurrentPeriod,
       ).then(async () => {
-        if (submittedSeed === viewed.seed) {
+        if (submittedSeed === viewed.seed && submittedDifficulty === viewed.difficulty) {
           await refreshLeaderboard();
           // The board now reflects this run, so the player's world rank is
           // final - fold it into the share text (a no-op if they're unranked).
           lastShareText = buildShareText(sharePlayable, shareTime, medal, myWorldRank());
         }
         // A new record today can lower the champion threshold; refresh the strip
-        // so the day's dot recolours (the player may gain or lose champion).
-        if (active.level.kind === "daily") void refreshStripChampionTimes();
+        // so the day's dot recolours (the player may gain or lose champion) -
+        // only while the strip is still showing that same difficulty.
+        if (active.level.kind === "daily" && submittedDifficulty === difficulty) void refreshStripChampionTimes();
       });
     }
   } else if (session.failReason === "outOfBounds") {
+    // Easy ignores both failure reasons (see GameSession.update), so reaching
+    // either branch below means this was necessarily a Hard run - no need to
+    // label it, unlike the success branch above.
     resultsTitle.textContent = "Hey, come back!";
     resultsTime.textContent = `Survived ${formatTime(session.elapsed)}`;
     resultsStability.textContent = "You're trying to steal my truck, aren't you?";
@@ -1721,13 +1841,14 @@ function toggleWatchPick(nickname: string): void {
 async function startReplay(): Promise<void> {
   const seed = viewed.seed;
   const level = viewed.level;
+  const replayDifficulty = viewed.difficulty;
   const nicknames = [...watchSelection];
   const optimalRecording = optimalPicked ? optimalRecordings.get(seed) : undefined;
   if (nicknames.length === 0 && !optimalRecording) return;
 
   replayStartBtn.disabled = true;
   replayStartBtn.textContent = "Loading…";
-  const recordings = await Promise.all(nicknames.map((n) => fetchPlayerRecording(seed, n)));
+  const recordings = await Promise.all(nicknames.map((n) => fetchPlayerRecording(seed, n, replayDifficulty)));
 
   const racers: ReplayRacer[] = [];
   // The Optimal ghost leads the pack (first colour) when picked.
@@ -1745,7 +1866,7 @@ async function startReplay(): Promise<void> {
     return;
   }
 
-  replay = new ReplayTheater(level, racers);
+  replay = new ReplayTheater(level, racers, replayDifficulty);
   replayLevel = level;
   replayProgress.max = String(replay.totalTicks);
   replayProgress.value = "0";

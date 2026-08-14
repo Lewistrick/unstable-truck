@@ -3,6 +3,14 @@ import pg from "pg";
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+/** Difficulty as stored in the DB: an int rather than an enum so more tiers can
+ * be added later without a migration. Left a gap between the two (1, 5) for
+ * that. Kept in sync with the client's "easy"/"hard" labels by the routes
+ * layer, which is the only place the int and the label meet. */
+export type DifficultyCode = 1 | 5;
+export const EASY_CODE: DifficultyCode = 1;
+export const HARD_CODE: DifficultyCode = 5;
+
 export interface LeaderboardEntry {
   rank: number;
   nickname: string;
@@ -10,39 +18,40 @@ export interface LeaderboardEntry {
   stability: number;
 }
 
-/** Inserts or updates a player's score for a seed, but only takes effect if
- * it's better than what's already stored (or nothing is stored yet).
- * Returns whether the new score was actually saved. */
+/** Inserts or updates a player's score for a (seed, difficulty), but only
+ * takes effect if it's better than what's already stored (or nothing is
+ * stored yet). Returns whether the new score was actually saved. */
 export async function upsertScoreIfBetter(params: {
   seed: string;
   nickname: string;
+  difficulty: DifficultyCode;
   time: number;
   stability: number;
   inputLog: number[];
 }): Promise<boolean> {
-  const { seed, nickname, time, stability, inputLog } = params;
+  const { seed, nickname, difficulty, time, stability, inputLog } = params;
   const result = await pool.query(
-    `INSERT INTO scores (seed, nickname, time_seconds, stability, input_log)
-     VALUES ($1, $2, $3, $4, $5::jsonb)
-     ON CONFLICT (seed, nickname) DO UPDATE
+    `INSERT INTO scores (seed, nickname, difficulty, time_seconds, stability, input_log)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+     ON CONFLICT (seed, nickname, difficulty) DO UPDATE
        SET time_seconds = EXCLUDED.time_seconds,
            stability = EXCLUDED.stability,
            input_log = EXCLUDED.input_log,
            updated_at = now()
        WHERE scores.time_seconds > EXCLUDED.time_seconds
      RETURNING seed`,
-    [seed, nickname, time, stability, JSON.stringify(inputLog)],
+    [seed, nickname, difficulty, time, stability, JSON.stringify(inputLog)],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-/** Every score for a seed, ranked fastest-first. Fetched in full (rather
- * than paginated) since a single day's leaderboard is small at this scale;
- * callers slice out the top N and any rank-context window they need. */
-export async function getSeedLeaderboard(seed: string): Promise<LeaderboardEntry[]> {
+/** Every score for a (seed, difficulty), ranked fastest-first. Fetched in full
+ * (rather than paginated) since a single day's leaderboard is small at this
+ * scale; callers slice out the top N and any rank-context window they need. */
+export async function getSeedLeaderboard(seed: string, difficulty: DifficultyCode): Promise<LeaderboardEntry[]> {
   const result = await pool.query<{ nickname: string; time_seconds: number; stability: number }>(
-    `SELECT nickname, time_seconds, stability FROM scores WHERE seed = $1 ORDER BY time_seconds ASC`,
-    [seed],
+    `SELECT nickname, time_seconds, stability FROM scores WHERE seed = $1 AND difficulty = $2 ORDER BY time_seconds ASC`,
+    [seed, difficulty],
   );
   return result.rows.map((row, i) => ({
     rank: i + 1,
@@ -60,12 +69,12 @@ export interface StoredGhost {
   inputLog: number[];
 }
 
-/** A single player's full recording for a seed, including the input log -
- * used to build a ghost when a leaderboard row is selected. */
-export async function getScore(seed: string, nickname: string): Promise<StoredGhost | null> {
+/** A single player's full recording for a (seed, difficulty), including the
+ * input log - used to build a ghost when a leaderboard row is selected. */
+export async function getScore(seed: string, nickname: string, difficulty: DifficultyCode): Promise<StoredGhost | null> {
   const result = await pool.query<{ nickname: string; time_seconds: number; stability: number; input_log: number[] }>(
-    `SELECT nickname, time_seconds, stability, input_log FROM scores WHERE seed = $1 AND nickname = $2`,
-    [seed, nickname],
+    `SELECT nickname, time_seconds, stability, input_log FROM scores WHERE seed = $1 AND nickname = $2 AND difficulty = $3`,
+    [seed, nickname, difficulty],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -79,11 +88,49 @@ export async function getScore(seed: string, nickname: string): Promise<StoredGh
 export async function ensureSchema(): Promise<void> {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS champions (
-       seed TEXT PRIMARY KEY,
+       seed TEXT NOT NULL,
+       difficulty INTEGER NOT NULL DEFAULT 5,
        champion_time DOUBLE PRECISION NOT NULL,
-       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+       PRIMARY KEY (seed, difficulty)
      )`,
   );
+  // Difficulty split: every score and champion row gets a difficulty column
+  // (easy=1, hard=5, default hard so pre-existing rows - all recorded before
+  // difficulty existed - read back as hard runs), and each table's primary key
+  // widens to include it so a player can hold a separate best per difficulty.
+  // Guarded on the current PK's column count so this migration runs exactly
+  // once per table, not on every boot.
+  await pool.query(`ALTER TABLE scores ADD COLUMN IF NOT EXISTS difficulty INTEGER NOT NULL DEFAULT 5`);
+  await pool.query(`ALTER TABLE champions ADD COLUMN IF NOT EXISTS difficulty INTEGER NOT NULL DEFAULT 5`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF (
+        SELECT COUNT(*) FROM information_schema.key_column_usage
+        WHERE table_name = 'scores' AND constraint_name = 'scores_pkey'
+      ) < 3 THEN
+        ALTER TABLE scores DROP CONSTRAINT IF EXISTS scores_pkey;
+        ALTER TABLE scores ADD CONSTRAINT scores_pkey PRIMARY KEY (seed, nickname, difficulty);
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF (
+        SELECT COUNT(*) FROM information_schema.key_column_usage
+        WHERE table_name = 'champions' AND constraint_name = 'champions_pkey'
+      ) < 2 THEN
+        ALTER TABLE champions DROP CONSTRAINT IF EXISTS champions_pkey;
+        ALTER TABLE champions ADD CONSTRAINT champions_pkey PRIMARY KEY (seed, difficulty);
+      END IF;
+    END $$;
+  `);
+  // The old seed-only index is superseded by the (seed, difficulty, time) one
+  // below; drop it once so it doesn't sit around as unused dead weight.
+  await pool.query(`DROP INDEX IF EXISTS idx_scores_seed_time`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_scores_seed_difficulty_time ON scores (seed, difficulty, time_seconds)`);
   await pool.query(
     `CREATE TABLE IF NOT EXISTS optimal_routes (
        seed TEXT PRIMARY KEY,
@@ -126,6 +173,7 @@ export type RunStatus =
   | "out_of_bounds"
   | "navigated"
   | "mode_switched"
+  | "difficulty_switched"
   | "paused"
   | "resumed"
   | "replay_started"
@@ -201,61 +249,62 @@ export async function listRuns(limit: number, offset: number): Promise<RunLogRow
   }));
 }
 
-/** Lowers a seed's stored champion-medal threshold to `championTime`, but only
- * if it's lower than what's stored (or nothing is stored yet). The threshold
- * therefore only ratchets down - matching new world records - and a slower
- * submission (whose candidate threshold is higher) leaves it untouched. Callers
- * must gate this on the seed being the current period so past maps stay frozen.
- * Returns whether the stored value changed. */
-export async function lowerChampionTime(seed: string, championTime: number): Promise<boolean> {
+/** Lowers a (seed, difficulty)'s stored champion-medal threshold to
+ * `championTime`, but only if it's lower than what's stored (or nothing is
+ * stored yet). The threshold therefore only ratchets down - matching new world
+ * records - and a slower submission (whose candidate threshold is higher)
+ * leaves it untouched. Callers must gate this on the seed being the current
+ * period so past maps stay frozen. Returns whether the stored value changed. */
+export async function lowerChampionTime(seed: string, difficulty: DifficultyCode, championTime: number): Promise<boolean> {
   const result = await pool.query(
-    `INSERT INTO champions (seed, champion_time)
-     VALUES ($1, $2)
-     ON CONFLICT (seed) DO UPDATE
+    `INSERT INTO champions (seed, difficulty, champion_time)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (seed, difficulty) DO UPDATE
        SET champion_time = EXCLUDED.champion_time,
            updated_at = now()
        WHERE champions.champion_time > EXCLUDED.champion_time
      RETURNING seed`,
-    [seed, championTime],
+    [seed, difficulty, championTime],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-/** Sets a seed's champion threshold only if none is stored yet, then leaves it
- * frozen (ON CONFLICT DO NOTHING never touches an existing row). Used to seed a
- * threshold for a day whose record already beats gold but that never got one
- * live - e.g. maps that predate this feature, or any past day being viewed for
- * the first time. Because it only ever fills a gap, a later record on that day
- * can't change the frozen value. Returns whether a row was created. */
-export async function backfillChampionTime(seed: string, championTime: number): Promise<boolean> {
+/** Sets a (seed, difficulty)'s champion threshold only if none is stored yet,
+ * then leaves it frozen (ON CONFLICT DO NOTHING never touches an existing
+ * row). Used to seed a threshold for a day whose record already beats gold but
+ * that never got one live - e.g. maps that predate this feature, or any past
+ * day being viewed for the first time. Because it only ever fills a gap, a
+ * later record on that day can't change the frozen value. Returns whether a
+ * row was created. */
+export async function backfillChampionTime(seed: string, difficulty: DifficultyCode, championTime: number): Promise<boolean> {
   const result = await pool.query(
-    `INSERT INTO champions (seed, champion_time)
-     VALUES ($1, $2)
-     ON CONFLICT (seed) DO NOTHING
+    `INSERT INTO champions (seed, difficulty, champion_time)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (seed, difficulty) DO NOTHING
      RETURNING seed`,
-    [seed, championTime],
+    [seed, difficulty, championTime],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-/** The stored champion-medal threshold for a seed, or null if none is set
- * (no record has beaten the gold par yet). */
-export async function getChampionTime(seed: string): Promise<number | null> {
+/** The stored champion-medal threshold for a (seed, difficulty), or null if
+ * none is set (no record has beaten the gold par yet). */
+export async function getChampionTime(seed: string, difficulty: DifficultyCode): Promise<number | null> {
   const result = await pool.query<{ champion_time: number }>(
-    `SELECT champion_time FROM champions WHERE seed = $1`,
-    [seed],
+    `SELECT champion_time FROM champions WHERE seed = $1 AND difficulty = $2`,
+    [seed, difficulty],
   );
   return result.rows[0]?.champion_time ?? null;
 }
 
-/** Champion thresholds for several seeds at once, as a { seed: time } map
- * (seeds with no stored threshold are simply absent). Used to colour the
- * streak calendar without a per-day round trip. */
-export async function getChampionTimes(seeds: string[]): Promise<Record<string, number>> {
+/** Champion thresholds for several seeds at once on one difficulty, as a
+ * { seed: time } map (seeds with no stored threshold are simply absent). Used
+ * to colour the streak calendar without a per-day round trip. */
+export async function getChampionTimes(seeds: string[], difficulty: DifficultyCode): Promise<Record<string, number>> {
   if (seeds.length === 0) return {};
   const result = await pool.query<{ seed: string; champion_time: number }>(
-    `SELECT seed, champion_time FROM champions WHERE seed = ANY($1)`,
-    [seeds],
+    `SELECT seed, champion_time FROM champions WHERE seed = ANY($1) AND difficulty = $2`,
+    [seeds, difficulty],
   );
   const map: Record<string, number> = {};
   for (const row of result.rows) map[row.seed] = row.champion_time;

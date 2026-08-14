@@ -117,6 +117,34 @@ What's implemented:
   warehouse adds a fifth of a box's length to the current box, and once it's
   full a new box starts trailing behind it (so a long weekly route pulls a few
   growing boxes rather than a huge chain of one-per-pickup).
+- Easy/Hard difficulty (daily only - there's no Easy weekly board): Hard is the
+  physics described above in full - normal top speed, and either cargo hitting
+  0 stability or holding against the map edge ends the run. Easy is a separate,
+  parallel game mode built for new players: a flat 200 top speed (down from
+  Hard's 260, about 23% slower) and both of those game-overs disabled outright
+  - a run can be steered off the map or driven straight through mud and rock
+  with the cargo swinging wildly, and it just costs time, never the run. Easy
+  and Hard are otherwise identical (same level, same warehouses, same
+  obstacles) but are tracked as fully separate games: their own personal best,
+  medal targets, leaderboard, and champion threshold, so an Easy run never
+  mixes with a Hard one and a ghost from one never races on the other. Medal
+  targets are derived, not independently computed: Easy gold is Hard's gold
+  time plus 25% (rounded up to a whole second, same as Hard), and Easy
+  silver/bronze are 2x/4x *Easy* gold. The `?optimal=true` solver-ghost feature
+  is Hard-only, since the solver only ever targets Hard's physics.
+  A brand-new player (no finished runs yet, in either difficulty) defaults to
+  Easy; anyone who's finished at least one run defaults to Hard - and once
+  resolved, that default is written to `localStorage` so it doesn't silently
+  flip out from under a first-timer the moment their first (default-Easy) run
+  completes. An Easy/Hard toggle, styled like the Daily/Weekly one, sits under
+  the Tutorial/How To buttons; like the Daily/Weekly toggle it's a
+  progressive-disclosure unlock - hidden until the player has finished at
+  least one run (in either difficulty), then it stays available on every daily
+  map from then on. The choice persists across maps and visits (a
+  `localStorage` preference, independent of which day/week you're viewing) and
+  survives switching to the weekly board and back (weekly always plays Hard
+  regardless of the stored preference, but doesn't touch it). Switching
+  difficulty logs a `difficulty_switched` event.
 - Personal-best recording and ghost replay: each run's input (held/released
   toggle ticks) is recorded; a successful run that beats your stored best for
   that day's seed is saved to `localStorage` and can be raced against as a
@@ -128,9 +156,12 @@ What's implemented:
   ghosts racing, the split is measured against the personal-best one.
 - Global leaderboard, backed by a Postgres + Express server: each successful
   run is submitted under a nickname (auto-generated on first visit, editable)
-  and only overwrites your prior score for that seed if it's faster. The home
-  screen shows the viewed day's top 10; once you've set a time of your own on
-  that level, clicking a leaderboard row races that player's ghost too (up to
+  and only overwrites your prior score for that (seed, difficulty) if it's
+  faster - `scores` and `champions` are both keyed by (seed, difficulty), so
+  Easy and Hard keep entirely separate rows and never overwrite each other.
+  The home screen shows the viewed day's top 10 for whichever difficulty is
+  selected; once you've set a time of your own on that level (in that
+  difficulty), clicking a leaderboard row races that player's ghost too (up to
   two ghosts race at once: your personal best and a selected leaderboard
   player, each labeled in a small muted tag - "you", "pb", or their nickname).
   The game is fully playable offline/without the
@@ -141,7 +172,7 @@ What's implemented:
   timestamp. Loading the game adds a `game_started` row; a run adds a `started`
   row and one terminal row (`finished`, `cargo_fell_off`, or `out_of_bounds`)
   with the warehouses collected; home-screen activity adds `navigated`,
-  `mode_switched`, `paused`/`resumed`, `replay_started`/`replay_stopped`,
+  `mode_switched`, `difficulty_switched`, `paused`/`resumed`, `replay_started`/`replay_stopped`,
   `help_opened`/`help_toggled` (comment `summary`/`full`),
   `tutorial_started`/`tutorial_ended` (comment
   `skipped`/`finished`/`escape`/`section_skipped`),
@@ -173,7 +204,7 @@ What's implemented:
   the timeline runs until the slowest racer finishes, and playback pauses on the
   final frame so the finish order stays on screen.
 - Medal targets: each level has deterministic gold/silver/bronze finish-time
-  thresholds derived purely from its geometry (the ideal
+  thresholds for Hard, derived purely from its geometry (the ideal
   base → pickups → destination route length — a 2-opt-optimized tour, so it
   tracks the route a strong player actually drives rather than an inflated
   estimate — inflated for road curvature and divided by an assumed good-driving
@@ -212,7 +243,8 @@ What's implemented:
   Champion. Each medal dot carries a small resting glow in its own colour and
   pulses once, brighter, when you hover it.
 - Shareable result card: after a delivery, a Share button copies a spoiler-free
-  summary to the clipboard — the board (Daily/Weekly) and seed, finish time and
+  summary to the clipboard — the board (Daily/Weekly, with an "(Easy)" suffix
+  on an Easy daily run) and seed, finish time and
   earned medal, your world rank ("#N in the world", when the leaderboard is
   reachable), and a link back to the game (no map details). The link carries the
   map's seed as `?s=<seed>`, so opening it drops the recipient straight onto that
@@ -293,7 +325,8 @@ What's implemented:
   most recent week of dots.) Ghost choices are remembered for the session:
   clicking the PB tile toggles racing your own PB ghost - a global preference
   that follows you across every level and mode - while a selected leaderboard
-  opponent is remembered per level and re-selected when you return to it. A **Play** button
+  opponent is remembered per (level, difficulty) and re-selected when you
+  return to it. A **Play** button
   (with **Tutorial** and **How To** buttons directly below it, or pressing
   Enter, or clicking the thumbnail as a shortcut) jumps into a 3-2-1-GO countdown
   and starts whichever day is showing. A results screen (showing your time against

@@ -1,5 +1,6 @@
 import type { Level } from "../level/types.js";
 import { FIXED_DT } from "../physics/constants.js";
+import type { Difficulty } from "./api.js";
 import { GhostPlayer, type GhostRecording } from "./ghost.js";
 import type { ReplayRacerView } from "./render.js";
 
@@ -33,19 +34,24 @@ interface RacerState {
  * racer finishes. Rendering/UI are the caller's job (see main.ts). */
 export class ReplayTheater {
   private readonly level: Level;
+  /** Every racer in a replay comes from the same leaderboard (watch mode only
+   * ever picks from the currently viewed board), so one difficulty covers the
+   * whole theater. */
+  private readonly difficulty: Difficulty;
   private readonly racers: RacerState[];
   /** Length of the whole replay: the slowest racer's finish tick. */
   readonly totalTicks: number;
   private currentTick = 0;
   playing = false;
 
-  constructor(level: Level, racers: readonly ReplayRacer[]) {
+  constructor(level: Level, racers: readonly ReplayRacer[], difficulty: Difficulty) {
     this.level = level;
+    this.difficulty = difficulty;
     this.racers = racers.map((r) => ({
       label: r.label,
       color: r.color,
       recording: r.recording,
-      player: new GhostPlayer(level, r.recording),
+      player: new GhostPlayer(level, r.recording, difficulty),
       finishTick: Math.round(r.recording.time / FIXED_DT),
     }));
     this.totalTicks = Math.max(1, ...this.racers.map((r) => r.finishTick));
@@ -117,7 +123,7 @@ export class ReplayTheater {
   seekTo(tick: number): void {
     const target = Math.max(0, Math.min(this.totalTicks, Math.round(tick)));
     for (const r of this.racers) {
-      r.player = new GhostPlayer(this.level, r.recording);
+      r.player = new GhostPlayer(this.level, r.recording, this.difficulty);
       for (let i = 0; i < target; i++) r.player.update(FIXED_DT);
     }
     this.currentTick = target;

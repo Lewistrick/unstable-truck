@@ -147,13 +147,35 @@ function roundMedalTime(time: number): number {
   return Math.ceil(time + 0.5);
 }
 
-/** Deterministic gold/silver/bronze target times for a level. */
+/** Deterministic gold/silver/bronze target times for a level, on Hard. */
 export function computeMedalPars(level: Level): MedalPars {
   const gold = (idealRouteLength(level) * DETOUR_FACTOR) / GOLD_SPEED;
   return {
     gold: roundMedalTime(gold),
     silver: roundMedalTime(gold * SILVER_MULTIPLIER),
     bronze: roundMedalTime(gold * BRONZE_MULTIPLIER),
+  };
+}
+
+// Easy's slower top speed and unfailable cargo/boundary earn it looser medal
+// targets, derived from Hard's rather than recomputed from route geometry:
+// gold is 25% more time than Hard gold, and silver/bronze are simple multiples
+// of *Easy* gold (not Hard's) - 2x and 4x - so they stay proportionate to the
+// pace Easy actually plays at.
+const EASY_GOLD_MULTIPLIER = 1.25;
+const EASY_SILVER_MULTIPLIER = 2;
+const EASY_BRONZE_MULTIPLIER = 4;
+
+/** Easy gold/silver/bronze target times, derived from the level's Hard pars.
+ * Hard gold is already a whole second (roundMedalTime ceils it), so scaling it
+ * up and rounding again keeps every Easy tier a whole second too without
+ * needing Hard's headroom-adding rounding a second time. */
+export function computeEasyMedalPars(hardPars: MedalPars): MedalPars {
+  const gold = Math.ceil(hardPars.gold * EASY_GOLD_MULTIPLIER);
+  return {
+    gold,
+    silver: gold * EASY_SILVER_MULTIPLIER,
+    bronze: gold * EASY_BRONZE_MULTIPLIER,
   };
 }
 

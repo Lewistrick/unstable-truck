@@ -1,11 +1,16 @@
 import { FIXED_DT } from "../physics/constants.js";
 import type { Level } from "../level/types.js";
+import type { Difficulty } from "./api.js";
 import { GameSession } from "./session.js";
 
 /** A recorded run: just enough to reconstruct it exactly through the same
  * deterministic physics used live - the seed (which level to replay it
  * against), the finish time, final cargo stability, and the list of
- * held/released toggle tick indices from GameSession.inputLog. */
+ * held/released toggle tick indices from GameSession.inputLog. Which
+ * difficulty it was recorded under isn't part of this shape: a recording only
+ * ever lives inside a difficulty-scoped slot (a storage key, a leaderboard
+ * query, ...), so the caller always already knows it and passes it separately
+ * to GhostPlayer - ghosts never cross between Easy and Hard. */
 export interface GhostRecording {
   seed: string;
   time: number;
@@ -34,8 +39,8 @@ export class GhostPlayer {
   private readonly finishTick: number;
   finished = false;
 
-  constructor(level: Level, recording: GhostRecording) {
-    this.session = new GameSession(level);
+  constructor(level: Level, recording: GhostRecording, difficulty: Difficulty) {
+    this.session = new GameSession(level, { difficulty });
     this.recording = recording;
     this.finishTick = Math.round(recording.time / FIXED_DT);
   }
@@ -63,8 +68,8 @@ export class GhostPlayer {
  * the ticks at which it collected each warehouse, in collection order. It's
  * deterministic, so these match the collections the live ghost makes - used to
  * compute the live split time against the player. */
-export function ghostCollectTicks(level: Level, recording: GhostRecording): number[] {
-  const session = new GameSession(level);
+export function ghostCollectTicks(level: Level, recording: GhostRecording, difficulty: Difficulty): number[] {
+  const session = new GameSession(level, { difficulty });
   const finishTick = Math.round(recording.time / FIXED_DT);
   while (session.status === "playing" && session.currentTick < finishTick) {
     session.update(FIXED_DT, heldAtTick(recording.inputLog, session.currentTick));

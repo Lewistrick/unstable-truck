@@ -1,3 +1,4 @@
+import type { Difficulty } from "./api.js";
 import type { GhostRecording } from "./ghost.js";
 
 const STORAGE_PREFIX = "unstable-truck:pb:";
@@ -30,11 +31,21 @@ function isValid(parsed: Partial<StoredPersonalBest>): parsed is StoredPersonalB
   return parsed.version === STORAGE_VERSION && typeof parsed.time === "number" && Array.isArray(parsed.inputLog);
 }
 
-/** Loads the stored personal-best recording for a given day's seed, if any.
- * Discards (and removes) entries that are stale (older than 30 days for daily
- * seeds) or in an outdated, incompatible format. */
-export function loadPersonalBest(seed: string): GhostRecording | null {
-  const key = STORAGE_PREFIX + seed;
+/** Per-difficulty key, e.g. "unstable-truck:pb:easy:2026-08-03". Easy and Hard
+ * keep entirely separate personal bests, since they're different physics and
+ * different leaderboards. */
+function pbKey(seed: string, difficulty: Difficulty): string {
+  return `${STORAGE_PREFIX}${difficulty}:${seed}`;
+}
+
+/** The pre-difficulty key format ("unstable-truck:pb:2026-08-03"), read once as
+ * a fallback for a Hard personal best saved before this feature existed - every
+ * run before Easy/Hard was, by definition, a Hard run. */
+function legacyHardKey(seed: string): string {
+  return STORAGE_PREFIX + seed;
+}
+
+function readPb(key: string, seed: string): GhostRecording | null {
   const raw = localStorage.getItem(key);
   if (!raw) return null;
 
@@ -53,21 +64,40 @@ export function loadPersonalBest(seed: string): GhostRecording | null {
   return parsed;
 }
 
-/** Saves the recording as the new personal best if it's faster than any
- * existing one for that seed. Returns true if it was saved. */
-export function savePersonalBestIfBetter(recording: GhostRecording): boolean {
-  const existing = loadPersonalBest(recording.seed);
+/** Loads the stored personal-best recording for a given day's seed and
+ * difficulty, if any. Discards (and removes) entries that are stale (older
+ * than 30 days for daily seeds) or in an outdated, incompatible format. A Hard
+ * lookup that finds nothing at the per-difficulty key falls back once to the
+ * pre-difficulty legacy key, migrating it forward (and removing the legacy
+ * entry) so old personal bests survive the upgrade. */
+export function loadPersonalBest(seed: string, difficulty: Difficulty): GhostRecording | null {
+  const found = readPb(pbKey(seed, difficulty), seed);
+  if (found) return found;
+  if (difficulty !== "hard") return null;
+
+  const legacy = readPb(legacyHardKey(seed), seed);
+  if (!legacy) return null;
+  localStorage.setItem(pbKey(seed, "hard"), JSON.stringify({ ...legacy, version: STORAGE_VERSION, savedAt: Date.now() }));
+  localStorage.removeItem(legacyHardKey(seed));
+  return legacy;
+}
+
+/** Saves the recording as the new personal best for (seed, difficulty) if it's
+ * faster than any existing one there. Returns true if it was saved. */
+export function savePersonalBestIfBetter(recording: GhostRecording, difficulty: Difficulty): boolean {
+  const existing = loadPersonalBest(recording.seed, difficulty);
   if (existing && existing.time <= recording.time) return false;
   const stored: StoredPersonalBest = { ...recording, version: STORAGE_VERSION, savedAt: Date.now() };
-  localStorage.setItem(STORAGE_PREFIX + recording.seed, JSON.stringify(stored));
+  localStorage.setItem(pbKey(recording.seed, difficulty), JSON.stringify(stored));
   return true;
 }
 
 /** Removes every stored personal best past its retention age (30 days for daily
- * seeds, about a year for weekly ones), across all seeds - not just whichever
- * ones happen to be loaded via loadPersonalBest(), so old entries can't sit in
- * localStorage forever. Also clears out anything saved in an older,
- * incompatible format. Call once at startup. */
+ * seeds, about a year for weekly ones), across all seeds and both difficulties
+ * - not just whichever ones happen to be loaded via loadPersonalBest(), so old
+ * entries can't sit in localStorage forever. Also clears out anything saved in
+ * an older, incompatible format, including any not-yet-migrated legacy
+ * (pre-difficulty) entry. Call once at startup. */
 export function pruneOldPersonalBests(): void {
   const staleKeys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -82,7 +112,10 @@ export function pruneOldPersonalBests(): void {
       parsed = null;
     }
 
-    const seed = key.slice(STORAGE_PREFIX.length);
+    // Strip the prefix, then peel off a leading "easy:"/"hard:" difficulty
+    // segment if present; what's left is the seed either way.
+    const rest = key.slice(STORAGE_PREFIX.length);
+    const seed = rest.startsWith("easy:") ? rest.slice(5) : rest.startsWith("hard:") ? rest.slice(5) : rest;
     if (!parsed || !isValid(parsed) || !isFresh(parsed.savedAt, maxAgeForSeed(seed))) {
       staleKeys.push(key);
     }
@@ -161,6 +194,27 @@ export function setNickname(name: string): void {
   if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
 }
 
+// --- Difficulty preference ---------------------------------------------------
+// Persisted (not session-scoped) so it survives across visits and every map,
+// matching the requested "sticks even across maps" behaviour. Only meaningful
+// for daily play - weekly is Hard-only - but the preference itself is kept
+// independent of the daily/weekly mode so switching back to daily restores it.
+
+const DIFFICULTY_KEY = "unstable-truck:difficulty";
+
+/** The player's stored Easy/Hard preference, or null if they've never set one
+ * (a brand-new browser, or one that predates this feature). The caller decides
+ * the default for that case. */
+export function loadDifficultyPref(): Difficulty | null {
+  const stored = localStorage.getItem(DIFFICULTY_KEY);
+  return stored === "easy" || stored === "hard" ? stored : null;
+}
+
+/** Persists the Easy/Hard preference across visits and maps. */
+export function saveDifficultyPref(difficulty: Difficulty): void {
+  localStorage.setItem(DIFFICULTY_KEY, difficulty);
+}
+
 // --- Ghost-race preferences (session-scoped) ------------------------------
 // These live in sessionStorage so a choice sticks while browsing between levels
 // in the same session, then resets on a fresh visit. The "race my own ghost"
@@ -182,15 +236,17 @@ export function saveRacePbGhostPref(on: boolean): void {
   sessionStorage.setItem(RACE_PB_GHOST_KEY, on ? "1" : "0");
 }
 
-/** The leaderboard opponent's nickname selected for a given seed, if any. */
-export function loadSelectedLeaderboardGhost(seed: string): string | null {
-  return sessionStorage.getItem(LEADERBOARD_GHOST_PREFIX + seed);
+/** The leaderboard opponent's nickname selected for a given (seed, difficulty),
+ * if any. Easy and Hard keep separate selections - they're different boards,
+ * and a ghost recorded on one can't race on the other. */
+export function loadSelectedLeaderboardGhost(seed: string, difficulty: Difficulty): string | null {
+  return sessionStorage.getItem(LEADERBOARD_GHOST_PREFIX + difficulty + ":" + seed);
 }
 
 /** Remembers (or, with null, clears) the selected leaderboard opponent for a
- * seed for the rest of the session. */
-export function saveSelectedLeaderboardGhost(seed: string, nickname: string | null): void {
-  const key = LEADERBOARD_GHOST_PREFIX + seed;
+ * (seed, difficulty) for the rest of the session. */
+export function saveSelectedLeaderboardGhost(seed: string, difficulty: Difficulty, nickname: string | null): void {
+  const key = LEADERBOARD_GHOST_PREFIX + difficulty + ":" + seed;
   if (nickname) sessionStorage.setItem(key, nickname);
   else sessionStorage.removeItem(key);
 }
@@ -204,7 +260,10 @@ export function pruneLeaderboardGhosts(liveSeeds: Set<string>): void {
   for (let i = 0; i < sessionStorage.length; i++) {
     const key = sessionStorage.key(i);
     if (!key || !key.startsWith(LEADERBOARD_GHOST_PREFIX)) continue;
-    if (!liveSeeds.has(key.slice(LEADERBOARD_GHOST_PREFIX.length))) staleKeys.push(key);
+    // Strip the "easy:"/"hard:" difficulty segment to recover the bare seed.
+    const rest = key.slice(LEADERBOARD_GHOST_PREFIX.length);
+    const seed = rest.startsWith("easy:") ? rest.slice(5) : rest.startsWith("hard:") ? rest.slice(5) : rest;
+    if (!liveSeeds.has(seed)) staleKeys.push(key);
   }
   for (const key of staleKeys) sessionStorage.removeItem(key);
 }

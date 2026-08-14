@@ -9,7 +9,7 @@
 // to the route heuristic or the difficulty constants shows up as an intentional
 // diff here rather than a silent shift in how hard medals are. Seeds are fixed
 // strings (not date-derived) so the expected values never drift with the clock.
-import { computeMedalPars } from "../dist/game/medals.js";
+import { computeEasyMedalPars, computeMedalPars } from "../dist/game/medals.js";
 import { generateLevel, generateWeeklyLevel } from "../dist/level/generate.js";
 
 let failures = 0;
@@ -48,6 +48,19 @@ for (const { name, level, gold, silver, bronze } of cases) {
   approx(`${name} bronze`, pars.bronze, bronze);
   // Tiers must stay strictly ordered fastest -> slowest.
   check(`${name} gold < silver < bronze`, pars.gold < pars.silver && pars.silver < pars.bronze);
+}
+
+// Easy pars are derived from Hard's, not recomputed from route geometry: gold
+// is Hard gold + 25% (ceiled to a whole second, same rounding style as Hard),
+// and silver/bronze are exactly 2x/4x *that* Easy gold - not Hard's.
+for (const { name, level } of cases) {
+  const hard = computeMedalPars(level);
+  const easy = computeEasyMedalPars(hard);
+  check(`${name} easy tiers are whole seconds`, [easy.gold, easy.silver, easy.bronze].every(Number.isInteger));
+  check(`${name} easy gold is ceil(hard gold * 1.25)`, easy.gold === Math.ceil(hard.gold * 1.25));
+  check(`${name} easy silver is 2x easy gold`, easy.silver === easy.gold * 2);
+  check(`${name} easy bronze is 4x easy gold`, easy.bronze === easy.gold * 4);
+  check(`${name} easy is looser than hard at every tier`, easy.gold > hard.gold && easy.silver > hard.silver && easy.bronze > hard.bronze);
 }
 
 if (failures > 0) {

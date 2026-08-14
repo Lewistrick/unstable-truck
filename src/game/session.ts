@@ -10,8 +10,9 @@ import {
     type CargoLeader,
     type CargoState,
 } from "../physics/cargo.js";
-import { createTruck, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
+import { BASE_MAX_SPEED, createTruck, EASY_MAX_SPEED, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
 import { distance } from "../util/vec2.js";
+import type { Difficulty } from "./api.js";
 
 export type GameStatus = "playing" | "success" | "fail";
 
@@ -21,9 +22,15 @@ export type FailReason = "cargo" | "outOfBounds";
 /** Per-run options. `practice` makes the run unfailable (used by the new-player
  * tutorial): cargo falling off and driving out of bounds are ignored, so a
  * learner can flail around without a game-over. A successful delivery still
- * registers, so the tutorial can detect completion. */
+ * registers, so the tutorial can detect completion.
+ *
+ * `difficulty` selects Easy or Hard (default Hard): Easy lowers the truck's top
+ * speed and, like `practice`, ignores the cargo and out-of-bounds game-overs -
+ * but unlike practice, an Easy run is a real, scored run (it can be submitted
+ * and turned into a ghost). */
 export interface SessionOptions {
   practice?: boolean;
+  difficulty?: Difficulty;
 }
 
 // A little forgiveness added to the truck's radius so grazing a building's edge
@@ -103,9 +110,14 @@ export class GameSession {
 
   /** When true the run can't be lost (see SessionOptions.practice). */
   private readonly practice: boolean;
+  readonly difficulty: Difficulty;
+  /** The truck's speed ceiling for this run's difficulty. */
+  private readonly topSpeed: number;
 
   constructor(level: Level, options: SessionOptions = {}) {
     this.practice = options.practice ?? false;
+    this.difficulty = options.difficulty ?? "hard";
+    this.topSpeed = this.difficulty === "easy" ? EASY_MAX_SPEED : BASE_MAX_SPEED;
     this.level = level;
     this.base = findWarehouse(level, "base");
     this.destination = findWarehouse(level, "destination");
@@ -165,12 +177,13 @@ export class GameSession {
     this.tick++;
 
     const terrain = sampleTerrain(this.truck, this.level);
-    updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height });
+    updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height }, this.topSpeed);
 
     // Driving into the map edge and holding there ends the run - you're leaving
     // the delivery area. A brief clip resets, so only a sustained push fails.
+    // Easy mode, like practice, forgives this entirely.
     this.boundaryTicks = this.truck.atBoundary ? this.boundaryTicks + 1 : 0;
-    if (!this.practice && this.boundaryTicks >= OUT_OF_BOUNDS_TICKS) {
+    if (!this.practice && this.difficulty !== "easy" && this.boundaryTicks >= OUT_OF_BOUNDS_TICKS) {
       this.status = "fail";
       this.failReason = "outOfBounds";
       return;
@@ -201,7 +214,7 @@ export class GameSession {
       leaderHalfLength = box.length / 2;
     }
 
-    if (!this.practice && this.cargoBoxes.some((box) => box.stability <= 0)) {
+    if (!this.practice && this.difficulty !== "easy" && this.cargoBoxes.some((box) => box.stability <= 0)) {
       this.status = "fail";
       this.failReason = "cargo";
       return;

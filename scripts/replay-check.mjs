@@ -27,16 +27,16 @@ const racer = (label, time, inputLog) => ({ label, color: "#f00", recording: rec
 
 // The timeline runs until the slowest racer finishes.
 {
-  const t = new ReplayTheater(level, [racer("a", 2.0, [10, 50]), racer("b", 3.0, [5, 30, 80])]);
+  const t = new ReplayTheater(level, [racer("a", 2.0, [10, 50]), racer("b", 3.0, [5, 30, 80])], "hard");
   check("totalTicks is the slowest racer's finish tick", t.totalTicks, Math.round(3.0 / FIXED_DT));
 }
 
 // Seeking to tick T lands in the same state as stepping there tick by tick.
 {
   const racers = [racer("a", 3.0, [10, 40, 90, 150])];
-  const stepped = new ReplayTheater(level, racers);
+  const stepped = new ReplayTheater(level, racers, "hard");
   for (let i = 0; i < 100; i++) stepped.step();
-  const seeked = new ReplayTheater(level, racers);
+  const seeked = new ReplayTheater(level, racers, "hard");
   seeked.seekTo(100);
 
   const a = stepped.views()[0].truck.pos;
@@ -49,7 +49,7 @@ const racer = (label, time, inputLog) => ({ label, color: "#f00", recording: rec
 
 // Seeking clamps to [0, totalTicks].
 {
-  const t = new ReplayTheater(level, [racer("a", 1.0, [10])]);
+  const t = new ReplayTheater(level, [racer("a", 1.0, [10])], "hard");
   t.seekTo(99999);
   check("seek clamps to total", t.tick, t.totalTicks);
   t.seekTo(-50);
@@ -58,7 +58,7 @@ const racer = (label, time, inputLog) => ({ label, color: "#f00", recording: rec
 
 // Pressing play at the end restarts from the top (like a video player).
 {
-  const t = new ReplayTheater(level, [racer("a", 0.5, [5])]);
+  const t = new ReplayTheater(level, [racer("a", 0.5, [5])], "hard");
   t.seekTo(t.totalTicks);
   check("atEnd after seeking to the finish", t.atEnd, true);
   t.play();

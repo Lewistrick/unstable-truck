@@ -1,3 +1,5 @@
+export type Difficulty = "easy" | "hard";
+
 export interface LeaderboardEntry {
   rank: number;
   nickname: string;
@@ -46,6 +48,7 @@ function apiUrl(pathAndQuery: string): string {
 export async function submitScore(
   seed: string,
   nickname: string,
+  difficulty: Difficulty,
   time: number,
   stability: number,
   inputLog: number[],
@@ -56,7 +59,7 @@ export async function submitScore(
     const res = await fetch(apiUrl(`api/scores/${seed}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nickname, time, stability, inputLog, championCandidate, isCurrentPeriod }),
+      body: JSON.stringify({ nickname, difficulty, time, stability, inputLog, championCandidate, isCurrentPeriod }),
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { saved?: boolean };
@@ -66,12 +69,14 @@ export async function submitScore(
   }
 }
 
-/** Top 10 for a seed, plus rank-context around `nickname` if they're not
- * already in the top 10. Returns null if the server is unreachable. */
-export async function fetchLeaderboard(seed: string, nickname?: string): Promise<LeaderboardResponse | null> {
+/** Top 10 for a (seed, difficulty), plus rank-context around `nickname` if
+ * they're not already in the top 10. Returns null if the server is
+ * unreachable. */
+export async function fetchLeaderboard(seed: string, difficulty: Difficulty, nickname?: string): Promise<LeaderboardResponse | null> {
   try {
-    const path = nickname ? `api/scores/${seed}?nickname=${encodeURIComponent(nickname)}` : `api/scores/${seed}`;
-    const res = await fetch(apiUrl(path));
+    const params = new URLSearchParams({ difficulty });
+    if (nickname) params.set("nickname", nickname);
+    const res = await fetch(apiUrl(`api/scores/${seed}?${params}`));
     if (!res.ok) return null;
     return (await res.json()) as LeaderboardResponse;
   } catch {
@@ -90,6 +95,7 @@ export type RunStatus =
   | "out_of_bounds"
   | "navigated"
   | "mode_switched"
+  | "difficulty_switched"
   | "paused"
   | "resumed"
   | "replay_started"
@@ -125,28 +131,29 @@ export async function logRun(
   }
 }
 
-/** Freezes a seed's champion threshold if the server doesn't have one yet
- * (no-op if it already does). Used to seed a past day's threshold from its
+/** Freezes a (seed, difficulty)'s champion threshold if the server doesn't have
+ * one yet (no-op if it already does). Used to seed a threshold for a past day's
  * record so the champion medal is beatable there. Best-effort. */
-export async function backfillChampionTime(seed: string, championTime: number): Promise<void> {
+export async function backfillChampionTime(seed: string, difficulty: Difficulty, championTime: number): Promise<void> {
   try {
     await fetch(apiUrl(`api/champions/${seed}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ championTime }),
+      body: JSON.stringify({ difficulty, championTime }),
     });
   } catch {
     // Best-effort; the medal still shows locally from the derived value.
   }
 }
 
-/** Champion-medal thresholds for several seeds at once, as a { seed: time }
- * map (seeds without a stored threshold are absent). Returns {} if the server
- * is unreachable. Used to colour the streak calendar's day dots. */
-export async function fetchChampionTimes(seeds: string[]): Promise<Record<string, number>> {
+/** Champion-medal thresholds for several seeds at once on one difficulty, as a
+ * { seed: time } map (seeds without a stored threshold are absent). Returns {}
+ * if the server is unreachable. Used to colour the streak calendar's day dots. */
+export async function fetchChampionTimes(seeds: string[], difficulty: Difficulty): Promise<Record<string, number>> {
   if (seeds.length === 0) return {};
   try {
-    const res = await fetch(apiUrl(`api/champions?seeds=${encodeURIComponent(seeds.join(","))}`));
+    const params = new URLSearchParams({ seeds: seeds.join(","), difficulty });
+    const res = await fetch(apiUrl(`api/champions?${params}`));
     if (!res.ok) return {};
     return (await res.json()) as Record<string, number>;
   } catch {
@@ -156,7 +163,8 @@ export async function fetchChampionTimes(seeds: string[]): Promise<Record<string
 
 /** The server's precomputed near-optimal solver route for a daily seed, if it's
  * been solved and stored. Returns null on a 404 (not computed yet) or when the
- * server is unreachable, so the caller can fall back to solving locally. */
+ * server is unreachable, so the caller can fall back to solving locally.
+ * Hard-only: the solver never targets Easy's slower physics. */
 export async function fetchOptimalRoute(
   seed: string,
 ): Promise<{ seed: string; time: number; stability: number; inputLog: number[] } | null> {
@@ -169,11 +177,12 @@ export async function fetchOptimalRoute(
   }
 }
 
-/** A specific player's full recording for a seed, used to build their ghost
- * when selected from the leaderboard. */
-export async function fetchPlayerRecording(seed: string, nickname: string): Promise<RemoteRecording | null> {
+/** A specific player's full recording for a (seed, difficulty), used to build
+ * their ghost when selected from the leaderboard. */
+export async function fetchPlayerRecording(seed: string, nickname: string, difficulty: Difficulty): Promise<RemoteRecording | null> {
   try {
-    const res = await fetch(apiUrl(`api/scores/${seed}/${encodeURIComponent(nickname)}`));
+    const params = new URLSearchParams({ difficulty });
+    const res = await fetch(apiUrl(`api/scores/${seed}/${encodeURIComponent(nickname)}?${params}`));
     if (!res.ok) return null;
     return (await res.json()) as RemoteRecording;
   } catch {

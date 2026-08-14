@@ -24,6 +24,10 @@ export function createTruck(pos: Vec2, heading: number): TruckState {
 // extreme (used to bucket angular velocity). Keeping them here, not copied, means
 // a physics tweak can't silently desync the solver's state discretization.
 export const BASE_MAX_SPEED = 260;
+// Easy mode's top speed: a flat, round number rather than an exact 25% cut
+// (which would be 195) - about 23% slower, giving a slower-paced, more
+// forgiving drive to go with Easy's unfailable cargo/boundary rules.
+export const EASY_MAX_SPEED = 200;
 export const MAX_TURN_RATE = 2.6;
 const TURN_RESPONSIVENESS = 4.2;
 
@@ -41,20 +45,23 @@ const MUD_DRAG = 2.4;
  * while coasting and turns right while `held`; both the turn rate and the
  * velocity vector ease toward their targets rather than snapping, giving the
  * truck weight and momentum. Truck position is clamped to the level bounds
- * so it can never drive off the map. */
+ * so it can never drive off the map. `topSpeed` is the truck's absolute speed
+ * ceiling - BASE_MAX_SPEED on Hard, EASY_MAX_SPEED on Easy - which every
+ * terrain's own cap (mud, offroad) is scaled relative to. */
 export function updateTruck(
   truck: TruckState,
   held: boolean,
   dt: number,
   terrain: TerrainSample,
   bounds: { width: number; height: number },
+  topSpeed: number = BASE_MAX_SPEED,
 ): void {
   const turnDir = held ? 1 : -1;
   const targetAngularVel = turnDir * MAX_TURN_RATE;
   truck.angularVel += (targetAngularVel - truck.angularVel) * Math.min(1, TURN_RESPONSIVENESS * dt);
   truck.heading += truck.angularVel * dt;
 
-  let maxSpeed = BASE_MAX_SPEED;
+  let maxSpeed = topSpeed;
   let accel = ROAD_ACCEL;
   let drag = 0;
   if (terrain.inMud) {
@@ -68,7 +75,7 @@ export function updateTruck(
   }
 
   const accelSign = truck.speed > maxSpeed ? -accel * 2.2 : accel;
-  truck.speed = clamp(truck.speed + accelSign * dt - drag * truck.speed * dt, 0, BASE_MAX_SPEED);
+  truck.speed = clamp(truck.speed + accelSign * dt - drag * truck.speed * dt, 0, topSpeed);
 
   const headingDir = v(Math.cos(truck.heading), Math.sin(truck.heading));
   const desiredVel = v(headingDir.x * truck.speed, headingDir.y * truck.speed);

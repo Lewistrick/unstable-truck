@@ -1,15 +1,18 @@
 import { Router, type Request } from "express";
 import {
   backfillChampionTime,
+  EASY_CODE,
   getChampionTime,
   getChampionTimes,
   getOptimalRoute,
   getScore,
   getSeedLeaderboard,
+  HARD_CODE,
   listRuns,
   logRun,
   lowerChampionTime,
   upsertScoreIfBetter,
+  type DifficultyCode,
   type RunStatus,
 } from "./db.js";
 import { ensureOptimalRoute } from "./optimal.js";
@@ -23,6 +26,14 @@ const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
 const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
 const MAX_NICKNAME_LENGTH = 16;
 const TOP_N = 10;
+
+/** Parses a client-supplied "easy"/"hard" difficulty label into its DB code,
+ * defaulting to hard for anything else (missing, malformed, or - for old
+ * clients that predate this feature - simply absent). Mirrors the client's
+ * own default-to-hard rule for reading pre-difficulty data. */
+function parseDifficulty(value: unknown): DifficultyCode {
+  return value === "easy" ? EASY_CODE : HARD_CODE;
+}
 // run_logs accepts any seed the client actually played, including shared/orphan
 // maps that aren't a live daily/weekly period, so it's length-capped rather than
 // pattern-checked. Statuses mirror the client's labels; comments are free-form
@@ -37,6 +48,7 @@ const RUN_STATUSES = new Set<RunStatus>([
   "out_of_bounds",
   "navigated",
   "mode_switched",
+  "difficulty_switched",
   "paused",
   "resumed",
   "replay_started",
@@ -55,6 +67,7 @@ const MAX_CHAMPION_SEEDS = 40;
 
 interface SubmitBody {
   nickname: string;
+  difficulty: DifficultyCode;
   time: number;
   stability: number;
   inputLog: number[];
@@ -91,6 +104,7 @@ function parseSubmission(body: unknown): SubmitBody | null {
       : null;
   return {
     nickname,
+    difficulty: parseDifficulty(b.difficulty),
     time: b.time,
     stability: b.stability,
     inputLog: b.inputLog,
@@ -121,7 +135,7 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
     // lower than what's stored, so a non-record run never raises it and only a
     // genuine new world record ratchets it down.
     if (isCurrentPeriod && championCandidate != null) {
-      await lowerChampionTime(seed, championCandidate);
+      await lowerChampionTime(seed, score.difficulty, championCandidate);
     }
     res.json({ saved });
   } catch (err) {
@@ -189,12 +203,13 @@ scoresRouter.post("/api/champions/:seed", async (req: Request<{ seed: string }>,
     res.status(400).json({ error: "championTime must be a positive number" });
     return;
   }
-  const created = await backfillChampionTime(seed, championTime);
+  const created = await backfillChampionTime(seed, parseDifficulty(body?.difficulty), championTime);
   res.json({ created });
 });
 
-/** Champion-medal thresholds for a comma-separated list of seeds, as a
- * { seed: time } map. Powers the streak calendar's per-day medal colours. */
+/** Champion-medal thresholds for a comma-separated list of seeds on one
+ * difficulty, as a { seed: time } map. Powers the streak calendar's per-day
+ * medal colours. */
 scoresRouter.get("/api/champions", async (req: Request, res) => {
   const raw = typeof req.query.seeds === "string" ? req.query.seeds : "";
   const seeds = raw
@@ -202,12 +217,12 @@ scoresRouter.get("/api/champions", async (req: Request, res) => {
     .map((s) => s.trim())
     .filter((s) => s.length > 0 && isValidSeed(s))
     .slice(0, MAX_CHAMPION_SEEDS);
-  res.json(await getChampionTimes(seeds));
+  res.json(await getChampionTimes(seeds, parseDifficulty(req.query.difficulty)));
 });
 
-/** Top 10 for the seed, plus (if a nickname is given and isn't already in
- * the top 10) a rank-1/rank/rank+1 context window so an off-the-charts
- * player can still see where they stand. */
+/** Top 10 for the (seed, difficulty), plus (if a nickname is given and isn't
+ * already in the top 10) a rank-1/rank/rank+1 context window so an
+ * off-the-charts player can still see where they stand. */
 scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res) => {
   const { seed } = req.params;
   if (!isValidSeed(seed)) {
@@ -215,8 +230,9 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
     return;
   }
   const nickname = typeof req.query.nickname === "string" ? req.query.nickname : null;
+  const difficulty = parseDifficulty(req.query.difficulty);
 
-  const [all, championTime] = await Promise.all([getSeedLeaderboard(seed), getChampionTime(seed)]);
+  const [all, championTime] = await Promise.all([getSeedLeaderboard(seed, difficulty), getChampionTime(seed, difficulty)]);
   const top = all.slice(0, TOP_N);
 
   let context: typeof all = [];
@@ -255,14 +271,15 @@ scoresRouter.get("/api/optimal/:seed", async (req: Request<{ seed: string }>, re
   }
 });
 
-/** A specific player's full recording for a seed, for racing their ghost. */
+/** A specific player's full recording for a (seed, difficulty), for racing
+ * their ghost. */
 scoresRouter.get("/api/scores/:seed/:nickname", async (req: Request<{ seed: string; nickname: string }>, res) => {
   const { seed, nickname } = req.params;
   if (!isValidSeed(seed)) {
     res.status(400).json({ error: "seed must be YYYY-MM-DD or YYYY-Www" });
     return;
   }
-  const row = await getScore(seed, nickname);
+  const row = await getScore(seed, nickname, parseDifficulty(req.query.difficulty));
   if (!row) {
     res.status(404).json({ error: "not found" });
     return;
