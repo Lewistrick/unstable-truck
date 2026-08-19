@@ -210,7 +210,6 @@ const minimapNextCtx = minimapNextCanvas.getContext("2d")!;
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
 const helpScreen = document.getElementById("help-screen")!;
-const helpBtn = document.getElementById("help-btn") as HTMLButtonElement;
 const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
 const profileScreen = document.getElementById("profile-screen")!;
 const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
@@ -2048,7 +2047,6 @@ function closeHelp(): void {
   helpOpen = false;
   helpScreen.classList.add("hidden");
 }
-helpBtn.addEventListener("click", openHelp);
 howToBtn.addEventListener("click", openHelp);
 helpCloseBtn.addEventListener("click", closeHelp);
 helpScreen.addEventListener("click", (e) => {
