@@ -28,19 +28,21 @@ export async function upsertScoreIfBetter(params: {
   time: number;
   stability: number;
   inputLog: number[];
+  medal: string | null;
 }): Promise<boolean> {
-  const { seed, nickname, difficulty, time, stability, inputLog } = params;
+  const { seed, nickname, difficulty, time, stability, inputLog, medal } = params;
   const result = await pool.query(
-    `INSERT INTO scores (seed, nickname, difficulty, time_seconds, stability, input_log)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+    `INSERT INTO scores (seed, nickname, difficulty, time_seconds, stability, input_log, medal)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
      ON CONFLICT (seed, nickname, difficulty) DO UPDATE
        SET time_seconds = EXCLUDED.time_seconds,
            stability = EXCLUDED.stability,
            input_log = EXCLUDED.input_log,
+           medal = EXCLUDED.medal,
            updated_at = now()
        WHERE scores.time_seconds > EXCLUDED.time_seconds
      RETURNING seed`,
-    [seed, nickname, difficulty, time, stability, JSON.stringify(inputLog)],
+    [seed, nickname, difficulty, time, stability, JSON.stringify(inputLog), medal],
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -131,6 +133,7 @@ export async function ensureSchema(): Promise<void> {
   // below; drop it once so it doesn't sit around as unused dead weight.
   await pool.query(`DROP INDEX IF EXISTS idx_scores_seed_time`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_scores_seed_difficulty_time ON scores (seed, difficulty, time_seconds)`);
+  await pool.query(`ALTER TABLE scores ADD COLUMN IF NOT EXISTS medal TEXT`);
   await pool.query(
     `CREATE TABLE IF NOT EXISTS optimal_routes (
        seed TEXT PRIMARY KEY,
@@ -413,6 +416,55 @@ export async function updateAccount(token: string, nickname: string, difficulty:
     [token, nickname, difficulty, JSON.stringify(completed)],
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+export interface PlayerStats {
+  totalScores: number;
+  worldFirsts: number;
+  medals: { champion: number; gold: number; silver: number; bronze: number; none: number };
+}
+
+export async function getPlayerStats(nickname: string, difficulty: DifficultyCode): Promise<PlayerStats> {
+  const result = await pool.query<{
+    total_scores: string;
+    world_firsts: string;
+    champion: string;
+    gold: string;
+    silver: string;
+    bronze: string;
+    none: string;
+  }>(
+    `WITH ranked AS (
+       SELECT nickname, medal,
+              ROW_NUMBER() OVER (PARTITION BY seed ORDER BY time_seconds ASC) AS rn
+       FROM scores
+       WHERE difficulty = $2
+         AND seed IN (SELECT seed FROM scores WHERE nickname = $1 AND difficulty = $2)
+     )
+     SELECT
+       COUNT(*) AS total_scores,
+       COUNT(*) FILTER (WHERE rn = 1) AS world_firsts,
+       COUNT(*) FILTER (WHERE medal = 'champion') AS champion,
+       COUNT(*) FILTER (WHERE medal = 'gold') AS gold,
+       COUNT(*) FILTER (WHERE medal = 'silver') AS silver,
+       COUNT(*) FILTER (WHERE medal = 'bronze') AS bronze,
+       COUNT(*) FILTER (WHERE medal IS NULL) AS none
+     FROM ranked
+     WHERE nickname = $1`,
+    [nickname, difficulty],
+  );
+  const row = result.rows[0]!;
+  return {
+    totalScores: Number(row.total_scores),
+    worldFirsts: Number(row.world_firsts),
+    medals: {
+      champion: Number(row.champion),
+      gold: Number(row.gold),
+      silver: Number(row.silver),
+      bronze: Number(row.bronze),
+      none: Number(row.none),
+    },
+  };
 }
 
 export async function checkDatabaseHealth(): Promise<void> {

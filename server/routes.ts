@@ -7,6 +7,7 @@ import {
   getChampionTime,
   getChampionTimes,
   getOptimalRoute,
+  getPlayerStats,
   getScore,
   getSeedLeaderboard,
   HARD_CODE,
@@ -69,12 +70,15 @@ const RUN_STATUSES = new Set<RunStatus>([
 // number of seeds (the client only ever needs a month of daily seeds).
 const MAX_CHAMPION_SEEDS = 40;
 
+const VALID_MEDALS = new Set(["champion", "gold", "silver", "bronze"]);
+
 interface SubmitBody {
   nickname: string;
   difficulty: DifficultyCode;
   time: number;
   stability: number;
   inputLog: number[];
+  medal: string | null;
   /** The champion-medal threshold this run implies (gold + 3*time)/4, or null
    * when the run is slower than gold so it can't lower the threshold. */
   championCandidate: number | null;
@@ -106,12 +110,14 @@ function parseSubmission(body: unknown): SubmitBody | null {
     typeof b.championCandidate === "number" && Number.isFinite(b.championCandidate) && b.championCandidate > 0
       ? b.championCandidate
       : null;
+  const medal = typeof b.medal === "string" && VALID_MEDALS.has(b.medal) ? b.medal : null;
   return {
     nickname,
     difficulty: parseDifficulty(b.difficulty),
     time: b.time,
     stability: b.stability,
     inputLog: b.inputLog,
+    medal,
     championCandidate,
     isCurrentPeriod: b.isCurrentPeriod === true,
   };
@@ -289,6 +295,22 @@ scoresRouter.get("/api/scores/:seed/:nickname", async (req: Request<{ seed: stri
     return;
   }
   res.json(row);
+});
+
+/** Aggregate statistics for a player on one difficulty. */
+scoresRouter.get("/api/stats/:nickname", async (req: Request<{ nickname: string }>, res) => {
+  const nickname = req.params.nickname.trim().slice(0, MAX_NICKNAME_LENGTH);
+  if (!nickname) {
+    res.status(400).json({ error: "nickname required" });
+    return;
+  }
+  try {
+    const stats = await getPlayerStats(nickname, parseDifficulty(req.query.difficulty));
+    res.json(stats);
+  } catch (err) {
+    console.error(`stats lookup failed for ${nickname}:`, (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
+  }
 });
 
 // --- Cross-device sync accounts -------------------------------------------

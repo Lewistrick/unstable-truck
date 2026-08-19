@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS scores (
   time_seconds DOUBLE PRECISION NOT NULL,
   stability DOUBLE PRECISION NOT NULL,
   input_log JSONB NOT NULL,
+  medal TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (seed, nickname, difficulty)
 );

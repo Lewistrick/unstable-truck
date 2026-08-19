@@ -200,6 +200,44 @@ export function setNickname(name: string): void {
 // for daily play - weekly is Hard-only - but the preference itself is kept
 // independent of the daily/weekly mode so switching back to daily restores it.
 
+// --- Play time accumulator -------------------------------------------------
+
+const PLAY_TIME_KEY = "unstable-truck:play-time";
+
+export function loadPlayTime(): number {
+  const raw = localStorage.getItem(PLAY_TIME_KEY);
+  const parsed = raw ? Number(raw) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function addPlayTime(seconds: number): void {
+  if (!Number.isFinite(seconds) || seconds <= 0) return;
+  localStorage.setItem(PLAY_TIME_KEY, String(loadPlayTime() + seconds));
+}
+
+// --- Best streak -----------------------------------------------------------
+
+export function computeBestStreak(completedDays: Set<string>): number {
+  const sorted = [...completedDays].sort();
+  if (sorted.length === 0) return 0;
+  let best = 1;
+  let current = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1]!);
+    const curr = new Date(sorted[i]!);
+    const diffMs = curr.getTime() - prev.getTime();
+    if (diffMs > 0 && diffMs <= 24 * 60 * 60 * 1000) {
+      current++;
+      if (current > best) best = current;
+    } else if (diffMs > 24 * 60 * 60 * 1000) {
+      current = 1;
+    }
+  }
+  return best;
+}
+
+// --- Difficulty preference ---------------------------------------------------
+
 const DIFFICULTY_KEY = "unstable-truck:difficulty";
 
 /** The player's stored Easy/Hard preference, or null if they've never set one

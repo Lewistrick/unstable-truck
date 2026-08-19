@@ -240,7 +240,7 @@ body {
   max-width: 420px;
 }
 
-#sync-section {
+.settings-section {
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -248,13 +248,59 @@ body {
   gap: 10px;
 }
 
-.sync-header {
+.section-header {
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #9aa4b2;
 }
+
+.section-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid #2c3542;
+  margin: 6px 0;
+}
+
+.stats-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  font-size: 0.88rem;
+}
+
+.stats-grid .stat-label {
+  color: #9aa4b2;
+  text-align: left;
+}
+
+.stats-grid .stat-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-grid .stat-medals {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.stats-grid .stat-medals .medal-count {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.85rem;
+}
+
+#stats-difficulty-switch {
+  margin-top: 4px;
+}
+
+
 
 .sync-desc {
   font-size: 0.82rem;
@@ -757,12 +803,7 @@ body {
 }
 
 #nickname-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   width: 100%;
-  font-size: 0.85rem;
-  color: #c3cad4;
 }
 
 #nickname-input {
