@@ -210,7 +210,6 @@ const minimapNextCtx = minimapNextCanvas.getContext("2d")!;
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
 const helpScreen = document.getElementById("help-screen")!;
-const helpBtn = document.getElementById("help-btn") as HTMLButtonElement;
 const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
 const profileScreen = document.getElementById("profile-screen")!;
 const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
@@ -2048,7 +2047,6 @@ function closeHelp(): void {
   helpOpen = false;
   helpScreen.classList.add("hidden");
 }
-helpBtn.addEventListener("click", openHelp);
 howToBtn.addEventListener("click", openHelp);
 helpCloseBtn.addEventListener("click", closeHelp);
 helpScreen.addEventListener("click", (e) => {
@@ -2097,6 +2095,17 @@ function applyRemoteState(data: { nickname: string; difficulty: string | null; c
   refreshViewedUi();
 }
 
+async function syncPersonalBest(): Promise<void> {
+  const recording = await fetchPlayerRecording(viewed.seed, nickname, viewed.difficulty);
+  if (!recording) return;
+  const ghost: GhostRecording = { seed: recording.seed, time: recording.time, stability: recording.stability, inputLog: recording.inputLog };
+  if (savePersonalBestIfBetter(ghost, viewed.difficulty)) {
+    viewed.personalBest = ghost;
+    playableCache[mode][viewed.difficulty].delete(viewedOffset);
+    refreshViewedUi();
+  }
+}
+
 async function doSync(): Promise<void> {
   const token = loadSyncToken();
   if (!token) return;
@@ -2111,6 +2120,7 @@ async function doSync(): Promise<void> {
     return;
   }
   applyRemoteState(result);
+  await syncPersonalBest();
   syncStatus.textContent = `Synced just now`;
   syncNowBtn.disabled = false;
 }
