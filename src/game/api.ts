@@ -54,12 +54,13 @@ export async function submitScore(
   inputLog: number[],
   championCandidate: number | null,
   isCurrentPeriod: boolean,
+  medal: string | null = null,
 ): Promise<boolean> {
   try {
     const res = await fetch(apiUrl(`api/scores/${seed}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nickname, difficulty, time, stability, inputLog, championCandidate, isCurrentPeriod }),
+      body: JSON.stringify({ nickname, difficulty, time, stability, inputLog, championCandidate, isCurrentPeriod, medal }),
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { saved?: boolean };
@@ -220,6 +221,23 @@ export async function pushSyncAccount(token: string, nickname: string, difficult
     });
     if (!res.ok) return null;
     return (await res.json()) as AccountData;
+  } catch {
+    return null;
+  }
+}
+
+export interface PlayerStatsResponse {
+  totalScores: number;
+  worldFirsts: number;
+  medals: { champion: number; gold: number; silver: number; bronze: number; none: number };
+}
+
+export async function fetchStats(nickname: string, difficulty: Difficulty): Promise<PlayerStatsResponse | null> {
+  try {
+    const params = new URLSearchParams({ difficulty });
+    const res = await fetch(apiUrl(`api/stats/${encodeURIComponent(nickname)}?${params}`));
+    if (!res.ok) return null;
+    return (await res.json()) as PlayerStatsResponse;
   } catch {
     return null;
   }

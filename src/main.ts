@@ -5,12 +5,14 @@ import {
     fetchLeaderboard,
     fetchOptimalRoute,
     fetchPlayerRecording,
+    fetchStats,
     fetchSyncAccount,
     logRun,
     pushSyncAccount,
     submitScore,
     type Difficulty,
     type LeaderboardEntry,
+    type PlayerStatsResponse,
     type RemoteRecording,
 } from "./game/api.js";
 import { countdownLabel } from "./game/countdown.js";
@@ -31,12 +33,15 @@ import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camer
 import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import { GameSession } from "./game/session.js";
 import {
+    addPlayTime,
     clearSyncToken,
+    computeBestStreak,
     getOrCreateNickname,
     hasSeenTutorial,
     loadCompletedDays,
     loadDifficultyPref,
     loadPersonalBest,
+    loadPlayTime,
     loadRacePbGhostPref,
     loadSelectedLeaderboardGhost,
     loadSyncToken,
@@ -226,6 +231,12 @@ const syncStatus = document.getElementById("sync-status")!;
 const syncNowBtn = document.getElementById("sync-now-btn") as HTMLButtonElement;
 const syncUnlinkBtn = document.getElementById("sync-unlink-btn") as HTMLButtonElement;
 const syncError = document.getElementById("sync-error")!;
+const statsLocal = document.getElementById("stats-local")!;
+const statsServer = document.getElementById("stats-server")!;
+const statsServerError = document.getElementById("stats-server-error")!;
+const statsDiffSwitch = document.getElementById("stats-difficulty-switch")!;
+const statsDiffEasy = document.getElementById("stats-diff-easy") as HTMLButtonElement;
+const statsDiffHard = document.getElementById("stats-diff-hard") as HTMLButtonElement;
 const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
 const howToBtn = document.getElementById("howto-btn") as HTMLButtonElement;
 const tutorialOverlay = document.getElementById("tutorial-overlay")!;
@@ -1531,6 +1542,7 @@ function beginRun(playable: Playable): void {
 
 function endRun(): void {
   if (!session) return;
+  addPlayTime(session.elapsed);
   appState = "ended";
   setPaused(false);
   // Diagnostic run log: record how the run ended and how many warehouses were
@@ -1624,6 +1636,7 @@ function endRun(): void {
         recording.inputLog,
         championCandidate,
         isCurrentPeriod,
+        medal,
       ).then(async () => {
         if (submittedSeed === viewed.seed && submittedDifficulty === viewed.difficulty) {
           await refreshLeaderboard();
@@ -2115,10 +2128,126 @@ async function doSync(): Promise<void> {
   syncNowBtn.disabled = false;
 }
 
+function formatPlayTime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${Math.floor(totalSeconds)}s`;
+}
+
+function renderLocalStats(): void {
+  const completed = loadCompletedDays();
+  const sorted = [...completed].sort();
+  const daysPlayed = completed.size;
+  const streak = currentStreak(completed);
+  const bestStreak = computeBestStreak(completed);
+  const firstDay = sorted.length > 0 ? sorted[0]! : "—";
+  const playTime = formatPlayTime(loadPlayTime());
+
+  statsLocal.innerHTML = "";
+  const rows: [string, string][] = [
+    ["Days played", String(daysPlayed)],
+    ["Current streak", streak > 0 ? `${streak} days` : "—"],
+    ["Best streak", bestStreak > 0 ? `${bestStreak} days` : "—"],
+    ["First day", firstDay],
+    ["Total play time", playTime],
+  ];
+  for (const [label, value] of rows) {
+    const l = document.createElement("span");
+    l.className = "stat-label";
+    l.textContent = label;
+    const v = document.createElement("span");
+    v.className = "stat-value";
+    v.textContent = value;
+    statsLocal.append(l, v);
+  }
+}
+
+let statsDifficulty: Difficulty = "hard";
+
+function renderServerStats(data: PlayerStatsResponse | null): void {
+  statsServer.innerHTML = "";
+  if (!data) {
+    statsServerError.textContent = "Server stats unavailable";
+    statsServerError.classList.remove("hidden");
+    return;
+  }
+  statsServerError.classList.add("hidden");
+
+  const totalMedals = data.medals.champion + data.medals.gold + data.medals.silver + data.medals.bronze;
+  const rows: [string, string][] = [
+    ["Scores submitted", String(data.totalScores)],
+    ["Medals earned", String(totalMedals)],
+    ["World #1 finishes", String(data.worldFirsts)],
+  ];
+  for (const [label, value] of rows) {
+    const l = document.createElement("span");
+    l.className = "stat-label";
+    l.textContent = label;
+    const v = document.createElement("span");
+    v.className = "stat-value";
+    v.textContent = value;
+    statsServer.append(l, v);
+  }
+
+  if (totalMedals > 0 || data.medals.none > 0) {
+    const medalRow = document.createElement("div");
+    medalRow.className = "stat-medals";
+    const icons: [string, number][] = [
+      ["\u{1F3C6}", data.medals.champion],
+      ["\u{1F947}", data.medals.gold],
+      ["\u{1F948}", data.medals.silver],
+      ["\u{1F949}", data.medals.bronze],
+    ];
+    for (const [icon, count] of icons) {
+      if (count === 0) continue;
+      const span = document.createElement("span");
+      span.className = "medal-count";
+      span.textContent = `${icon} ${count}`;
+      medalRow.append(span);
+    }
+    statsServer.append(medalRow);
+  }
+}
+
+async function loadServerStats(): Promise<void> {
+  statsServer.innerHTML = "";
+  statsServerError.textContent = "Loading…";
+  statsServerError.classList.remove("hidden");
+  const data = await fetchStats(nickname, statsDifficulty);
+  renderServerStats(data);
+}
+
+function updateStatsDifficultyUi(): void {
+  statsDiffEasy.classList.toggle("active", statsDifficulty === "easy");
+  statsDiffHard.classList.toggle("active", statsDifficulty === "hard");
+  statsDiffEasy.setAttribute("aria-selected", String(statsDifficulty === "easy"));
+  statsDiffHard.setAttribute("aria-selected", String(statsDifficulty === "hard"));
+}
+
+statsDiffEasy.addEventListener("click", () => {
+  if (statsDifficulty === "easy") return;
+  statsDifficulty = "easy";
+  updateStatsDifficultyUi();
+  void loadServerStats();
+});
+statsDiffHard.addEventListener("click", () => {
+  if (statsDifficulty === "hard") return;
+  statsDifficulty = "hard";
+  updateStatsDifficultyUi();
+  void loadServerStats();
+});
+
 function openProfile(): void {
   profileOpen = true;
   nicknameInput.value = nickname;
   updateSyncUi();
+  renderLocalStats();
+  statsDifficulty = difficulty;
+  updateStatsDifficultyUi();
+  statsDiffSwitch.classList.remove("hidden");
+  void loadServerStats();
   profileScreen.classList.remove("hidden");
 }
 function closeProfile(): void {

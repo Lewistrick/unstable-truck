@@ -211,13 +211,16 @@
 
     <div id="profile-screen" class="screen hidden">
       <div class="panel profile-panel">
-        <h1>Profile</h1>
-        <div id="nickname-row">
-          <label for="nickname-input">Nickname</label>
-          <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
+        <h1>Settings</h1>
+        <div class="settings-section">
+          <div class="section-header">Nickname</div>
+          <div id="nickname-row">
+            <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
+          </div>
         </div>
-        <div id="sync-section">
-          <div class="sync-header">Sync devices</div>
+        <hr class="section-divider" />
+        <div id="sync-section" class="settings-section">
+          <div class="section-header">Sync devices</div>
           <p class="sync-desc muted">Play on multiple devices with the same nickname and streak.</p>
           <div id="sync-unlinked">
             <button id="sync-generate-btn" class="btn-secondary" type="button">Generate sync code</button>
@@ -237,6 +240,17 @@
             <button id="sync-unlink-btn" class="btn-secondary sync-unlink" type="button">Unlink</button>
           </div>
           <p id="sync-error" class="sync-error hidden"></p>
+        </div>
+        <hr class="section-divider" />
+        <div id="stats-section" class="settings-section">
+          <div class="section-header">Your stats</div>
+          <div id="stats-local" class="stats-grid"></div>
+          <div id="stats-difficulty-switch" class="mode-switch hidden" role="tablist">
+            <button id="stats-diff-easy" class="mode-btn" type="button" role="tab" aria-selected="false">Easy</button>
+            <button id="stats-diff-hard" class="mode-btn" type="button" role="tab" aria-selected="false">Hard</button>
+          </div>
+          <div id="stats-server" class="stats-grid"></div>
+          <p id="stats-server-error" class="muted hidden"></p>
         </div>
         <button id="profile-close-btn" type="button">Close</button>
       </div>
