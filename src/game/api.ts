@@ -177,6 +177,54 @@ export async function fetchOptimalRoute(
   }
 }
 
+// --- Cross-device sync account API -----------------------------------------
+
+export interface AccountData {
+  token: string;
+  nickname: string;
+  difficulty: string | null;
+  completed: string[];
+}
+
+export async function createSyncAccount(nickname: string, difficulty: string | null, completed: string[]): Promise<string | null> {
+  try {
+    const res = await fetch(apiUrl("api/account"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname, difficulty, completed }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { token: string };
+    return data.token;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSyncAccount(token: string): Promise<AccountData | null> {
+  try {
+    const res = await fetch(apiUrl(`api/account/${encodeURIComponent(token)}`));
+    if (!res.ok) return null;
+    return (await res.json()) as AccountData;
+  } catch {
+    return null;
+  }
+}
+
+export async function pushSyncAccount(token: string, nickname: string, difficulty: string | null, completed: string[]): Promise<AccountData | null> {
+  try {
+    const res = await fetch(apiUrl(`api/account/${encodeURIComponent(token)}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname, difficulty, completed }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AccountData;
+  } catch {
+    return null;
+  }
+}
+
 /** A specific player's full recording for a (seed, difficulty), used to build
  * their ghost when selected from the leaderboard. */
 export async function fetchPlayerRecording(seed: string, nickname: string, difficulty: Difficulty): Promise<RemoteRecording | null> {

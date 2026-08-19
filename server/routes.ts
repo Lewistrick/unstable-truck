@@ -1,7 +1,9 @@
 import { Router, type Request } from "express";
 import {
   backfillChampionTime,
+  createAccount,
   EASY_CODE,
+  getAccount,
   getChampionTime,
   getChampionTimes,
   getOptimalRoute,
@@ -11,10 +13,12 @@ import {
   listRuns,
   logRun,
   lowerChampionTime,
+  updateAccount,
   upsertScoreIfBetter,
   type DifficultyCode,
   type RunStatus,
 } from "./db.js";
+import crypto from "node:crypto";
 import { ensureOptimalRoute } from "./optimal.js";
 
 export const scoresRouter = Router();
@@ -285,4 +289,88 @@ scoresRouter.get("/api/scores/:seed/:nickname", async (req: Request<{ seed: stri
     return;
   }
   res.json(row);
+});
+
+// --- Cross-device sync accounts -------------------------------------------
+
+function generateToken(): string {
+  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+  let code = "";
+  const bytes = crypto.randomBytes(6);
+  for (let i = 0; i < 6; i++) code += chars[bytes[i]! % chars.length];
+  return code;
+}
+
+const TOKEN_PATTERN = /^[a-z2-9]{6}$/;
+
+/** Creates a new sync account from the current device's state and returns the
+ * token. The client stores this token and uses it to push/pull state. */
+scoresRouter.post("/api/account", async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const nickname = typeof body.nickname === "string" ? body.nickname.trim().slice(0, MAX_NICKNAME_LENGTH) : "";
+  if (!nickname) {
+    res.status(400).json({ error: "nickname required" });
+    return;
+  }
+  const difficulty = body.difficulty === "easy" || body.difficulty === "hard" ? body.difficulty : null;
+  const completed = Array.isArray(body.completed) ? body.completed.filter((s): s is string => typeof s === "string") : [];
+  const token = generateToken();
+  try {
+    await createAccount(token, nickname, difficulty, completed);
+    res.json({ token });
+  } catch (err) {
+    console.error("account create failed:", (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
+  }
+});
+
+/** Fetches the synced state for a token. Used when linking a new device or
+ * pulling updates. */
+scoresRouter.get("/api/account/:token", async (req: Request<{ token: string }>, res) => {
+  const { token } = req.params;
+  if (!TOKEN_PATTERN.test(token)) {
+    res.status(400).json({ error: "invalid token" });
+    return;
+  }
+  try {
+    const account = await getAccount(token);
+    if (!account) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    res.json(account);
+  } catch (err) {
+    console.error("account fetch failed:", (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
+  }
+});
+
+/** Pushes the current device's state to the server, merging completed days. */
+scoresRouter.put("/api/account/:token", async (req: Request<{ token: string }>, res) => {
+  const { token } = req.params;
+  if (!TOKEN_PATTERN.test(token)) {
+    res.status(400).json({ error: "invalid token" });
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  const nickname = typeof body.nickname === "string" ? body.nickname.trim().slice(0, MAX_NICKNAME_LENGTH) : "";
+  if (!nickname) {
+    res.status(400).json({ error: "nickname required" });
+    return;
+  }
+  const difficulty = body.difficulty === "easy" || body.difficulty === "hard" ? body.difficulty : null;
+  const localCompleted = Array.isArray(body.completed) ? body.completed.filter((s): s is string => typeof s === "string") : [];
+  try {
+    const existing = await getAccount(token);
+    if (!existing) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    const merged = [...new Set([...existing.completed, ...localCompleted])].sort();
+    await updateAccount(token, nickname, difficulty, merged);
+    res.json({ token, nickname, difficulty, completed: merged });
+  } catch (err) {
+    console.error("account sync failed:", (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
+  }
 });

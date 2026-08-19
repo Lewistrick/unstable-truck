@@ -74,3 +74,16 @@ CREATE TABLE IF NOT EXISTS run_logs (
 CREATE INDEX IF NOT EXISTS idx_run_logs_seed_created ON run_logs (seed, created_at DESC);
 -- Global newest-first ordering (the /logs list) and the retention prune.
 CREATE INDEX IF NOT EXISTS idx_run_logs_created ON run_logs (created_at DESC);
+
+-- Cross-device sync: a token links multiple browsers to a shared identity.
+-- The token is a short, human-readable code (e.g. "TRUCK-a3f9x2") that
+-- players generate from one device and enter on another. The server stores
+-- the synced state so any linked device can push/pull it.
+CREATE TABLE IF NOT EXISTS accounts (
+  token TEXT PRIMARY KEY,
+  nickname TEXT NOT NULL,
+  difficulty TEXT,
+  completed JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

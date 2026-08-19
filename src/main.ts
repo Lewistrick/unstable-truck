@@ -1,10 +1,13 @@
 import {
     backfillChampionTime,
+    createSyncAccount,
     fetchChampionTimes,
     fetchLeaderboard,
     fetchOptimalRoute,
     fetchPlayerRecording,
+    fetchSyncAccount,
     logRun,
+    pushSyncAccount,
     submitScore,
     type Difficulty,
     type LeaderboardEntry,
@@ -28,6 +31,7 @@ import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camer
 import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import { GameSession } from "./game/session.js";
 import {
+    clearSyncToken,
     getOrCreateNickname,
     hasSeenTutorial,
     loadCompletedDays,
@@ -35,6 +39,7 @@ import {
     loadPersonalBest,
     loadRacePbGhostPref,
     loadSelectedLeaderboardGhost,
+    loadSyncToken,
     markTutorialSeen,
     pruneLeaderboardGhosts,
     pruneOldPersonalBests,
@@ -43,6 +48,7 @@ import {
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
+    saveSyncToken,
     setNickname,
 } from "./game/storage.js";
 import { Tutorial } from "./game/tutorial.js";
@@ -206,6 +212,20 @@ const resultsScreen = document.getElementById("results-screen")!;
 const helpScreen = document.getElementById("help-screen")!;
 const helpBtn = document.getElementById("help-btn") as HTMLButtonElement;
 const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
+const profileScreen = document.getElementById("profile-screen")!;
+const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
+const profileCloseBtn = document.getElementById("profile-close-btn") as HTMLButtonElement;
+const syncGenerateBtn = document.getElementById("sync-generate-btn") as HTMLButtonElement;
+const syncLinkInput = document.getElementById("sync-link-input") as HTMLInputElement;
+const syncLinkBtn = document.getElementById("sync-link-btn") as HTMLButtonElement;
+const syncUnlinked = document.getElementById("sync-unlinked")!;
+const syncLinked = document.getElementById("sync-linked")!;
+const syncCodeValue = document.getElementById("sync-code-value")!;
+const syncCopyBtn = document.getElementById("sync-copy-btn") as HTMLButtonElement;
+const syncStatus = document.getElementById("sync-status")!;
+const syncNowBtn = document.getElementById("sync-now-btn") as HTMLButtonElement;
+const syncUnlinkBtn = document.getElementById("sync-unlink-btn") as HTMLButtonElement;
+const syncError = document.getElementById("sync-error")!;
 const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
 const howToBtn = document.getElementById("howto-btn") as HTMLButtonElement;
 const tutorialOverlay = document.getElementById("tutorial-overlay")!;
@@ -279,6 +299,7 @@ nicknameInput.addEventListener("change", () => {
   renderLeaderboardList();
   if (nickname !== oldNickname) {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
+    if (loadSyncToken()) void doSync();
   }
 });
 
@@ -289,8 +310,12 @@ function logGameStarted(): void {
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", logGameStarted);
 } else {
-  // DOM is already ready by the time this module script executes
   logGameStarted();
+}
+
+// Pull remote state on load if a sync token is stored.
+if (loadSyncToken()) {
+  void doSync();
 }
 
 function refreshViewedUi(): void {
@@ -1567,6 +1592,7 @@ function endRun(): void {
     if (active.level.kind === "daily" && !active.orphan) {
       recordCompletion(active.seed);
       renderProgressStrip();
+      if (loadSyncToken()) void doSync();
     }
 
     resultsPersonalBest.textContent = !previousBest
@@ -2025,9 +2051,142 @@ function closeHelp(): void {
 helpBtn.addEventListener("click", openHelp);
 howToBtn.addEventListener("click", openHelp);
 helpCloseBtn.addEventListener("click", closeHelp);
-// Tapping the dimmed backdrop (outside the panel) closes it.
 helpScreen.addEventListener("click", (e) => {
   if (e.target === helpScreen) closeHelp();
+});
+
+// --- Profile screen --------------------------------------------------------
+
+let profileOpen = false;
+
+function showSyncError(msg: string): void {
+  syncError.textContent = msg;
+  syncError.classList.remove("hidden");
+}
+function hideSyncError(): void {
+  syncError.classList.add("hidden");
+}
+
+function updateSyncUi(): void {
+  const token = loadSyncToken();
+  if (token) {
+    syncUnlinked.classList.add("hidden");
+    syncLinked.classList.remove("hidden");
+    syncCodeValue.textContent = token;
+  } else {
+    syncUnlinked.classList.remove("hidden");
+    syncLinked.classList.add("hidden");
+  }
+  hideSyncError();
+}
+
+function applyRemoteState(data: { nickname: string; difficulty: string | null; completed: string[] }): void {
+  if (data.nickname) {
+    setNickname(data.nickname);
+    nickname = getOrCreateNickname();
+    nicknameInput.value = nickname;
+  }
+  if (data.difficulty === "easy" || data.difficulty === "hard") {
+    saveDifficultyPref(data.difficulty);
+  }
+  if (data.completed.length > 0) {
+    for (const seed of data.completed) recordCompletion(seed);
+    renderProgressStrip();
+  }
+  renderLeaderboardList();
+  refreshViewedUi();
+}
+
+async function doSync(): Promise<void> {
+  const token = loadSyncToken();
+  if (!token) return;
+  syncNowBtn.disabled = true;
+  syncStatus.textContent = "Syncing…";
+  const completed = [...loadCompletedDays()];
+  const diffPref = loadDifficultyPref();
+  const result = await pushSyncAccount(token, nickname, diffPref, completed);
+  if (!result) {
+    syncStatus.textContent = "Sync failed";
+    syncNowBtn.disabled = false;
+    return;
+  }
+  applyRemoteState(result);
+  syncStatus.textContent = `Synced just now`;
+  syncNowBtn.disabled = false;
+}
+
+function openProfile(): void {
+  profileOpen = true;
+  nicknameInput.value = nickname;
+  updateSyncUi();
+  profileScreen.classList.remove("hidden");
+}
+function closeProfile(): void {
+  profileOpen = false;
+  profileScreen.classList.add("hidden");
+}
+profileBtn.addEventListener("click", openProfile);
+profileCloseBtn.addEventListener("click", closeProfile);
+profileScreen.addEventListener("click", (e) => {
+  if (e.target === profileScreen) closeProfile();
+});
+
+syncGenerateBtn.addEventListener("click", async () => {
+  hideSyncError();
+  syncGenerateBtn.disabled = true;
+  const completed = [...loadCompletedDays()];
+  const diffPref = loadDifficultyPref();
+  const token = await createSyncAccount(nickname, diffPref, completed);
+  syncGenerateBtn.disabled = false;
+  if (!token) {
+    showSyncError("Could not create sync code. Try again later.");
+    return;
+  }
+  saveSyncToken(token);
+  updateSyncUi();
+  syncStatus.textContent = "Synced just now";
+});
+
+syncLinkBtn.addEventListener("click", async () => {
+  hideSyncError();
+  const code = syncLinkInput.value.trim().toLowerCase();
+  if (!/^[a-z2-9]{6}$/.test(code)) {
+    showSyncError("Code must be 6 characters.");
+    return;
+  }
+  syncLinkBtn.disabled = true;
+  const account = await fetchSyncAccount(code);
+  syncLinkBtn.disabled = false;
+  if (!account) {
+    showSyncError("Code not found. Check and try again.");
+    return;
+  }
+  saveSyncToken(code);
+  applyRemoteState(account);
+  // Push local state to merge completed days
+  void doSync();
+  updateSyncUi();
+});
+
+syncCopyBtn.addEventListener("click", async () => {
+  const token = loadSyncToken();
+  if (!token) return;
+  try {
+    await navigator.clipboard.writeText(token);
+    syncCopyBtn.textContent = "Copied!";
+    setTimeout(() => { syncCopyBtn.textContent = "Copy"; }, 1500);
+  } catch {
+    syncCopyBtn.textContent = "Failed";
+    setTimeout(() => { syncCopyBtn.textContent = "Copy"; }, 1500);
+  }
+});
+
+syncNowBtn.addEventListener("click", () => void doSync());
+
+syncUnlinkBtn.addEventListener("click", () => {
+  clearSyncToken();
+  updateSyncUi();
+  syncStatus.textContent = "";
 });
 
 attachShareHandler(shareBtn, "results", "Share", () => lastShareText);
@@ -2054,6 +2213,10 @@ playBtn.addEventListener("click", () => beginRun(viewed));
 window.addEventListener("keydown", (e) => {
   // While the help overlay is up it captures Escape (to close itself) and
   // swallows the other run controls.
+  if (profileOpen) {
+    if (e.key === "Escape") closeProfile();
+    return;
+  }
   if (helpOpen) {
     if (e.key === "Escape") closeHelp();
     return;
