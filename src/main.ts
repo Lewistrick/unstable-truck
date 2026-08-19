@@ -2097,6 +2097,17 @@ function applyRemoteState(data: { nickname: string; difficulty: string | null; c
   refreshViewedUi();
 }
 
+async function syncPersonalBest(): Promise<void> {
+  const recording = await fetchPlayerRecording(viewed.seed, nickname, viewed.difficulty);
+  if (!recording) return;
+  const ghost: GhostRecording = { seed: recording.seed, time: recording.time, stability: recording.stability, inputLog: recording.inputLog };
+  if (savePersonalBestIfBetter(ghost, viewed.difficulty)) {
+    viewed.personalBest = ghost;
+    playableCache[mode][viewed.difficulty].delete(viewedOffset);
+    refreshViewedUi();
+  }
+}
+
 async function doSync(): Promise<void> {
   const token = loadSyncToken();
   if (!token) return;
@@ -2111,6 +2122,7 @@ async function doSync(): Promise<void> {
     return;
   }
   applyRemoteState(result);
+  await syncPersonalBest();
   syncStatus.textContent = `Synced just now`;
   syncNowBtn.disabled = false;
 }
