@@ -215,6 +215,22 @@ export function saveDifficultyPref(difficulty: Difficulty): void {
   localStorage.setItem(DIFFICULTY_KEY, difficulty);
 }
 
+// --- Sync token ------------------------------------------------------------
+
+const SYNC_TOKEN_KEY = "unstable-truck:sync-token";
+
+export function loadSyncToken(): string | null {
+  return localStorage.getItem(SYNC_TOKEN_KEY);
+}
+
+export function saveSyncToken(token: string): void {
+  localStorage.setItem(SYNC_TOKEN_KEY, token);
+}
+
+export function clearSyncToken(): void {
+  localStorage.removeItem(SYNC_TOKEN_KEY);
+}
+
 // --- Ghost-race preferences (session-scoped) ------------------------------
 // These live in sessionStorage so a choice sticks while browsing between levels
 // in the same session, then resets on a fresh visit. The "race my own ghost"

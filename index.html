@@ -68,9 +68,13 @@
     <div id="start-screen" class="screen">
       <div class="panel">
         <div id="home-header">
+          <div id="home-header-btns">
+            <button id="profile-btn" class="btn-secondary" type="button" aria-label="Profile"
+              title="Profile">&#9786;</button>
+            <button id="help-btn" class="btn-secondary" type="button" aria-label="How to play"
+              title="How to play">?</button>
+          </div>
           <span class="wordmark">Unstable Truck</span>
-          <button id="help-btn" class="btn-secondary" type="button" aria-label="How to play"
-            title="How to play">?</button>
         </div>
 
         <p id="viewed-date" class="muted"></p>
@@ -122,13 +126,6 @@
         </div>
 
         <button id="best-share-btn" class="btn-secondary hidden" type="button">Share personal best</button>
-
-        <div id="home-footer">
-          <div id="nickname-row">
-            <label for="nickname-input">Nickname</label>
-            <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
-          </div>
-        </div>
 
         <div id="mode-switch" class="hidden">
           <p id="mode-cta">Want a bigger challenge? Play the weekly map!</p>
@@ -209,6 +206,39 @@
           </p>
         </div>
         <button id="help-close-btn" type="button">Close</button>
+      </div>
+    </div>
+
+    <div id="profile-screen" class="screen hidden">
+      <div class="panel profile-panel">
+        <h1>Profile</h1>
+        <div id="nickname-row">
+          <label for="nickname-input">Nickname</label>
+          <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
+        </div>
+        <div id="sync-section">
+          <div class="sync-header">Sync devices</div>
+          <p class="sync-desc muted">Play on multiple devices with the same nickname and streak.</p>
+          <div id="sync-unlinked">
+            <button id="sync-generate-btn" class="btn-secondary" type="button">Generate sync code</button>
+            <div id="sync-link-row">
+              <input type="text" id="sync-link-input" maxlength="6" placeholder="Enter code" autocomplete="off" spellcheck="false" />
+              <button id="sync-link-btn" class="btn-secondary" type="button">Link</button>
+            </div>
+          </div>
+          <div id="sync-linked" class="hidden">
+            <div id="sync-code-display">
+              <span class="sync-label muted">Your sync code</span>
+              <span id="sync-code-value"></span>
+              <button id="sync-copy-btn" class="btn-secondary" type="button" title="Copy code">Copy</button>
+            </div>
+            <div id="sync-status" class="muted"></div>
+            <button id="sync-now-btn" class="btn-secondary" type="button">Sync now</button>
+            <button id="sync-unlink-btn" class="btn-secondary sync-unlink" type="button">Unlink</button>
+          </div>
+          <p id="sync-error" class="sync-error hidden"></p>
+        </div>
+        <button id="profile-close-btn" type="button">Close</button>
       </div>
     </div>
 

@@ -205,11 +205,13 @@ body {
   width: 100%;
 }
 
-#help-btn {
+#home-header-btns {
   position: absolute;
   right: 0;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  gap: 6px;
 }
 
 /* Centered game title in the display face, with generous tracking. Sized with
@@ -225,7 +227,8 @@ body {
   text-align: center;
 }
 
-#help-btn {
+#help-btn,
+#profile-btn {
   flex: none;
   width: 30px;
   height: 30px;
@@ -234,6 +237,137 @@ body {
   font-size: 1rem;
   font-weight: 700;
   line-height: 1;
+}
+
+#profile-btn {
+  font-weight: 400;
+}
+
+.profile-panel {
+  max-width: 420px;
+}
+
+#sync-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9aa4b2;
+}
+
+.sync-desc {
+  font-size: 0.82rem;
+  margin-top: -4px;
+}
+
+#sync-unlinked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+#sync-link-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 260px;
+}
+
+#sync-link-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  font-family: monospace;
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: #f0f2f5;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+}
+
+#sync-link-input:focus {
+  outline: none;
+  border-color: #4a5566;
+}
+
+#sync-linked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+#sync-linked.hidden {
+  display: none;
+}
+
+#sync-code-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 8px;
+}
+
+.sync-label {
+  font-size: 0.78rem;
+}
+
+#sync-code-value {
+  font-family: monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #55e08a;
+}
+
+#sync-copy-btn {
+  padding: 4px 12px;
+  font-size: 0.78rem;
+}
+
+#sync-status {
+  font-size: 0.8rem;
+}
+
+#sync-now-btn {
+  width: 100%;
+  max-width: 200px;
+}
+
+.sync-unlink {
+  font-size: 0.78rem;
+  padding: 4px 14px;
+  color: #9aa4b2;
+  background: transparent;
+}
+
+.sync-unlink:hover {
+  color: #ff6f6f;
+}
+
+.sync-error {
+  font-size: 0.82rem;
+  color: #ff6f6f;
+}
+
+.sync-error.hidden {
+  display: none;
 }
 
 /* Daily/Weekly switch, revealed at the very bottom only once the player has
@@ -633,6 +767,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   font-size: 0.85rem;
   color: #c3cad4;
 }

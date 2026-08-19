@@ -160,6 +160,16 @@ export async function ensureSchema(): Promise<void> {
   // Global newest-first ordering (the /logs list) and the retention prune both
   // scan by created_at.
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_run_logs_created ON run_logs (created_at DESC)`);
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS accounts (
+       token TEXT PRIMARY KEY,
+       nickname TEXT NOT NULL,
+       difficulty TEXT,
+       completed JSONB NOT NULL DEFAULT '[]',
+       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+     )`,
+  );
 }
 
 /** Every kind of event written to run_logs. Kept in sync with the client's own
@@ -369,6 +379,40 @@ export async function getSolvedSeeds(seeds: string[]): Promise<Set<string>> {
     [seeds],
   );
   return new Set(result.rows.map((r) => r.seed));
+}
+
+// --- Cross-device sync accounts ---------------------------------------------
+
+export interface AccountData {
+  token: string;
+  nickname: string;
+  difficulty: string | null;
+  completed: string[];
+}
+
+export async function createAccount(token: string, nickname: string, difficulty: string | null, completed: string[]): Promise<void> {
+  await pool.query(
+    `INSERT INTO accounts (token, nickname, difficulty, completed) VALUES ($1, $2, $3, $4::jsonb)`,
+    [token, nickname, difficulty, JSON.stringify(completed)],
+  );
+}
+
+export async function getAccount(token: string): Promise<AccountData | null> {
+  const result = await pool.query<{ token: string; nickname: string; difficulty: string | null; completed: string[] }>(
+    `SELECT token, nickname, difficulty, completed FROM accounts WHERE token = $1`,
+    [token],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { token: row.token, nickname: row.nickname, difficulty: row.difficulty, completed: row.completed };
+}
+
+export async function updateAccount(token: string, nickname: string, difficulty: string | null, completed: string[]): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE accounts SET nickname = $2, difficulty = $3, completed = $4::jsonb, updated_at = now() WHERE token = $1 RETURNING token`,
+    [token, nickname, difficulty, JSON.stringify(completed)],
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function checkDatabaseHealth(): Promise<void> {
