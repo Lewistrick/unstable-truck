@@ -2,18 +2,35 @@ import { type Rng, randInt, randRange, shuffle } from "../util/rng.js";
 import { distance, type Vec2 } from "../util/vec2.js";
 import type { House, Hub, RoadSegment, Warehouse } from "./types.js";
 
+const V2_GENERATION_START = "2026-08-21";
+const V2_MIN_SPACING = 260;
+
 export function generateWarehouses(
   rng: Rng,
   hubs: Hub[],
   branches: RoadSegment[],
+  seed: string,
 ): Warehouse[] {
+  const v2 = seed >= V2_GENERATION_START;
   const candidates: Vec2[] = [
     ...hubs.map((h) => h.pos),
     ...branches.map((b) => b.p3),
   ];
 
-  const count = Math.min(randInt(rng, 4, 10), candidates.length);
-  const spots = shuffle(rng, candidates).slice(0, count);
+  const targetCount = Math.min(v2 ? randInt(rng, 5, 7) : randInt(rng, 4, 10), candidates.length);
+  const shuffled = shuffle(rng, candidates);
+
+  let spots: Vec2[];
+  if (v2) {
+    spots = [];
+    for (const c of shuffled) {
+      if (spots.every((s) => distance(s, c) >= V2_MIN_SPACING)) spots.push(c);
+      if (spots.length >= targetCount) break;
+    }
+  } else {
+    spots = shuffled.slice(0, targetCount);
+  }
+
   const lastIndex = spots.length - 1;
 
   // First is always base, last is always the destination; every warehouse

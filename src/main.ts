@@ -15,7 +15,7 @@ import {
     type PlayerStatsResponse,
     type RemoteRecording,
 } from "./game/api.js";
-import { countdownLabel } from "./game/countdown.js";
+import { COUNTDOWN_STEP_DURATION, countdownLabel } from "./game/countdown.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { optimalRowIndex } from "./game/leaderboard-order.js";
@@ -41,6 +41,7 @@ import {
     loadCompletedDays,
     loadDifficultyPref,
     loadPersonalBest,
+    loadPlayedDays,
     loadPlayTime,
     loadRacePbGhostPref,
     loadSelectedLeaderboardGhost,
@@ -49,12 +50,15 @@ import {
     pruneLeaderboardGhosts,
     pruneOldPersonalBests,
     recordCompletion,
+    recordPlayed,
     saveDifficultyPref,
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
     saveSyncToken,
     setNickname,
+    loadSoundPrefs,
+    saveSoundPrefs,
 } from "./game/storage.js";
 import { Tutorial } from "./game/tutorial.js";
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
@@ -62,7 +66,8 @@ import { resolveSeedTarget } from "./level/seed-target.js";
 import { getTheme } from "./level/themes.js";
 import type { Level } from "./level/types.js";
 import { FIXED_DT } from "./physics/constants.js";
-import type { TruckState } from "./physics/truck.js";
+import { BASE_MAX_SPEED, EASY_MAX_SPEED, type TruckState } from "./physics/truck.js";
+import { audioState, playCountdownTone, playMedalFanfare, playPickupChime, playRockCrash, resumeAudio, setSoundPrefs, startAmbience, startEngine, startGrass, startMud, startWobble, stopAll, stopEngine, stopGrass, stopMud, stopWobble, unlockAudio, updateEngine, updateGrass, updateMud, updateWobble } from "./game/audio.js";
 
 type Mode = "daily" | "weekly";
 
@@ -236,6 +241,16 @@ const statsServerError = document.getElementById("stats-server-error")!;
 const statsDiffSwitch = document.getElementById("stats-difficulty-switch")!;
 const statsDiffEasy = document.getElementById("stats-diff-easy") as HTMLButtonElement;
 const statsDiffHard = document.getElementById("stats-diff-hard") as HTMLButtonElement;
+const soundGameSlider = document.getElementById("sound-game") as HTMLInputElement;
+const soundAmbientSlider = document.getElementById("sound-ambient") as HTMLInputElement;
+const soundEffectsSlider = document.getElementById("sound-effects") as HTMLInputElement;
+const soundGameVal = document.getElementById("sound-game-val")!;
+const soundAmbientVal = document.getElementById("sound-ambient-val")!;
+const soundEffectsVal = document.getElementById("sound-effects-val")!;
+const soundState = document.getElementById("sound-state")!;
+const soundGameMute = document.getElementById("sound-game-mute") as HTMLButtonElement;
+const soundAmbientMute = document.getElementById("sound-ambient-mute") as HTMLButtonElement;
+const soundEffectsMute = document.getElementById("sound-effects-mute") as HTMLButtonElement;
 const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
 const howToBtn = document.getElementById("howto-btn") as HTMLButtonElement;
 const tutorialOverlay = document.getElementById("tutorial-overlay")!;
@@ -1216,6 +1231,21 @@ let paused = false;
  * (which doubles as the pause control) and the top "Paused" banner. */
 function setPaused(next: boolean): void {
   paused = next;
+  // Freezing the game has to freeze its sound too. The per-frame audio updates
+  // live in the unpaused branch of the frame loop, so anything already looping
+  // would otherwise hold its last level indefinitely. Resetting the remembered
+  // terrain means resuming on grass or in mud re-triggers that loop cleanly.
+  if (paused) {
+    stopEngine();
+    stopWobble();
+    stopGrass();
+    stopMud();
+    prevOnRoad = true;
+    prevInMud = false;
+  } else if (appState === "playing") {
+    startEngine();
+    startWobble();
+  }
   pauseIndicator.classList.toggle("hidden", !paused);
   hudTimer.classList.toggle("paused", paused);
   hudTimer.setAttribute("aria-pressed", String(paused));
@@ -1262,6 +1292,10 @@ let optimalGhost: GhostPlayer | null = null;
 let referenceCollectTicks: number[] | null = null;
 let active: Playable = viewed;
 let countdownElapsed = 0;
+let lastCountdownStep = -1;
+let prevOnRoad = true;
+let prevInMud = false;
+let prevVisitedCount = 0;
 const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
 
 // --- "Optimal" solver ghost (opt-in via ?optimal=true) ---------------------
@@ -1495,9 +1529,35 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+// Time played is banked once per session. Finishing a run is only one of the
+// ways one can be over: abandoning to the menu and restarting mid-run both
+// leave a session behind without ever reaching endRun(), and that time counts
+// just as much as a failed run's does. The flag keeps a run that ends and is
+// then left via the menu from being counted twice.
+let playTimeBanked = false;
+
+function bankPlayTime(): void {
+  if (!session || playTimeBanked) return;
+  addPlayTime(session.elapsed);
+  playTimeBanked = true;
+}
+
 function beginRun(playable: Playable): void {
+  // Bank the outgoing run before its session is replaced - restarting mid-run
+  // (Backspace, Retry, the menu's Restart) comes straight back through here.
+  bankPlayTime();
+  // Start from silence. Restarting mid-run re-enters here without passing
+  // through endRun() or goHome(), and the start* functions are no-ops when a
+  // node already exists - so without this the previous run's terrain loop would
+  // keep sounding, frozen at whatever level it held, for the whole new run.
+  stopAll();
   active = playable;
   session = new GameSession(playable.level, { difficulty: playable.difficulty });
+  playTimeBanked = false;
+  // Counts the day as played the moment a run starts, win or lose. Mirrors the
+  // guard on recordCompletion so the two stay comparable: daily maps only,
+  // never a shared orphan.
+  if (playable.level.kind === "daily" && !playable.orphan) recordPlayed(playable.seed);
   pbGhost =
     playable.personalBest && loadRacePbGhostPref()
       ? new GhostPlayer(playable.level, playable.personalBest, playable.difficulty)
@@ -1528,8 +1588,14 @@ function beginRun(playable: Playable): void {
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
+  lastCountdownStep = -1;
+  prevOnRoad = true;
+  prevInMud = false;
+  prevVisitedCount = 0;
   appState = "countdown";
   setPaused(false);
+  startEngine();
+  startAmbience(playable.level.theme);
   // Diagnostic run log: a run begins here (best-effort, ignores failures).
   void logRun(playable.seed, nickname, "started", 0);
   setMenuOpen(false);
@@ -1541,7 +1607,8 @@ function beginRun(playable: Playable): void {
 
 function endRun(): void {
   if (!session) return;
-  addPlayTime(session.elapsed);
+  stopAll();
+  bankPlayTime();
   appState = "ended";
   setPaused(false);
   // Diagnostic run log: record how the run ended and how many warehouses were
@@ -1571,6 +1638,7 @@ function endRun(): void {
     const champion = currentChampionTime();
     const medal = medalFor(session.elapsed, active.pars, champion);
     showMedal(medal, active.pars, champion);
+    if (medal) playMedalFanfare(medal);
 
     // Capture run details so the async leaderboard callback below can fold the
     // world rank into the share text without racing a later navigation/retry.
@@ -1676,6 +1744,13 @@ function endRun(): void {
 function goHome(): void {
   if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
   appState = "start";
+  // Abandoning a run mid-flight (Escape, or the menu's Home button) is a second
+  // exit path alongside endRun(), and it has to silence the run too - otherwise
+  // the engine, ambience and any terrain loop keep playing over the menu.
+  stopAll();
+  // Abandoning part-way through still counts as time played - bank it before
+  // the session it's measured from is dropped.
+  bankPlayTime();
   setPaused(false);
   setMenuOpen(false);
   session = null;
@@ -2148,8 +2223,12 @@ function formatPlayTime(totalSeconds: number): string {
 
 function renderLocalStats(): void {
   const completed = loadCompletedDays();
-  const sorted = [...completed].sort();
-  const daysPlayed = completed.size;
+  // Streaks are a completion concept - they're about finishing days in a row -
+  // but "days played" and "first day" are not, so those read from the played
+  // history, which counts a day whether or not the run was ever finished.
+  const played = loadPlayedDays();
+  const sorted = [...played].sort();
+  const daysPlayed = played.size;
   const streak = currentStreak(completed);
   const bestStreak = computeBestStreak(completed);
   const firstDay = sorted.length > 0 ? sorted[0]! : "—";
@@ -2249,11 +2328,45 @@ statsDiffHard.addEventListener("click", () => {
   void loadServerStats();
 });
 
+const MUTE_ICON = "\u{1F508}"; // 🔈 speaker with no waves
+const UNMUTE_ICON = "\u{1F50A}"; // 🔊 speaker with waves
+
+function updateMuteBtn(btn: HTMLButtonElement, muted: boolean): void {
+  btn.textContent = muted ? MUTE_ICON : UNMUTE_ICON;
+  btn.classList.toggle("muted", muted);
+  btn.title = muted ? "Unmute" : "Mute";
+}
+
+function syncSoundUi(): void {
+  const p = loadSoundPrefs();
+  soundGameSlider.value = String(p.game);
+  soundAmbientSlider.value = String(p.ambient);
+  soundEffectsSlider.value = String(p.effects);
+  soundGameVal.textContent = `${p.game}%`;
+  soundAmbientVal.textContent = `${p.ambient}%`;
+  soundEffectsVal.textContent = `${p.effects}%`;
+  updateMuteBtn(soundGameMute, p.gameMuted);
+  updateMuteBtn(soundAmbientMute, p.ambientMuted);
+  updateMuteBtn(soundEffectsMute, p.effectsMuted);
+  syncAudioState();
+}
+
+/** Reports whether the browser actually allowed the audio engine to start.
+ * "running" means sound is being produced and any silence is a mixer problem;
+ * "suspended" means the browser is still blocking it. Without this, the two
+ * are indistinguishable from the player's side. */
+function syncAudioState(): void {
+  const state = audioState();
+  soundState.textContent = state;
+  soundState.parentElement?.classList.toggle("blocked", state === "suspended");
+}
+
 function openProfile(): void {
   profileOpen = true;
   nicknameInput.value = nickname;
   updateSyncUi();
   renderLocalStats();
+  syncSoundUi();
   statsDifficulty = difficulty;
   updateStatsDifficultyUi();
   statsDiffSwitch.classList.remove("hidden");
@@ -2268,6 +2381,62 @@ profileBtn.addEventListener("click", openProfile);
 profileCloseBtn.addEventListener("click", closeProfile);
 profileScreen.addEventListener("click", (e) => {
   if (e.target === profileScreen) closeProfile();
+});
+
+// --- Sound settings wiring ---
+function applySoundPrefs(): void {
+  const p = loadSoundPrefs();
+  p.game = +soundGameSlider.value;
+  p.ambient = +soundAmbientSlider.value;
+  p.effects = +soundEffectsSlider.value;
+  soundGameVal.textContent = `${p.game}%`;
+  soundAmbientVal.textContent = `${p.ambient}%`;
+  soundEffectsVal.textContent = `${p.effects}%`;
+  saveSoundPrefs(p);
+  setSoundPrefs(p);
+}
+soundGameSlider.addEventListener("input", applySoundPrefs);
+soundAmbientSlider.addEventListener("input", applySoundPrefs);
+soundEffectsSlider.addEventListener("input", applySoundPrefs);
+
+function toggleMute(key: "gameMuted" | "ambientMuted" | "effectsMuted", btn: HTMLButtonElement): void {
+  const p = loadSoundPrefs();
+  p[key] = !p[key];
+  updateMuteBtn(btn, p[key]);
+  saveSoundPrefs(p);
+  setSoundPrefs(p);
+}
+soundGameMute.addEventListener("click", () => toggleMute("gameMuted", soundGameMute));
+soundAmbientMute.addEventListener("click", () => toggleMute("ambientMuted", soundAmbientMute));
+soundEffectsMute.addEventListener("click", () => toggleMute("effectsMuted", soundEffectsMute));
+
+// Load saved prefs at startup
+setSoundPrefs(loadSoundPrefs());
+
+// Mobile browsers refuse to start an AudioContext outside a user gesture, and
+// a context that first gets created outside one stays suspended for good - so
+// on a phone the game's first sound is silently discarded and nothing works
+// for the rest of the session. Unlock on the very first interaction of any
+// kind, then drop the listeners.
+// Listeners are capture-phase and cover every gesture type there is: the input
+// layer calls preventDefault() on touchstart, and buttons stop events of their
+// own, so a bubble-phase listener can be starved of the very gesture it needs.
+const UNLOCK_EVENTS = ["pointerdown", "touchstart", "touchend", "mousedown", "click", "keydown"] as const;
+function unlockOnFirstGesture(): void {
+  unlockAudio();
+  // Keep listening until the context genuinely reports "running". On some
+  // mobile browsers the first gesture creates the context but the resume only
+  // takes effect on a later one, and unhooking after a single attempt leaves
+  // the game silent for the rest of the session.
+  if (audioState() !== "running") return;
+  for (const ev of UNLOCK_EVENTS) window.removeEventListener(ev, unlockOnFirstGesture, true);
+}
+for (const ev of UNLOCK_EVENTS) window.addEventListener(ev, unlockOnFirstGesture, true);
+
+// Mobile suspends the context whenever the page goes to the background; coming
+// back needs an explicit resume or everything stays silent.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) resumeAudio();
 });
 
 syncGenerateBtn.addEventListener("click", async () => {
@@ -2461,7 +2630,13 @@ function frame(now: number): void {
       appState = "playing";
       accumulator = 0;
       countdownOverlay.classList.add("hidden");
+      startWobble();
     } else {
+      const stepIdx = Math.floor(countdownElapsed / COUNTDOWN_STEP_DURATION);
+      if (stepIdx !== lastCountdownStep) {
+        lastCountdownStep = stepIdx;
+        playCountdownTone(step === "GO");
+      }
       countdownText.textContent = step;
       renderScene(session, frameDt);
       hudTimer.textContent = formatTime(0);
@@ -2483,6 +2658,33 @@ function frame(now: number): void {
       }
     } else {
       accumulator = 0;
+    }
+    if (!paused) {
+      const topSpeed = session.difficulty === "easy" ? EASY_MAX_SPEED : BASE_MAX_SPEED;
+      const speed01 = session.truck.speed / topSpeed;
+      updateEngine(speed01);
+      updateWobble(session.stability);
+
+      const { onRoad, inMud } = session.lastTerrain;
+      const onGrass = !onRoad && !inMud;
+      const wasOnGrass = !prevOnRoad && !prevInMud;
+      if (onGrass && !wasOnGrass) startGrass();
+      if (onGrass) updateGrass(speed01);
+      if (!onGrass && wasOnGrass) stopGrass();
+
+      if (inMud && !prevInMud) startMud();
+      if (inMud) updateMud(speed01);
+      if (!inMud && prevInMud) stopMud();
+
+      prevOnRoad = onRoad;
+      prevInMud = inMud;
+
+      if (session.rockHitThisTick) playRockCrash();
+
+      if (session.visited.size > prevVisitedCount) {
+        playPickupChime();
+        prevVisitedCount = session.visited.size;
+      }
     }
     renderScene(session, paused ? 0 : frameDt);
 

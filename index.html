@@ -238,6 +238,29 @@
           <p id="sync-error" class="sync-error hidden"></p>
         </div>
         <hr class="section-divider" />
+        <div class="settings-section">
+          <div class="section-header">Sound</div>
+          <div class="sound-row">
+            <button type="button" class="sound-mute-btn" id="sound-game-mute" aria-label="Mute in-game sounds" title="Mute">&#128266;</button>
+            <span class="sound-label">In-game</span>
+            <input type="range" id="sound-game" min="0" max="100" value="50" />
+            <span class="sound-value" id="sound-game-val">50%</span>
+          </div>
+          <div class="sound-row">
+            <button type="button" class="sound-mute-btn" id="sound-ambient-mute" aria-label="Mute ambient sounds" title="Mute">&#128266;</button>
+            <span class="sound-label">Ambient</span>
+            <input type="range" id="sound-ambient" min="0" max="100" value="15" />
+            <span class="sound-value" id="sound-ambient-val">15%</span>
+          </div>
+          <div class="sound-row">
+            <button type="button" class="sound-mute-btn" id="sound-effects-mute" aria-label="Mute effect sounds" title="Mute">&#128266;</button>
+            <span class="sound-label">Effects</span>
+            <input type="range" id="sound-effects" min="0" max="100" value="80" />
+            <span class="sound-value" id="sound-effects-val">80%</span>
+          </div>
+          <p class="sound-status">Audio engine: <span id="sound-state">not created</span></p>
+        </div>
+        <hr class="section-divider" />
         <div id="stats-section" class="settings-section">
           <div class="section-header">Your stats</div>
           <div id="stats-local" class="stats-grid"></div>
