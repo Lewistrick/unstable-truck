@@ -37,7 +37,6 @@ import {
     clearSyncToken,
     computeBestStreak,
     getOrCreateNickname,
-    hasSeenTutorial,
     loadCompletedDays,
     loadDifficultyPref,
     loadPersonalBest,
@@ -47,7 +46,6 @@ import {
     loadRacePbGhostPref,
     loadSelectedLeaderboardGhost,
     loadSyncToken,
-    markTutorialSeen,
     pruneLeaderboardGhosts,
     pruneOldPersonalBests,
     recordAcquisitionSource,
@@ -191,8 +189,8 @@ let viewedOffset = 0;
 
 /** A brand-new player (nothing delivered yet, in either difficulty) defaults to
  * Easy; anyone who has finished at least one run defaults to Hard. Reuses the
- * same "hasPlayed" signal the nav arrows and the difficulty switch's own
- * reveal condition use, so the two stay in lockstep. */
+ * same "hasPlayed" signal the difficulty switch's own reveal condition uses, so
+ * the two stay in lockstep. */
 function defaultDifficulty(): Difficulty {
   return loadCompletedDays().size > 0 ? "hard" : "easy";
 }
@@ -933,13 +931,6 @@ async function refreshLeaderboard(): Promise<void> {
 // --- Period navigation (day or week) ----------------------------------
 
 function updateNavButtons(): void {
-  // Brand-new players (nothing delivered yet) get a decluttered home: hide the
-  // browse arrows until they've completed at least one map. Swiping the map
-  // thumbnail still navigates, so nothing is lost - only the extra chrome.
-  const hasPlayed = loadCompletedDays().size > 0;
-  navPrevBtn.classList.toggle("hidden", !hasPlayed);
-  navNextBtn.classList.toggle("hidden", !hasPlayed);
-
   // A shared orphan map isn't part of the browsable day/week timeline, so there's
   // nowhere to step to - use the Daily/Weekly toggle to return to a live period.
   if (viewed.orphan) {
@@ -1043,7 +1034,7 @@ function setDifficultyVisuals(): void {
 /** The Easy/Hard switch is daily-only (weekly has no Easy board) and, like the
  * Daily/Weekly switch, a progressive-disclosure unlock: it stays hidden until
  * the player has finished at least one run, in either difficulty - the same
- * "hasPlayed" signal used elsewhere (nav arrows, defaultDifficulty()). Before
+ * "hasPlayed" signal defaultDifficulty() uses. Before
  * that, a brand-new player just plays the (default-Easy) game with no toggle
  * to be confused by. */
 function updateDifficultySwitchVisibility(): void {
@@ -1975,13 +1966,12 @@ function startTutorial(): void {
   refreshTutorialOverlay();
 }
 
-/** Leaves the tutorial (completed or skipped) back to the start screen, marking
- * it seen so it won't auto-open again. `reason` is logged as free-form context
- * (e.g. how the player left: finished, skipped, escape). */
+/** Leaves the tutorial (completed or skipped) back to the start screen.
+ * `reason` is logged as free-form context (e.g. how the player left: finished,
+ * skipped, escape). */
 function endTutorial(reason = "closed"): void {
   if (appState !== "tutorial") return;
   void logRun(viewed.seed, nickname, "tutorial_ended", 0, reason);
-  markTutorialSeen();
   tutorial = null;
   appState = "start";
   tutorialOverlay.classList.add("hidden");
@@ -2880,8 +2870,3 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-
-// First-time visitors (no session yet) are dropped straight into the guided
-// tutorial; it's also always reachable from the Tutorial button. Completing or
-// skipping it marks it seen so it won't auto-open again.
-if (!hasSeenTutorial()) startTutorial();

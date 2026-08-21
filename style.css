@@ -134,12 +134,6 @@ body {
   cursor: default;
 }
 
-/* Element-specific override: .nav-arrow sets display:flex, which would beat the
-   shared .hidden rule on source order alone. Hidden for brand-new players. */
-.nav-arrow.hidden {
-  display: none;
-}
-
 /* The map thumbnail is a mini carousel: a fixed-size viewport that clips a
    wider track of three side-by-side maps (previous / current / next). Only the
    middle one shows at rest; dragging slides the track so the neighbour peeks in,
