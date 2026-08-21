@@ -61,6 +61,43 @@
     #more:hover { background: #232b36; }
     #more[disabled] { opacity: 0.5; cursor: default; }
     #status { color: #8a94a3; margin-top: 12px; }
+    #filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    #filters label {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 0.85rem;
+      color: #8a94a3;
+    }
+    #filters input {
+      padding: 5px 8px;
+      font: inherit;
+      font-size: 0.85rem;
+      color: #d6dbe2;
+      background: #10141a;
+      border: 1px solid #2c3542;
+      border-radius: 6px;
+      min-width: 170px;
+    }
+    #filter-clear {
+      padding: 5px 10px;
+      font: inherit;
+      font-size: 0.85rem;
+      color: #d6dbe2;
+      background: #1c222b;
+      border: 1px solid #2c3542;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #filter-clear:hover { background: #232b36; }
+    td.player { cursor: pointer; }
+    td.player:hover { text-decoration: underline; }
   </style>
 </head>
 
@@ -69,6 +106,15 @@
     <h1>Event log — newest first</h1>
     <a class="back-btn" href=".">← Back to game</a>
   </header>
+  <div id="filters">
+    <label>Include player
+      <input type="text" id="filter-include" placeholder="e.g. Racer, Stranger" autocomplete="off" />
+    </label>
+    <label>Exclude player
+      <input type="text" id="filter-exclude" placeholder="e.g. Lewistrick" autocomplete="off" />
+    </label>
+    <button id="filter-clear" type="button">Clear</button>
+  </div>
   <table>
     <thead>
       <tr>
@@ -92,6 +138,14 @@
     const rowsEl = document.getElementById("rows");
     const moreBtn = document.getElementById("more");
     const statusEl = document.getElementById("status");
+    const includeEl = document.getElementById("filter-include");
+    const excludeEl = document.getElementById("filter-exclude");
+    const clearBtn = document.getElementById("filter-clear");
+    const FILTER_KEY = "unstable-truck:log-filter";
+    // Every row fetched so far. Filtering happens over this rather than over the
+    // DOM, so changing a filter re-renders from data instead of hunting for
+    // rows to unhide.
+    const allRows = [];
     let offset = 0;
     let loading = false;
 
@@ -102,6 +156,81 @@
       return td;
     }
 
+    /** Comma-separated, case-insensitive substring terms. "Racer, Strange"
+     *  matches both Racer1234 and Stranger2. */
+    function terms(input) {
+      return input.value.toLowerCase().split(",").map((t) => t.trim()).filter(Boolean);
+    }
+
+    function visible(row) {
+      const player = row.nickname.toLowerCase();
+      const inc = terms(includeEl);
+      const exc = terms(excludeEl);
+      // Exclude wins: it's the one you reach for to hide your own testing, and
+      // it should hold even if a broad include would otherwise match.
+      if (exc.some((t) => player.includes(t))) return false;
+      return inc.length === 0 || inc.some((t) => player.includes(t));
+    }
+
+    function render() {
+      rowsEl.textContent = "";
+      let shown = 0;
+      for (const r of allRows) {
+        if (!visible(r)) continue;
+        shown++;
+        const tr = document.createElement("tr");
+        const when = new Date(r.createdAt);
+        tr.appendChild(cell(isNaN(when) ? r.createdAt : when.toLocaleString()));
+        const isRun = RUN_OUTCOMES.has(r.status);
+        const player = cell(r.nickname, "player");
+        // Click a name to isolate that player; click again to clear.
+        player.title = "Click to filter to this player";
+        player.addEventListener("click", () => {
+          includeEl.value = includeEl.value === r.nickname ? "" : r.nickname;
+          onFilterChange();
+        });
+        tr.appendChild(player);
+        tr.appendChild(cell(r.seed, "seed"));
+        tr.appendChild(cell(r.status, isRun ? "s-" + r.status : "s-meta"));
+        tr.appendChild(cell(isRun ? String(r.collected) : ""));
+        tr.appendChild(cell(r.comment ?? "", "comment"));
+        rowsEl.appendChild(tr);
+      }
+      if (allRows.length === 0) {
+        statusEl.textContent = "No runs logged yet.";
+      } else if (shown === allRows.length) {
+        statusEl.textContent = `${allRows.length} row(s) loaded`;
+      } else {
+        // Filtering only sees what's been fetched, so say so - otherwise an
+        // empty-looking result reads as "no such player" when it may just be
+        // further down the log.
+        statusEl.textContent = `${shown} of ${allRows.length} loaded row(s) shown — filters apply to loaded rows only`;
+      }
+    }
+
+    function onFilterChange() {
+      localStorage.setItem(FILTER_KEY, JSON.stringify({ inc: includeEl.value, exc: excludeEl.value }));
+      render();
+    }
+
+    // Filters persist: the usual reason to set one is to hide your own testing,
+    // and retyping that on every visit would get old fast.
+    try {
+      const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
+      includeEl.value = saved.inc || "";
+      excludeEl.value = saved.exc || "";
+    } catch {
+      /* ignore a corrupt entry and start with empty filters */
+    }
+
+    includeEl.addEventListener("input", onFilterChange);
+    excludeEl.addEventListener("input", onFilterChange);
+    clearBtn.addEventListener("click", () => {
+      includeEl.value = "";
+      excludeEl.value = "";
+      onFilterChange();
+    });
+
     async function loadMore() {
       if (loading) return;
       loading = true;
@@ -111,23 +240,11 @@
         const res = await fetch(`api/runs?limit=${PAGE}&offset=${offset}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = await res.json();
-        for (const r of rows) {
-          const tr = document.createElement("tr");
-          const when = new Date(r.createdAt);
-          tr.appendChild(cell(isNaN(when) ? r.createdAt : when.toLocaleString()));
-          const isRun = RUN_OUTCOMES.has(r.status);
-          tr.appendChild(cell(r.nickname, "player"));
-          tr.appendChild(cell(r.seed, "seed"));
-          tr.appendChild(cell(r.status, isRun ? "s-" + r.status : "s-meta"));
-          tr.appendChild(cell(isRun ? String(r.collected) : ""));
-          tr.appendChild(cell(r.comment ?? "", "comment"));
-          rowsEl.appendChild(tr);
-        }
+        allRows.push(...rows);
         offset += rows.length;
-        statusEl.textContent = `${offset} row(s) loaded`;
+        render();
         if (rows.length < PAGE) {
           moreBtn.remove();
-          if (offset === 0) statusEl.textContent = "No runs logged yet.";
         } else {
           moreBtn.disabled = false;
           moreBtn.textContent = "Show 100 more";

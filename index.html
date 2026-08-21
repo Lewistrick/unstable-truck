@@ -212,6 +212,7 @@
           <div class="section-header">Nickname</div>
           <div id="nickname-row">
             <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
+            <button id="nickname-settings-save" class="btn-secondary" type="button">Save</button>
           </div>
         </div>
         <hr class="section-divider" />
@@ -236,6 +237,28 @@
             <button id="sync-unlink-btn" class="btn-secondary sync-unlink" type="button">Unlink</button>
           </div>
           <p id="sync-error" class="sync-error hidden"></p>
+        </div>
+        <hr class="section-divider" />
+        <div class="settings-section">
+          <div class="section-header">Sound</div>
+          <div class="sound-row">
+            <button type="button" class="sound-mute-btn" id="sound-game-mute" aria-label="Mute in-game sounds" title="Mute">&#128266;</button>
+            <span class="sound-label">In-game</span>
+            <input type="range" id="sound-game" min="0" max="100" value="50" />
+            <span class="sound-value" id="sound-game-val">50%</span>
+          </div>
+          <div class="sound-row">
+            <button type="button" class="sound-mute-btn" id="sound-ambient-mute" aria-label="Mute ambient sounds" title="Mute">&#128266;</button>
+            <span class="sound-label">Ambient</span>
+            <input type="range" id="sound-ambient" min="0" max="100" value="15" />
+            <span class="sound-value" id="sound-ambient-val">15%</span>
+          </div>
+          <div class="sound-row">
+            <button type="button" class="sound-mute-btn" id="sound-effects-mute" aria-label="Mute effect sounds" title="Mute">&#128266;</button>
+            <span class="sound-label">Effects</span>
+            <input type="range" id="sound-effects" min="0" max="100" value="80" />
+            <span class="sound-value" id="sound-effects-val">80%</span>
+          </div>
         </div>
         <hr class="section-divider" />
         <div id="stats-section" class="settings-section">
@@ -265,6 +288,18 @@
           <button id="home-btn" class="btn-secondary">Home</button>
         </div>
         <p class="muted" id="retry-hint">Enter to retry &middot; Esc for home</p>
+      </div>
+    </div>
+
+    <div id="nickname-screen" class="screen hidden">
+      <div class="panel">
+        <h1 id="nickname-prompt-title">How do you want to show up in the leaderboard?</h1>
+        <input type="text" id="nickname-prompt-input" maxlength="16" autocomplete="off" />
+        <div id="nickname-prompt-actions">
+          <button id="nickname-prompt-save" type="button">Save</button>
+          <button id="nickname-prompt-cancel" class="btn-secondary" type="button">Cancel</button>
+        </div>
+        <p class="muted" id="nickname-prompt-hint">Cancel keeps this run off the leaderboard.</p>
       </div>
     </div>
   </div>

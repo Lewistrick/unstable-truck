@@ -220,10 +220,24 @@ export async function logRun(params: {
   ]);
 }
 
-/** Deletes run_logs rows older than 7 days. Best-effort retention so the log
- * doesn't grow unbounded; returns how many rows were removed. */
+/** Deletes run_logs rows older than the retention window. Best-effort, so the
+ * log doesn't grow unbounded; returns how many rows were removed.
+ *
+ * 90 days rather than the week this started as: the log is no longer only a
+ * debugging aid, it's the source for acquisition and retention analysis. Both
+ * a player's arrival and their return have to sit inside the window to be
+ * counted as a return at all, so a short one silently under-reports exactly
+ * the number that matters most - and makes the ?src= attribution on
+ * game_started useless for anyone who comes back more than a week later. */
+const RUN_LOG_RETENTION_DAYS = 90;
+
 export async function pruneOldRunLogs(): Promise<number> {
-  const result = await pool.query(`DELETE FROM run_logs WHERE created_at < now() - INTERVAL '7 days'`);
+  // Interpolated rather than bound: a bound parameter would have to be cast
+  // into an interval, and INTERVAL wants a literal. Safe here because the value
+  // is a numeric constant in this file, never anything user-supplied.
+  const result = await pool.query(
+    `DELETE FROM run_logs WHERE created_at < now() - INTERVAL '${RUN_LOG_RETENTION_DAYS} days'`,
+  );
   return result.rowCount ?? 0;
 }
 

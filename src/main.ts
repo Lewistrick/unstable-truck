@@ -15,7 +15,7 @@ import {
     type PlayerStatsResponse,
     type RemoteRecording,
 } from "./game/api.js";
-import { countdownLabel } from "./game/countdown.js";
+import { COUNTDOWN_STEP_DURATION, countdownLabel } from "./game/countdown.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
 import { createInput } from "./game/input.js";
 import { optimalRowIndex } from "./game/leaderboard-order.js";
@@ -41,6 +41,8 @@ import {
     loadCompletedDays,
     loadDifficultyPref,
     loadPersonalBest,
+    loadAcquisitionSource,
+    loadPlayedDays,
     loadPlayTime,
     loadRacePbGhostPref,
     loadSelectedLeaderboardGhost,
@@ -48,13 +50,20 @@ import {
     markTutorialSeen,
     pruneLeaderboardGhosts,
     pruneOldPersonalBests,
+    recordAcquisitionSource,
     recordCompletion,
+    recordPlayed,
     saveDifficultyPref,
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
     saveSyncToken,
+    hasChosenNickname,
+    isDefaultNickname,
+    markNicknameChosen,
     setNickname,
+    loadSoundPrefs,
+    saveSoundPrefs,
 } from "./game/storage.js";
 import { Tutorial } from "./game/tutorial.js";
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
@@ -62,7 +71,8 @@ import { resolveSeedTarget } from "./level/seed-target.js";
 import { getTheme } from "./level/themes.js";
 import type { Level } from "./level/types.js";
 import { FIXED_DT } from "./physics/constants.js";
-import type { TruckState } from "./physics/truck.js";
+import { BASE_MAX_SPEED, EASY_MAX_SPEED, type TruckState } from "./physics/truck.js";
+import { audioState, playCountdownTone, playMedalFanfare, playPickupChime, playRockCrash, resumeAudio, setSoundPrefs, startAmbience, startEngine, startGrass, startMud, startWobble, stopAll, stopEngine, stopGrass, stopMud, stopWobble, unlockAudio, updateEngine, updateGrass, updateMud, updateWobble } from "./game/audio.js";
 
 type Mode = "daily" | "weekly";
 
@@ -236,6 +246,15 @@ const statsServerError = document.getElementById("stats-server-error")!;
 const statsDiffSwitch = document.getElementById("stats-difficulty-switch")!;
 const statsDiffEasy = document.getElementById("stats-diff-easy") as HTMLButtonElement;
 const statsDiffHard = document.getElementById("stats-diff-hard") as HTMLButtonElement;
+const soundGameSlider = document.getElementById("sound-game") as HTMLInputElement;
+const soundAmbientSlider = document.getElementById("sound-ambient") as HTMLInputElement;
+const soundEffectsSlider = document.getElementById("sound-effects") as HTMLInputElement;
+const soundGameVal = document.getElementById("sound-game-val")!;
+const soundAmbientVal = document.getElementById("sound-ambient-val")!;
+const soundEffectsVal = document.getElementById("sound-effects-val")!;
+const soundGameMute = document.getElementById("sound-game-mute") as HTMLButtonElement;
+const soundAmbientMute = document.getElementById("sound-ambient-mute") as HTMLButtonElement;
+const soundEffectsMute = document.getElementById("sound-effects-mute") as HTMLButtonElement;
 const tutorialBtn = document.getElementById("tutorial-btn") as HTMLButtonElement;
 const howToBtn = document.getElementById("howto-btn") as HTMLButtonElement;
 const tutorialOverlay = document.getElementById("tutorial-overlay")!;
@@ -285,6 +304,11 @@ const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
+const nicknameSettingsSave = document.getElementById("nickname-settings-save") as HTMLButtonElement;
+const nicknameScreen = document.getElementById("nickname-screen")!;
+const nicknamePromptInput = document.getElementById("nickname-prompt-input") as HTMLInputElement;
+const nicknamePromptSave = document.getElementById("nickname-prompt-save") as HTMLButtonElement;
+const nicknamePromptCancel = document.getElementById("nickname-prompt-cancel") as HTMLButtonElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
 const streakBadge = document.getElementById("streak-badge")!;
@@ -301,9 +325,14 @@ const medalTrack = document.getElementById("medal-track")!;
 
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
-nicknameInput.addEventListener("change", () => {
+
+/** Persists a new nickname from wherever it was entered (the settings field or
+ * the post-run prompt) and brings the rest of the UI into line. setNickname()
+ * ignores blank input, so re-reading the stored value is what keeps the field
+ * showing the name that actually took effect. */
+function applyNickname(next: string): void {
   const oldNickname = nickname;
-  setNickname(nicknameInput.value);
+  setNickname(next);
   nickname = getOrCreateNickname();
   nicknameInput.value = nickname;
   renderLeaderboardList();
@@ -311,10 +340,51 @@ nicknameInput.addEventListener("change", () => {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
     if (loadSyncToken()) void doSync();
   }
+}
+
+nicknameInput.addEventListener("change", () => applyNickname(nicknameInput.value));
+
+// Explicit save alongside the field's own change handler. The handler already
+// persists on blur, so this is about affordance and confirmation - and saving
+// here counts as choosing a name, which retires the post-run prompt.
+nicknameSettingsSave.addEventListener("click", () => {
+  applyNickname(nicknameInput.value);
+  markNicknameChosen();
+  nicknameSettingsSave.textContent = "Saved!";
+  window.setTimeout(() => {
+    nicknameSettingsSave.textContent = "Save";
+  }, 1400);
 });
 
+/** Works out where this visit came from, for acquisition tracking.
+ *
+ * An explicit `?src=` tag wins, so put one on every link you post
+ * (`?src=reddit-webgames`, `?src=itch`) - it survives the many places that
+ * strip referrers, and it distinguishes two posts to the same site. Otherwise
+ * fall back to the referring hostname. Anything unattributable is "direct",
+ * which covers bookmarks, typed URLs, and most links opened from mobile apps.
+ *
+ * The value reaches the database, so it's length-capped and restricted to
+ * harmless characters rather than trusted - `?src=` is attacker-controllable
+ * like any query string. */
+function detectSource(): string {
+  const tagged = new URLSearchParams(location.search).get("src");
+  if (tagged) return tagged.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40) || "direct";
+  if (!document.referrer) return "direct";
+  try {
+    const host = new URL(document.referrer).hostname.replace(/^www\./, "");
+    return host === location.hostname ? "direct" : host.slice(0, 40);
+  } catch {
+    return "unknown";
+  }
+}
+
 function logGameStarted(): void {
-  void logRun(todaysSeed, nickname, "game_started", 0);
+  // Captured on the first visit and replayed on every later one, so a return
+  // visit weeks afterwards still reports the channel that originally won the
+  // player - which is the whole point of tracking it.
+  recordAcquisitionSource(detectSource());
+  void logRun(todaysSeed, nickname, "game_started", 0, `src:${loadAcquisitionSource() ?? "direct"}`);
 }
 
 if (document.readyState === "loading") {
@@ -1216,6 +1286,21 @@ let paused = false;
  * (which doubles as the pause control) and the top "Paused" banner. */
 function setPaused(next: boolean): void {
   paused = next;
+  // Freezing the game has to freeze its sound too. The per-frame audio updates
+  // live in the unpaused branch of the frame loop, so anything already looping
+  // would otherwise hold its last level indefinitely. Resetting the remembered
+  // terrain means resuming on grass or in mud re-triggers that loop cleanly.
+  if (paused) {
+    stopEngine();
+    stopWobble();
+    stopGrass();
+    stopMud();
+    prevOnRoad = true;
+    prevInMud = false;
+  } else if (appState === "playing") {
+    startEngine();
+    startWobble();
+  }
   pauseIndicator.classList.toggle("hidden", !paused);
   hudTimer.classList.toggle("paused", paused);
   hudTimer.setAttribute("aria-pressed", String(paused));
@@ -1262,6 +1347,10 @@ let optimalGhost: GhostPlayer | null = null;
 let referenceCollectTicks: number[] | null = null;
 let active: Playable = viewed;
 let countdownElapsed = 0;
+let lastCountdownStep = -1;
+let prevOnRoad = true;
+let prevInMud = false;
+let prevVisitedCount = 0;
 const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 };
 
 // --- "Optimal" solver ghost (opt-in via ?optimal=true) ---------------------
@@ -1495,9 +1584,35 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+// Time played is banked once per session. Finishing a run is only one of the
+// ways one can be over: abandoning to the menu and restarting mid-run both
+// leave a session behind without ever reaching endRun(), and that time counts
+// just as much as a failed run's does. The flag keeps a run that ends and is
+// then left via the menu from being counted twice.
+let playTimeBanked = false;
+
+function bankPlayTime(): void {
+  if (!session || playTimeBanked) return;
+  addPlayTime(session.elapsed);
+  playTimeBanked = true;
+}
+
 function beginRun(playable: Playable): void {
+  // Bank the outgoing run before its session is replaced - restarting mid-run
+  // (Backspace, Retry, the menu's Restart) comes straight back through here.
+  bankPlayTime();
+  // Start from silence. Restarting mid-run re-enters here without passing
+  // through endRun() or goHome(), and the start* functions are no-ops when a
+  // node already exists - so without this the previous run's terrain loop would
+  // keep sounding, frozen at whatever level it held, for the whole new run.
+  stopAll();
   active = playable;
   session = new GameSession(playable.level, { difficulty: playable.difficulty });
+  playTimeBanked = false;
+  // Counts the day as played the moment a run starts, win or lose. Mirrors the
+  // guard on recordCompletion so the two stay comparable: daily maps only,
+  // never a shared orphan.
+  if (playable.level.kind === "daily" && !playable.orphan) recordPlayed(playable.seed);
   pbGhost =
     playable.personalBest && loadRacePbGhostPref()
       ? new GhostPlayer(playable.level, playable.personalBest, playable.difficulty)
@@ -1528,20 +1643,75 @@ function beginRun(playable: Playable): void {
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
   countdownElapsed = 0;
+  lastCountdownStep = -1;
+  prevOnRoad = true;
+  prevInMud = false;
+  prevVisitedCount = 0;
   appState = "countdown";
   setPaused(false);
+  startEngine();
+  startAmbience(playable.level.theme);
   // Diagnostic run log: a run begins here (best-effort, ignores failures).
   void logRun(playable.seed, nickname, "started", 0);
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
+  // Leaving the results behind also drops the name prompt and anything it
+  // was holding, so a queued submission can never outlive its run.
+  nicknameScreen.classList.add("hidden");
+  pendingScoreSubmit = null;
   hud.classList.remove("hidden");
   countdownOverlay.classList.remove("hidden");
 }
 
+// The finished run's leaderboard submission, held back while the player is
+// asked what name to use. Saving runs it under the chosen name; cancelling
+// drops it, keeping that run off the board entirely.
+let pendingScoreSubmit: (() => void) | null = null;
+
+/** Asks a player still carrying an auto-generated "Racer1234" name how they
+ * want to appear, in place of the results screen rather than on top of it. */
+function openNicknamePrompt(submit: () => void): void {
+  pendingScoreSubmit = submit;
+  nicknamePromptInput.value = nickname;
+  nicknameScreen.classList.remove("hidden");
+  nicknamePromptInput.focus();
+  nicknamePromptInput.select();
+}
+
+/** Dismisses the prompt and hands the player on to the results they'd normally
+ * have seen straight away. */
+function closeNicknamePrompt(): void {
+  nicknameScreen.classList.add("hidden");
+  resultsScreen.classList.remove("hidden");
+}
+
+nicknamePromptSave.addEventListener("click", () => {
+  applyNickname(nicknamePromptInput.value);
+  // Marked chosen even if the name is unchanged - they were asked and answered.
+  markNicknameChosen();
+  const submit = pendingScoreSubmit;
+  pendingScoreSubmit = null;
+  closeNicknamePrompt();
+  // Submitted after applyNickname() so the run lands under the new name.
+  submit?.();
+});
+
+nicknamePromptCancel.addEventListener("click", () => {
+  // Neither submits nor marks the name as chosen: this run stays off the
+  // leaderboard, and the question comes back after the next finished run.
+  pendingScoreSubmit = null;
+  closeNicknamePrompt();
+});
+
+nicknamePromptInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") nicknamePromptSave.click();
+});
+
 function endRun(): void {
   if (!session) return;
-  addPlayTime(session.elapsed);
+  stopAll();
+  bankPlayTime();
   appState = "ended";
   setPaused(false);
   // Diagnostic run log: record how the run ended and how many warehouses were
@@ -1557,7 +1727,12 @@ function endRun(): void {
       : `survived ${formatTime(session.elapsed)}`;
   void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote);
   hud.classList.add("hidden");
-  resultsScreen.classList.remove("hidden");
+  // Revealing the results is deferred to the end of this function: a player who
+  // still has an auto-generated name is asked what to call themselves first,
+  // and the results wait behind that.
+  // Set by the success branch below, then either run or discarded once that
+  // question is settled.
+  let submitRun: (() => void) | null = null;
   // The Easy/Hard split only exists on daily maps, so only label results there
   // (weekly is unambiguously Hard).
   const diffSuffix = active.level.kind === "daily" ? ` · ${active.difficulty === "easy" ? "Easy" : "Hard"}` : "";
@@ -1571,6 +1746,7 @@ function endRun(): void {
     const champion = currentChampionTime();
     const medal = medalFor(session.elapsed, active.pars, champion);
     showMedal(medal, active.pars, champion);
+    if (medal) playMedalFanfare(medal);
 
     // Capture run details so the async leaderboard callback below can fold the
     // world rank into the share text without racing a later navigation/retry.
@@ -1626,28 +1802,31 @@ function endRun(): void {
       const championCandidate = championTime(active.pars.gold, recording.time);
       const isCurrentPeriod =
         active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
-      submitScore(
-        submittedSeed,
-        nickname,
-        submittedDifficulty,
-        recording.time,
-        recording.stability,
-        recording.inputLog,
-        championCandidate,
-        isCurrentPeriod,
-        medal,
-      ).then(async () => {
-        if (submittedSeed === viewed.seed && submittedDifficulty === viewed.difficulty) {
-          await refreshLeaderboard();
-          // The board now reflects this run, so the player's world rank is
-          // final - fold it into the share text (a no-op if they're unranked).
-          lastShareText = buildShareText(sharePlayable, shareTime, medal, myWorldRank());
-        }
-        // A new record today can lower the champion threshold; refresh the strip
-        // so the day's dot recolours (the player may gain or lose champion) -
-        // only while the strip is still showing that same difficulty.
-        if (active.level.kind === "daily" && submittedDifficulty === difficulty) void refreshStripChampionTimes();
-      });
+      // Deferred rather than called: `nickname` is read when this runs, so a
+      // name chosen at the prompt is the one the run is submitted under.
+      submitRun = () =>
+        void submitScore(
+          submittedSeed,
+          nickname,
+          submittedDifficulty,
+          recording.time,
+          recording.stability,
+          recording.inputLog,
+          championCandidate,
+          isCurrentPeriod,
+          medal,
+        ).then(async () => {
+          if (submittedSeed === viewed.seed && submittedDifficulty === viewed.difficulty) {
+            await refreshLeaderboard();
+            // The board now reflects this run, so the player's world rank is
+            // final - fold it into the share text (a no-op if they're unranked).
+            lastShareText = buildShareText(sharePlayable, shareTime, medal, myWorldRank());
+          }
+          // A new record today can lower the champion threshold; refresh the strip
+          // so the day's dot recolours (the player may gain or lose champion) -
+          // only while the strip is still showing that same difficulty.
+          if (active.level.kind === "daily" && submittedDifficulty === difficulty) void refreshStripChampionTimes();
+        });
     }
   } else if (session.failReason === "outOfBounds") {
     // Easy ignores both failure reasons (see GameSession.update), so reaching
@@ -1669,6 +1848,17 @@ function endRun(): void {
     shareBtn.classList.add("hidden");
     lastShareText = null;
   }
+
+  // A run worth putting on the leaderboard, by someone who has never been asked
+  // what to call themselves, is the one moment where the question is actually
+  // worth interrupting for. `submitRun` being set already implies a successful,
+  // non-orphan run, so there's nothing to ask about otherwise.
+  if (submitRun && !hasChosenNickname() && isDefaultNickname(nickname)) {
+    openNicknamePrompt(submitRun);
+  } else {
+    submitRun?.();
+    resultsScreen.classList.remove("hidden");
+  }
 }
 
 /** Leaves a run, countdown, or the results screen (no result is recorded if
@@ -1676,6 +1866,13 @@ function endRun(): void {
 function goHome(): void {
   if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
   appState = "start";
+  // Abandoning a run mid-flight (Escape, or the menu's Home button) is a second
+  // exit path alongside endRun(), and it has to silence the run too - otherwise
+  // the engine, ambience and any terrain loop keep playing over the menu.
+  stopAll();
+  // Abandoning part-way through still counts as time played - bank it before
+  // the session it's measured from is dropped.
+  bankPlayTime();
   setPaused(false);
   setMenuOpen(false);
   session = null;
@@ -1685,6 +1882,10 @@ function goHome(): void {
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
+  // Leaving the results behind also drops the name prompt and anything it
+  // was holding, so a queued submission can never outlive its run.
+  nicknameScreen.classList.add("hidden");
+  pendingScoreSubmit = null;
   startScreen.classList.remove("hidden");
   // A just-finished first delivery flips "has played", which reveals the browse
   // arrows and the Easy/Hard switch - re-evaluate both now that we're back on
@@ -1764,6 +1965,10 @@ function startTutorial(): void {
 
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
+  // Leaving the results behind also drops the name prompt and anything it
+  // was holding, so a queued submission can never outlive its run.
+  nicknameScreen.classList.add("hidden");
+  pendingScoreSubmit = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   tutorialOverlay.classList.remove("hidden");
@@ -2148,8 +2353,12 @@ function formatPlayTime(totalSeconds: number): string {
 
 function renderLocalStats(): void {
   const completed = loadCompletedDays();
-  const sorted = [...completed].sort();
-  const daysPlayed = completed.size;
+  // Streaks are a completion concept - they're about finishing days in a row -
+  // but "days played" and "first day" are not, so those read from the played
+  // history, which counts a day whether or not the run was ever finished.
+  const played = loadPlayedDays();
+  const sorted = [...played].sort();
+  const daysPlayed = played.size;
   const streak = currentStreak(completed);
   const bestStreak = computeBestStreak(completed);
   const firstDay = sorted.length > 0 ? sorted[0]! : "—";
@@ -2249,11 +2458,34 @@ statsDiffHard.addEventListener("click", () => {
   void loadServerStats();
 });
 
+const MUTE_ICON = "\u{1F508}"; // 🔈 speaker with no waves
+const UNMUTE_ICON = "\u{1F50A}"; // 🔊 speaker with waves
+
+function updateMuteBtn(btn: HTMLButtonElement, muted: boolean): void {
+  btn.textContent = muted ? MUTE_ICON : UNMUTE_ICON;
+  btn.classList.toggle("muted", muted);
+  btn.title = muted ? "Unmute" : "Mute";
+}
+
+function syncSoundUi(): void {
+  const p = loadSoundPrefs();
+  soundGameSlider.value = String(p.game);
+  soundAmbientSlider.value = String(p.ambient);
+  soundEffectsSlider.value = String(p.effects);
+  soundGameVal.textContent = `${p.game}%`;
+  soundAmbientVal.textContent = `${p.ambient}%`;
+  soundEffectsVal.textContent = `${p.effects}%`;
+  updateMuteBtn(soundGameMute, p.gameMuted);
+  updateMuteBtn(soundAmbientMute, p.ambientMuted);
+  updateMuteBtn(soundEffectsMute, p.effectsMuted);
+}
+
 function openProfile(): void {
   profileOpen = true;
   nicknameInput.value = nickname;
   updateSyncUi();
   renderLocalStats();
+  syncSoundUi();
   statsDifficulty = difficulty;
   updateStatsDifficultyUi();
   statsDiffSwitch.classList.remove("hidden");
@@ -2268,6 +2500,62 @@ profileBtn.addEventListener("click", openProfile);
 profileCloseBtn.addEventListener("click", closeProfile);
 profileScreen.addEventListener("click", (e) => {
   if (e.target === profileScreen) closeProfile();
+});
+
+// --- Sound settings wiring ---
+function applySoundPrefs(): void {
+  const p = loadSoundPrefs();
+  p.game = +soundGameSlider.value;
+  p.ambient = +soundAmbientSlider.value;
+  p.effects = +soundEffectsSlider.value;
+  soundGameVal.textContent = `${p.game}%`;
+  soundAmbientVal.textContent = `${p.ambient}%`;
+  soundEffectsVal.textContent = `${p.effects}%`;
+  saveSoundPrefs(p);
+  setSoundPrefs(p);
+}
+soundGameSlider.addEventListener("input", applySoundPrefs);
+soundAmbientSlider.addEventListener("input", applySoundPrefs);
+soundEffectsSlider.addEventListener("input", applySoundPrefs);
+
+function toggleMute(key: "gameMuted" | "ambientMuted" | "effectsMuted", btn: HTMLButtonElement): void {
+  const p = loadSoundPrefs();
+  p[key] = !p[key];
+  updateMuteBtn(btn, p[key]);
+  saveSoundPrefs(p);
+  setSoundPrefs(p);
+}
+soundGameMute.addEventListener("click", () => toggleMute("gameMuted", soundGameMute));
+soundAmbientMute.addEventListener("click", () => toggleMute("ambientMuted", soundAmbientMute));
+soundEffectsMute.addEventListener("click", () => toggleMute("effectsMuted", soundEffectsMute));
+
+// Load saved prefs at startup
+setSoundPrefs(loadSoundPrefs());
+
+// Mobile browsers refuse to start an AudioContext outside a user gesture, and
+// a context that first gets created outside one stays suspended for good - so
+// on a phone the game's first sound is silently discarded and nothing works
+// for the rest of the session. Unlock on the very first interaction of any
+// kind, then drop the listeners.
+// Listeners are capture-phase and cover every gesture type there is: the input
+// layer calls preventDefault() on touchstart, and buttons stop events of their
+// own, so a bubble-phase listener can be starved of the very gesture it needs.
+const UNLOCK_EVENTS = ["pointerdown", "touchstart", "touchend", "mousedown", "click", "keydown"] as const;
+function unlockOnFirstGesture(): void {
+  unlockAudio();
+  // Keep listening until the context genuinely reports "running". On some
+  // mobile browsers the first gesture creates the context but the resume only
+  // takes effect on a later one, and unhooking after a single attempt leaves
+  // the game silent for the rest of the session.
+  if (audioState() !== "running") return;
+  for (const ev of UNLOCK_EVENTS) window.removeEventListener(ev, unlockOnFirstGesture, true);
+}
+for (const ev of UNLOCK_EVENTS) window.addEventListener(ev, unlockOnFirstGesture, true);
+
+// Mobile suspends the context whenever the page goes to the background; coming
+// back needs an explicit resume or everything stays silent.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) resumeAudio();
 });
 
 syncGenerateBtn.addEventListener("click", async () => {
@@ -2350,6 +2638,13 @@ minimapCanvas.addEventListener("keydown", (e) => {
 playBtn.addEventListener("click", () => beginRun(viewed));
 
 window.addEventListener("keydown", (e) => {
+  // The leaderboard-name prompt is modal: Enter saves (handled on the field
+  // itself) and Escape cancels, while the run controls behind it stay inert -
+  // otherwise Enter would save the name and immediately restart the run.
+  if (!nicknameScreen.classList.contains("hidden")) {
+    if (e.key === "Escape") nicknamePromptCancel.click();
+    return;
+  }
   // While the help overlay is up it captures Escape (to close itself) and
   // swallows the other run controls.
   if (profileOpen) {
@@ -2461,7 +2756,13 @@ function frame(now: number): void {
       appState = "playing";
       accumulator = 0;
       countdownOverlay.classList.add("hidden");
+      startWobble();
     } else {
+      const stepIdx = Math.floor(countdownElapsed / COUNTDOWN_STEP_DURATION);
+      if (stepIdx !== lastCountdownStep) {
+        lastCountdownStep = stepIdx;
+        playCountdownTone(step === "GO");
+      }
       countdownText.textContent = step;
       renderScene(session, frameDt);
       hudTimer.textContent = formatTime(0);
@@ -2483,6 +2784,33 @@ function frame(now: number): void {
       }
     } else {
       accumulator = 0;
+    }
+    if (!paused) {
+      const topSpeed = session.difficulty === "easy" ? EASY_MAX_SPEED : BASE_MAX_SPEED;
+      const speed01 = session.truck.speed / topSpeed;
+      updateEngine(speed01);
+      updateWobble(session.stability);
+
+      const { onRoad, inMud } = session.lastTerrain;
+      const onGrass = !onRoad && !inMud;
+      const wasOnGrass = !prevOnRoad && !prevInMud;
+      if (onGrass && !wasOnGrass) startGrass();
+      if (onGrass) updateGrass(speed01);
+      if (!onGrass && wasOnGrass) stopGrass();
+
+      if (inMud && !prevInMud) startMud();
+      if (inMud) updateMud(speed01);
+      if (!inMud && prevInMud) stopMud();
+
+      prevOnRoad = onRoad;
+      prevInMud = inMud;
+
+      if (session.rockHitThisTick) playRockCrash();
+
+      if (session.visited.size > prevVisitedCount) {
+        playPickupChime();
+        prevVisitedCount = session.visited.size;
+      }
     }
     renderScene(session, paused ? 0 : frameDt);
 

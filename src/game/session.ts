@@ -1,4 +1,4 @@
-import { sampleTerrain } from "../level/terrain.js";
+import { sampleTerrain, type TerrainSample } from "../level/terrain.js";
 import type { Level, Warehouse } from "../level/types.js";
 import {
     applyImpactStabilityHit,
@@ -100,6 +100,11 @@ export class GameSession {
   /** Consecutive ticks the truck has been pinned against the map edge. */
   private boundaryTicks = 0;
 
+  /** Terrain under the truck this tick, exposed for audio. */
+  lastTerrain: TerrainSample = { onRoad: true, inMud: false, mud: null };
+  /** True for any tick in which the truck collided with a rock. */
+  rockHitThisTick = false;
+
   /** Tick indices (not seconds - update() is always called once per fixed
    * physics tick) at which the input button toggled held/released, starting
    * from released. A ghost replay reconstructs the exact input stream from
@@ -177,6 +182,7 @@ export class GameSession {
     this.tick++;
 
     const terrain = sampleTerrain(this.truck, this.level);
+    this.lastTerrain = terrain;
     updateTruck(this.truck, held, dt, terrain, { width: this.level.width, height: this.level.height }, this.topSpeed);
 
     // Driving into the map edge and holding there ends the run - you're leaving
@@ -189,9 +195,11 @@ export class GameSession {
       return;
     }
 
+    this.rockHitThisTick = false;
     for (const rock of this.level.rocks) {
       const hit = resolveRockCollision(this.truck, rock.pos, rock.radius);
       if (hit) {
+        this.rockHitThisTick = true;
         for (const box of this.cargoBoxes) applyImpactStabilityHit(box, ROCK_IMPACT_STABILITY_HIT);
       }
     }

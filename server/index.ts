@@ -55,13 +55,14 @@ ensureSchema()
     console.error("Schema check failed:", (err as Error).message);
   });
 
-// Retention: drop run_logs rows older than 7 days, at boot and once a day after.
-// Best-effort - a failure just leaves old rows for the next sweep.
+// Retention: drop run_logs rows past their window (see pruneOldRunLogs), at
+// boot and once a day after. Best-effort - a failure just leaves old rows for
+// the next sweep.
 const RUN_LOG_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 function pruneRunLogs(): void {
   pruneOldRunLogs()
     .then((removed) => {
-      if (removed > 0) console.log(`Pruned ${removed} run-log row(s) older than 7 days`);
+      if (removed > 0) console.log(`Pruned ${removed} run-log row(s) past the retention window`);
     })
     .catch((err) => console.error("Run-log prune failed:", (err as Error).message));
 }

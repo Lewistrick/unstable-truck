@@ -161,6 +161,51 @@ export function loadCompletedDays(): Set<string> {
   return new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
 }
 
+const SOURCE_KEY = "unstable-truck:source";
+
+/** Where this player originally arrived from, if it's been captured yet.
+ *
+ * First-touch, not per-visit: the question worth answering is which channel
+ * brought players who *stayed*, and by the time someone comes back on day
+ * three the referrer is long gone. So it's recorded once and then kept. */
+export function loadAcquisitionSource(): string | null {
+  return localStorage.getItem(SOURCE_KEY);
+}
+
+/** Stores the acquisition source, keeping whatever was recorded first. Later
+ * visits must not overwrite it - a player who arrives from Reddit and returns
+ * via a bookmark was still won by Reddit, and letting the bookmark visit win
+ * would quietly relabel every successful channel as "direct". */
+export function recordAcquisitionSource(source: string): void {
+  if (localStorage.getItem(SOURCE_KEY)) return;
+  localStorage.setItem(SOURCE_KEY, source);
+}
+
+const PLAYED_KEY = "unstable-truck:played";
+
+/** Every day seed a run was actually started on, as opposed to the ones that
+ * were delivered successfully. Kept separate from the completion history
+ * because that history drives the streak, which does depend on finishing.
+ *
+ * Seeded from the completions on read: a completed day was self-evidently
+ * played, so without merging them an existing player would suddenly see
+ * "days played" sitting below their completed count. */
+export function loadPlayedDays(): Set<string> {
+  const merged = new Set(parseCompleted(localStorage.getItem(PLAYED_KEY)));
+  for (const seed of loadCompletedDays()) merged.add(seed);
+  return merged;
+}
+
+/** Records a day as played. Called when a run starts, so it counts regardless
+ * of whether that run is finished, failed, or abandoned. Idempotent, and
+ * pruned to the same retention window as the completion history. */
+export function recordPlayed(seed: string): void {
+  const set = loadPlayedDays();
+  set.add(seed);
+  const kept = [...set].filter(isRecentSeed).sort();
+  localStorage.setItem(PLAYED_KEY, JSON.stringify(kept));
+}
+
 const TUTORIAL_SEEN_KEY = "unstable-truck:tutorial-seen";
 
 /** Whether this browser has already been through (or dismissed) the new-player
@@ -192,6 +237,28 @@ export function getOrCreateNickname(): string {
 export function setNickname(name: string): void {
   const trimmed = name.trim().slice(0, MAX_NICKNAME_LENGTH);
   if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
+}
+
+const NICKNAME_CHOSEN_KEY = "unstable-truck:nickname-chosen";
+
+/** Whether a nickname is still one of the auto-generated "Racer1234" defaults
+ * rather than something the player picked for themselves. */
+export function isDefaultNickname(name: string): boolean {
+  return /^Racer\d{4}$/.test(name);
+}
+
+/** True once the player has explicitly confirmed a leaderboard name.
+ *
+ * Deliberately its own flag rather than inferred from the name: someone who
+ * opens the prompt and saves the generated Racer1234 unchanged has still
+ * chosen it, and testing the pattern alone would keep asking them after every
+ * single run. */
+export function hasChosenNickname(): boolean {
+  return localStorage.getItem(NICKNAME_CHOSEN_KEY) === "1";
+}
+
+export function markNicknameChosen(): void {
+  localStorage.setItem(NICKNAME_CHOSEN_KEY, "1");
 }
 
 // --- Difficulty preference ---------------------------------------------------
@@ -267,6 +334,46 @@ export function saveSyncToken(token: string): void {
 
 export function clearSyncToken(): void {
   localStorage.removeItem(SYNC_TOKEN_KEY);
+}
+
+// --- Sound preferences -----------------------------------------------------
+
+const SOUND_KEY = "unstable-truck:sound";
+
+export interface SoundPrefs {
+  ambient: number;  // 0..100
+  game: number;     // 0..100 (engine + wobble)
+  effects: number;  // 0..100 (medal fanfare)
+  gameMuted: boolean;
+  ambientMuted: boolean;
+  effectsMuted: boolean;
+}
+
+const DEFAULT_SOUND_PREFS: SoundPrefs = {
+  ambient: 15, game: 50, effects: 80,
+  gameMuted: false, ambientMuted: false, effectsMuted: false,
+};
+
+export function loadSoundPrefs(): SoundPrefs {
+  const raw = localStorage.getItem(SOUND_KEY);
+  if (!raw) return { ...DEFAULT_SOUND_PREFS };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      ambient: typeof parsed.ambient === "number" ? parsed.ambient : DEFAULT_SOUND_PREFS.ambient,
+      game: typeof parsed.game === "number" ? parsed.game : DEFAULT_SOUND_PREFS.game,
+      effects: typeof parsed.effects === "number" ? parsed.effects : DEFAULT_SOUND_PREFS.effects,
+      gameMuted: typeof parsed.gameMuted === "boolean" ? parsed.gameMuted : DEFAULT_SOUND_PREFS.gameMuted,
+      ambientMuted: typeof parsed.ambientMuted === "boolean" ? parsed.ambientMuted : DEFAULT_SOUND_PREFS.ambientMuted,
+      effectsMuted: typeof parsed.effectsMuted === "boolean" ? parsed.effectsMuted : DEFAULT_SOUND_PREFS.effectsMuted,
+    };
+  } catch {
+    return { ...DEFAULT_SOUND_PREFS };
+  }
+}
+
+export function saveSoundPrefs(prefs: SoundPrefs): void {
+  localStorage.setItem(SOUND_KEY, JSON.stringify(prefs));
 }
 
 // --- Ghost-race preferences (session-scoped) ------------------------------
