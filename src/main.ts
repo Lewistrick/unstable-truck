@@ -247,7 +247,6 @@ const soundEffectsSlider = document.getElementById("sound-effects") as HTMLInput
 const soundGameVal = document.getElementById("sound-game-val")!;
 const soundAmbientVal = document.getElementById("sound-ambient-val")!;
 const soundEffectsVal = document.getElementById("sound-effects-val")!;
-const soundState = document.getElementById("sound-state")!;
 const soundGameMute = document.getElementById("sound-game-mute") as HTMLButtonElement;
 const soundAmbientMute = document.getElementById("sound-ambient-mute") as HTMLButtonElement;
 const soundEffectsMute = document.getElementById("sound-effects-mute") as HTMLButtonElement;
@@ -2348,17 +2347,6 @@ function syncSoundUi(): void {
   updateMuteBtn(soundGameMute, p.gameMuted);
   updateMuteBtn(soundAmbientMute, p.ambientMuted);
   updateMuteBtn(soundEffectsMute, p.effectsMuted);
-  syncAudioState();
-}
-
-/** Reports whether the browser actually allowed the audio engine to start.
- * "running" means sound is being produced and any silence is a mixer problem;
- * "suspended" means the browser is still blocking it. Without this, the two
- * are indistinguishable from the player's side. */
-function syncAudioState(): void {
-  const state = audioState();
-  soundState.textContent = state;
-  soundState.parentElement?.classList.toggle("blocked", state === "suspended");
 }
 
 function openProfile(): void {

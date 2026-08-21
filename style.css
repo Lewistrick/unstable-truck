@@ -289,18 +289,6 @@ body {
   color: #9aa4b2;
 }
 
-/* Diagnostic line: says whether the browser actually let the audio engine
-   start, so "no sound" can be told apart from "everything muted". */
-.sound-status {
-  font-size: 0.75rem;
-  color: #6b7482;
-  margin-top: 6px;
-}
-
-.sound-status.blocked {
-  color: #f2a541;
-}
-
 .sound-mute-btn {
   background: none;
   border: none;
