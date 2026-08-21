@@ -161,6 +161,26 @@ export function loadCompletedDays(): Set<string> {
   return new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
 }
 
+const SOURCE_KEY = "unstable-truck:source";
+
+/** Where this player originally arrived from, if it's been captured yet.
+ *
+ * First-touch, not per-visit: the question worth answering is which channel
+ * brought players who *stayed*, and by the time someone comes back on day
+ * three the referrer is long gone. So it's recorded once and then kept. */
+export function loadAcquisitionSource(): string | null {
+  return localStorage.getItem(SOURCE_KEY);
+}
+
+/** Stores the acquisition source, keeping whatever was recorded first. Later
+ * visits must not overwrite it - a player who arrives from Reddit and returns
+ * via a bookmark was still won by Reddit, and letting the bookmark visit win
+ * would quietly relabel every successful channel as "direct". */
+export function recordAcquisitionSource(source: string): void {
+  if (localStorage.getItem(SOURCE_KEY)) return;
+  localStorage.setItem(SOURCE_KEY, source);
+}
+
 const PLAYED_KEY = "unstable-truck:played";
 
 /** Every day seed a run was actually started on, as opposed to the ones that
@@ -217,6 +237,28 @@ export function getOrCreateNickname(): string {
 export function setNickname(name: string): void {
   const trimmed = name.trim().slice(0, MAX_NICKNAME_LENGTH);
   if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
+}
+
+const NICKNAME_CHOSEN_KEY = "unstable-truck:nickname-chosen";
+
+/** Whether a nickname is still one of the auto-generated "Racer1234" defaults
+ * rather than something the player picked for themselves. */
+export function isDefaultNickname(name: string): boolean {
+  return /^Racer\d{4}$/.test(name);
+}
+
+/** True once the player has explicitly confirmed a leaderboard name.
+ *
+ * Deliberately its own flag rather than inferred from the name: someone who
+ * opens the prompt and saves the generated Racer1234 unchanged has still
+ * chosen it, and testing the pattern alone would keep asking them after every
+ * single run. */
+export function hasChosenNickname(): boolean {
+  return localStorage.getItem(NICKNAME_CHOSEN_KEY) === "1";
+}
+
+export function markNicknameChosen(): void {
+  localStorage.setItem(NICKNAME_CHOSEN_KEY, "1");
 }
 
 // --- Difficulty preference ---------------------------------------------------

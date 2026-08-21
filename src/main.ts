@@ -41,6 +41,7 @@ import {
     loadCompletedDays,
     loadDifficultyPref,
     loadPersonalBest,
+    loadAcquisitionSource,
     loadPlayedDays,
     loadPlayTime,
     loadRacePbGhostPref,
@@ -49,6 +50,7 @@ import {
     markTutorialSeen,
     pruneLeaderboardGhosts,
     pruneOldPersonalBests,
+    recordAcquisitionSource,
     recordCompletion,
     recordPlayed,
     saveDifficultyPref,
@@ -56,6 +58,9 @@ import {
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
     saveSyncToken,
+    hasChosenNickname,
+    isDefaultNickname,
+    markNicknameChosen,
     setNickname,
     loadSoundPrefs,
     saveSoundPrefs,
@@ -299,6 +304,11 @@ const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
+const nicknameSettingsSave = document.getElementById("nickname-settings-save") as HTMLButtonElement;
+const nicknameScreen = document.getElementById("nickname-screen")!;
+const nicknamePromptInput = document.getElementById("nickname-prompt-input") as HTMLInputElement;
+const nicknamePromptSave = document.getElementById("nickname-prompt-save") as HTMLButtonElement;
+const nicknamePromptCancel = document.getElementById("nickname-prompt-cancel") as HTMLButtonElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
 const streakBadge = document.getElementById("streak-badge")!;
@@ -315,9 +325,14 @@ const medalTrack = document.getElementById("medal-track")!;
 
 let nickname = getOrCreateNickname();
 nicknameInput.value = nickname;
-nicknameInput.addEventListener("change", () => {
+
+/** Persists a new nickname from wherever it was entered (the settings field or
+ * the post-run prompt) and brings the rest of the UI into line. setNickname()
+ * ignores blank input, so re-reading the stored value is what keeps the field
+ * showing the name that actually took effect. */
+function applyNickname(next: string): void {
   const oldNickname = nickname;
-  setNickname(nicknameInput.value);
+  setNickname(next);
   nickname = getOrCreateNickname();
   nicknameInput.value = nickname;
   renderLeaderboardList();
@@ -325,10 +340,51 @@ nicknameInput.addEventListener("change", () => {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
     if (loadSyncToken()) void doSync();
   }
+}
+
+nicknameInput.addEventListener("change", () => applyNickname(nicknameInput.value));
+
+// Explicit save alongside the field's own change handler. The handler already
+// persists on blur, so this is about affordance and confirmation - and saving
+// here counts as choosing a name, which retires the post-run prompt.
+nicknameSettingsSave.addEventListener("click", () => {
+  applyNickname(nicknameInput.value);
+  markNicknameChosen();
+  nicknameSettingsSave.textContent = "Saved!";
+  window.setTimeout(() => {
+    nicknameSettingsSave.textContent = "Save";
+  }, 1400);
 });
 
+/** Works out where this visit came from, for acquisition tracking.
+ *
+ * An explicit `?src=` tag wins, so put one on every link you post
+ * (`?src=reddit-webgames`, `?src=itch`) - it survives the many places that
+ * strip referrers, and it distinguishes two posts to the same site. Otherwise
+ * fall back to the referring hostname. Anything unattributable is "direct",
+ * which covers bookmarks, typed URLs, and most links opened from mobile apps.
+ *
+ * The value reaches the database, so it's length-capped and restricted to
+ * harmless characters rather than trusted - `?src=` is attacker-controllable
+ * like any query string. */
+function detectSource(): string {
+  const tagged = new URLSearchParams(location.search).get("src");
+  if (tagged) return tagged.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40) || "direct";
+  if (!document.referrer) return "direct";
+  try {
+    const host = new URL(document.referrer).hostname.replace(/^www\./, "");
+    return host === location.hostname ? "direct" : host.slice(0, 40);
+  } catch {
+    return "unknown";
+  }
+}
+
 function logGameStarted(): void {
-  void logRun(todaysSeed, nickname, "game_started", 0);
+  // Captured on the first visit and replayed on every later one, so a return
+  // visit weeks afterwards still reports the channel that originally won the
+  // player - which is the whole point of tracking it.
+  recordAcquisitionSource(detectSource());
+  void logRun(todaysSeed, nickname, "game_started", 0, `src:${loadAcquisitionSource() ?? "direct"}`);
 }
 
 if (document.readyState === "loading") {
@@ -1600,9 +1656,57 @@ function beginRun(playable: Playable): void {
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
+  // Leaving the results behind also drops the name prompt and anything it
+  // was holding, so a queued submission can never outlive its run.
+  nicknameScreen.classList.add("hidden");
+  pendingScoreSubmit = null;
   hud.classList.remove("hidden");
   countdownOverlay.classList.remove("hidden");
 }
+
+// The finished run's leaderboard submission, held back while the player is
+// asked what name to use. Saving runs it under the chosen name; cancelling
+// drops it, keeping that run off the board entirely.
+let pendingScoreSubmit: (() => void) | null = null;
+
+/** Asks a player still carrying an auto-generated "Racer1234" name how they
+ * want to appear, in place of the results screen rather than on top of it. */
+function openNicknamePrompt(submit: () => void): void {
+  pendingScoreSubmit = submit;
+  nicknamePromptInput.value = nickname;
+  nicknameScreen.classList.remove("hidden");
+  nicknamePromptInput.focus();
+  nicknamePromptInput.select();
+}
+
+/** Dismisses the prompt and hands the player on to the results they'd normally
+ * have seen straight away. */
+function closeNicknamePrompt(): void {
+  nicknameScreen.classList.add("hidden");
+  resultsScreen.classList.remove("hidden");
+}
+
+nicknamePromptSave.addEventListener("click", () => {
+  applyNickname(nicknamePromptInput.value);
+  // Marked chosen even if the name is unchanged - they were asked and answered.
+  markNicknameChosen();
+  const submit = pendingScoreSubmit;
+  pendingScoreSubmit = null;
+  closeNicknamePrompt();
+  // Submitted after applyNickname() so the run lands under the new name.
+  submit?.();
+});
+
+nicknamePromptCancel.addEventListener("click", () => {
+  // Neither submits nor marks the name as chosen: this run stays off the
+  // leaderboard, and the question comes back after the next finished run.
+  pendingScoreSubmit = null;
+  closeNicknamePrompt();
+});
+
+nicknamePromptInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") nicknamePromptSave.click();
+});
 
 function endRun(): void {
   if (!session) return;
@@ -1623,7 +1727,12 @@ function endRun(): void {
       : `survived ${formatTime(session.elapsed)}`;
   void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote);
   hud.classList.add("hidden");
-  resultsScreen.classList.remove("hidden");
+  // Revealing the results is deferred to the end of this function: a player who
+  // still has an auto-generated name is asked what to call themselves first,
+  // and the results wait behind that.
+  // Set by the success branch below, then either run or discarded once that
+  // question is settled.
+  let submitRun: (() => void) | null = null;
   // The Easy/Hard split only exists on daily maps, so only label results there
   // (weekly is unambiguously Hard).
   const diffSuffix = active.level.kind === "daily" ? ` · ${active.difficulty === "easy" ? "Easy" : "Hard"}` : "";
@@ -1693,28 +1802,31 @@ function endRun(): void {
       const championCandidate = championTime(active.pars.gold, recording.time);
       const isCurrentPeriod =
         active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
-      submitScore(
-        submittedSeed,
-        nickname,
-        submittedDifficulty,
-        recording.time,
-        recording.stability,
-        recording.inputLog,
-        championCandidate,
-        isCurrentPeriod,
-        medal,
-      ).then(async () => {
-        if (submittedSeed === viewed.seed && submittedDifficulty === viewed.difficulty) {
-          await refreshLeaderboard();
-          // The board now reflects this run, so the player's world rank is
-          // final - fold it into the share text (a no-op if they're unranked).
-          lastShareText = buildShareText(sharePlayable, shareTime, medal, myWorldRank());
-        }
-        // A new record today can lower the champion threshold; refresh the strip
-        // so the day's dot recolours (the player may gain or lose champion) -
-        // only while the strip is still showing that same difficulty.
-        if (active.level.kind === "daily" && submittedDifficulty === difficulty) void refreshStripChampionTimes();
-      });
+      // Deferred rather than called: `nickname` is read when this runs, so a
+      // name chosen at the prompt is the one the run is submitted under.
+      submitRun = () =>
+        void submitScore(
+          submittedSeed,
+          nickname,
+          submittedDifficulty,
+          recording.time,
+          recording.stability,
+          recording.inputLog,
+          championCandidate,
+          isCurrentPeriod,
+          medal,
+        ).then(async () => {
+          if (submittedSeed === viewed.seed && submittedDifficulty === viewed.difficulty) {
+            await refreshLeaderboard();
+            // The board now reflects this run, so the player's world rank is
+            // final - fold it into the share text (a no-op if they're unranked).
+            lastShareText = buildShareText(sharePlayable, shareTime, medal, myWorldRank());
+          }
+          // A new record today can lower the champion threshold; refresh the strip
+          // so the day's dot recolours (the player may gain or lose champion) -
+          // only while the strip is still showing that same difficulty.
+          if (active.level.kind === "daily" && submittedDifficulty === difficulty) void refreshStripChampionTimes();
+        });
     }
   } else if (session.failReason === "outOfBounds") {
     // Easy ignores both failure reasons (see GameSession.update), so reaching
@@ -1735,6 +1847,17 @@ function endRun(): void {
     resultsMedal.classList.add("hidden");
     shareBtn.classList.add("hidden");
     lastShareText = null;
+  }
+
+  // A run worth putting on the leaderboard, by someone who has never been asked
+  // what to call themselves, is the one moment where the question is actually
+  // worth interrupting for. `submitRun` being set already implies a successful,
+  // non-orphan run, so there's nothing to ask about otherwise.
+  if (submitRun && !hasChosenNickname() && isDefaultNickname(nickname)) {
+    openNicknamePrompt(submitRun);
+  } else {
+    submitRun?.();
+    resultsScreen.classList.remove("hidden");
   }
 }
 
@@ -1759,6 +1882,10 @@ function goHome(): void {
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
+  // Leaving the results behind also drops the name prompt and anything it
+  // was holding, so a queued submission can never outlive its run.
+  nicknameScreen.classList.add("hidden");
+  pendingScoreSubmit = null;
   startScreen.classList.remove("hidden");
   // A just-finished first delivery flips "has played", which reveals the browse
   // arrows and the Easy/Hard switch - re-evaluate both now that we're back on
@@ -1838,6 +1965,10 @@ function startTutorial(): void {
 
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
+  // Leaving the results behind also drops the name prompt and anything it
+  // was holding, so a queued submission can never outlive its run.
+  nicknameScreen.classList.add("hidden");
+  pendingScoreSubmit = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   tutorialOverlay.classList.remove("hidden");
@@ -2507,6 +2638,13 @@ minimapCanvas.addEventListener("keydown", (e) => {
 playBtn.addEventListener("click", () => beginRun(viewed));
 
 window.addEventListener("keydown", (e) => {
+  // The leaderboard-name prompt is modal: Enter saves (handled on the field
+  // itself) and Escape cancels, while the run controls behind it stay inert -
+  // otherwise Enter would save the name and immediately restart the run.
+  if (!nicknameScreen.classList.contains("hidden")) {
+    if (e.key === "Escape") nicknamePromptCancel.click();
+    return;
+  }
   // While the help overlay is up it captures Escape (to close itself) and
   // swallows the other run controls.
   if (profileOpen) {

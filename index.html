@@ -212,6 +212,7 @@
           <div class="section-header">Nickname</div>
           <div id="nickname-row">
             <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
+            <button id="nickname-settings-save" class="btn-secondary" type="button">Save</button>
           </div>
         </div>
         <hr class="section-divider" />
@@ -287,6 +288,18 @@
           <button id="home-btn" class="btn-secondary">Home</button>
         </div>
         <p class="muted" id="retry-hint">Enter to retry &middot; Esc for home</p>
+      </div>
+    </div>
+
+    <div id="nickname-screen" class="screen hidden">
+      <div class="panel">
+        <h1 id="nickname-prompt-title">How do you want to show up in the leaderboard?</h1>
+        <input type="text" id="nickname-prompt-input" maxlength="16" autocomplete="off" />
+        <div id="nickname-prompt-actions">
+          <button id="nickname-prompt-save" type="button">Save</button>
+          <button id="nickname-prompt-cancel" class="btn-secondary" type="button">Cancel</button>
+        </div>
+        <p class="muted" id="nickname-prompt-hint">Cancel keeps this run off the leaderboard.</p>
       </div>
     </div>
   </div>

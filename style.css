@@ -851,7 +851,42 @@ body {
 }
 
 #nickname-row {
+  display: flex;
+  gap: 8px;
   width: 100%;
+  max-width: 260px;
+}
+
+/* The leaderboard-name prompt shown after a first finished run. Reuses the
+   .screen/.panel shell; only the question and the button row need sizing. */
+#nickname-prompt-title {
+  font-size: 1.05rem;
+  line-height: 1.35;
+  text-align: center;
+  max-width: 20ch;
+  text-wrap: balance;
+}
+
+#nickname-prompt-input {
+  width: 100%;
+  max-width: 220px;
+  padding: 8px 10px;
+  font-size: 1rem;
+  text-align: center;
+  color: #f0f2f5;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+}
+
+#nickname-prompt-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#nickname-prompt-hint {
+  font-size: 0.8rem;
+  text-align: center;
 }
 
 #nickname-input {
