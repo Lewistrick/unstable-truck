@@ -4,6 +4,7 @@ import {
   createAccount,
   EASY_CODE,
   getAccount,
+  isUsernameTaken,
   getChampionTime,
   getChampionTimes,
   getOptimalRoute,
@@ -18,8 +19,10 @@ import {
   upsertScoreIfBetter,
   type DifficultyCode,
   type RunStatus,
+  type UserRecord,
 } from "./db.js";
 import crypto from "node:crypto";
+import { authenticate } from "./auth.js";
 import { ensureOptimalRoute } from "./optimal.js";
 
 export const scoresRouter = Router();
@@ -31,6 +34,21 @@ const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
 const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
 const MAX_NICKNAME_LENGTH = 16;
 const TOP_N = 10;
+
+/** Whether this request may submit under `nickname`.
+ *
+ * Anonymous play still works: a name nobody has registered is free for anyone,
+ * exactly as before. Registering a name is what protects it - from then on only
+ * a request carrying that account's session token may use it, which is what
+ * makes a leaderboard row mean something.
+ *
+ * Comparison is case-insensitive on both sides. It has to be: the scores
+ * primary key is case-sensitive, so matching exactly would leave "erick" open
+ * to anyone the moment "Erick" registered. */
+async function mayUseNickname(user: UserRecord | null, nickname: string): Promise<boolean> {
+  if (!(await isUsernameTaken(nickname))) return true;
+  return user !== null && user.username.toLowerCase() === nickname.toLowerCase();
+}
 
 /** Parses a client-supplied "easy"/"hard" difficulty label into its DB code,
  * defaulting to hard for anything else (missing, malformed, or - for old
@@ -138,13 +156,27 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
   }
   const { championCandidate, isCurrentPeriod, ...score } = submission;
   try {
+    // Resolved once and reused below: authenticate() slides the session's
+    // expiry as a side effect, so calling it twice would double that write.
+    const user = await authenticate(req);
+    if (!(await mayUseNickname(user, score.nickname))) {
+      res.status(403).json({ error: "that name is registered - log in to submit under it" });
+      return;
+    }
     const saved = await upsertScoreIfBetter({ seed, ...score });
 
     // Move the champion threshold down toward this run only while the seed is the
     // player's current period. lowerChampionTime() ignores candidates that aren't
     // lower than what's stored, so a non-record run never raises it and only a
     // genuine new world record ratchets it down.
-    if (isCurrentPeriod && championCandidate != null) {
+    //
+    // Lowering it also needs a logged-in submitter. The threshold only ever
+    // ratchets down and is frozen once the period passes, so an unauthenticated
+    // candidate of 0.001 would make a seed's champion medal permanently
+    // unobtainable. An anonymous run is still saved and still ranks - only the
+    // threshold is left alone, so the medal stays where it was until a logged-in
+    // player beats it.
+    if (isCurrentPeriod && championCandidate != null && user !== null) {
       await lowerChampionTime(seed, score.difficulty, championCandidate);
     }
     res.json({ saved });
@@ -175,6 +207,15 @@ scoresRouter.post("/api/runs", async (req, res) => {
     return;
   }
   try {
+    // Same protected-name rule as score submission, but failing open: the row is
+    // dropped and the client still gets a 200. logRun is best-effort diagnostics
+    // (see src/game/api.ts) and must never become a source of user-visible
+    // errors - and a forged log line is a far smaller problem than a forged
+    // score.
+    if (!(await mayUseNickname(await authenticate(req), nickname))) {
+      res.json({ logged: false });
+      return;
+    }
     await logRun({ nickname, seed, status: status as RunStatus, collected, comment });
     res.json({ logged: true });
   } catch (err) {
@@ -211,6 +252,13 @@ scoresRouter.post("/api/champions/:seed", async (req: Request<{ seed: string }>,
   const championTime = body?.championTime;
   if (typeof championTime !== "number" || !Number.isFinite(championTime) || championTime <= 0) {
     res.status(400).json({ error: "championTime must be a positive number" });
+    return;
+  }
+  // Registered players only. Freezing a threshold is a one-way write nobody can
+  // undo (backfillChampionTime never overwrites), so it isn't something to
+  // accept from an anonymous caller.
+  if ((await authenticate(req)) === null) {
+    res.status(401).json({ error: "not logged in" });
     return;
   }
   const created = await backfillChampionTime(seed, parseDifficulty(body?.difficulty), championTime);

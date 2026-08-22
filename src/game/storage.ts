@@ -322,6 +322,20 @@ export function clearSyncToken(): void {
   localStorage.removeItem(SYNC_TOKEN_KEY);
 }
 
+// --- Login session ---------------------------------------------------------
+
+const AUTH_TOKEN_KEY = "unstable-truck:auth";
+
+/** The bearer token for the logged-in account, if there is one.
+ *
+ * Read-only for now: nothing sets this yet, because logging in is Phase 3 of
+ * the accounts plan. It exists so api.ts can already authenticate the calls the
+ * server started checking in Phase 2 - a registered player whose requests
+ * carried no token would have their own name refused. */
+export function loadAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
 // --- Sound preferences -----------------------------------------------------
 
 const SOUND_KEY = "unstable-truck:sound";

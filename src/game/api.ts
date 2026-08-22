@@ -1,3 +1,5 @@
+import { loadAuthToken } from "./storage.js";
+
 export type Difficulty = "easy" | "hard";
 
 export interface LeaderboardEntry {
@@ -42,7 +44,30 @@ function apiUrl(pathAndQuery: string): string {
   return new URL(pathAndQuery, API_ROOT).href;
 }
 
-/** Submits a run's result to the backend. Fails silently (returns false) if
+/** The Authorization header for the logged-in account, or nothing at all when
+ * logged out - which is the ordinary case and stays a valid anonymous request.
+ *
+ * Sent on the three endpoints that now check it: submitting a score, logging a
+ * run, and freezing a champion threshold. A registered player whose requests
+ * arrived without this would be refused their own name. */
+function authHeaders(): Record<string, string> {
+  const token = loadAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** What became of a score submission.
+ *
+ * - `saved`      - stored, and it beat whatever was there before.
+ * - `not-better` - accepted, but an existing best for that seed was faster.
+ * - `name-taken` - the nickname is registered to an account and this request
+ *                  wasn't logged in as it. The only outcome worth telling the
+ *                  player about: it's fixable, by logging in.
+ * - `failed`     - unreachable server, or any other error. Indistinguishable
+ *                  from playing offline, and treated the same way: silently.
+ */
+export type SubmitResult = "saved" | "not-better" | "name-taken" | "failed";
+
+/** Submits a run's result to the backend. Fails silently (returns "failed") if
  * the server is unreachable - the game is fully playable offline, this is
  * best-effort syncing on top of the local personal best. */
 export async function submitScore(
@@ -55,18 +80,19 @@ export async function submitScore(
   championCandidate: number | null,
   isCurrentPeriod: boolean,
   medal: string | null = null,
-): Promise<boolean> {
+): Promise<SubmitResult> {
   try {
     const res = await fetch(apiUrl(`api/scores/${seed}`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ nickname, difficulty, time, stability, inputLog, championCandidate, isCurrentPeriod, medal }),
     });
-    if (!res.ok) return false;
+    if (res.status === 403) return "name-taken";
+    if (!res.ok) return "failed";
     const data = (await res.json()) as { saved?: boolean };
-    return Boolean(data.saved);
+    return data.saved ? "saved" : "not-better";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
@@ -123,7 +149,7 @@ export async function logRun(
   try {
     const res = await fetch(apiUrl("api/runs"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ seed, nickname, status, collected, comment }),
     });
     if (!res.ok) console.warn(`run log "${status}" for ${seed} rejected: HTTP ${res.status}`);
@@ -139,7 +165,7 @@ export async function backfillChampionTime(seed: string, difficulty: Difficulty,
   try {
     await fetch(apiUrl(`api/champions/${seed}`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ difficulty, championTime }),
     });
   } catch {
