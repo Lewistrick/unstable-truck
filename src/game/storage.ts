@@ -225,34 +225,6 @@ export function setNickname(name: string): void {
   if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
 }
 
-const NICKNAME_CHOSEN_KEY = "unstable-truck:nickname-chosen";
-
-/** Whether a nickname is still one of the auto-generated "Racer1234" defaults
- * rather than something the player picked for themselves. */
-export function isDefaultNickname(name: string): boolean {
-  return /^Racer\d{4}$/.test(name);
-}
-
-/** True once the player has explicitly confirmed a leaderboard name.
- *
- * Deliberately its own flag rather than inferred from the name: someone who
- * opens the prompt and saves the generated Racer1234 unchanged has still
- * chosen it, and testing the pattern alone would keep asking them after every
- * single run. */
-export function hasChosenNickname(): boolean {
-  return localStorage.getItem(NICKNAME_CHOSEN_KEY) === "1";
-}
-
-export function markNicknameChosen(): void {
-  localStorage.setItem(NICKNAME_CHOSEN_KEY, "1");
-}
-
-// --- Difficulty preference ---------------------------------------------------
-// Persisted (not session-scoped) so it survives across visits and every map,
-// matching the requested "sticks even across maps" behaviour. Only meaningful
-// for daily play - weekly is Hard-only - but the preference itself is kept
-// independent of the daily/weekly mode so switching back to daily restores it.
-
 // --- Play time accumulator -------------------------------------------------
 
 const PLAY_TIME_KEY = "unstable-truck:play-time";

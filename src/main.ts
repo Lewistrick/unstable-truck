@@ -56,7 +56,6 @@ import {
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
-    markNicknameChosen,
     recordAccountPromptDeclined,
     setNickname,
     loadSoundPrefs,
@@ -248,7 +247,6 @@ const accountDeleteConfirmBtn = document.getElementById("account-delete-confirm-
 const accountDeleteCancelBtn = document.getElementById("account-delete-cancel-btn") as HTMLButtonElement;
 const accountStatus = document.getElementById("account-status")!;
 const accountSectionError = document.getElementById("account-section-error")!;
-const nicknameAccountNote = document.getElementById("nickname-account-note")!;
 const statsLocal = document.getElementById("stats-local")!;
 const statsServer = document.getElementById("stats-server")!;
 const statsServerError = document.getElementById("stats-server-error")!;
@@ -312,8 +310,6 @@ const playBtn = document.getElementById("play-btn") as HTMLButtonElement;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
-const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
-const nicknameSettingsSave = document.getElementById("nickname-settings-save") as HTMLButtonElement;
 const accountScreen = document.getElementById("account-screen")!;
 const accountTitle = document.getElementById("account-title")!;
 const accountChoice = document.getElementById("account-choice")!;
@@ -348,36 +344,22 @@ const difficultyHardBtn = document.getElementById("difficulty-hard") as HTMLButt
 const medalTrack = document.getElementById("medal-track")!;
 
 let nickname = getOrCreateNickname();
-nicknameInput.value = nickname;
 
-/** Persists a new nickname from wherever it was entered (the settings field or
- * the post-run prompt) and brings the rest of the UI into line. setNickname()
- * ignores blank input, so re-reading the stored value is what keeps the field
- * showing the name that actually took effect. */
+/** Adopts a name for this device.
+ *
+ * Only ever called with an account's username now - logging in, or upgrading an
+ * old sync code. Players can no longer type a name of their own, because a name
+ * on the leaderboard is something an account owns. The local nickname survives
+ * as what run logs and leaderboard highlighting are keyed on. */
 function applyNickname(next: string): void {
   const oldNickname = nickname;
   setNickname(next);
   nickname = getOrCreateNickname();
-  nicknameInput.value = nickname;
   renderLeaderboardList();
   if (nickname !== oldNickname) {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
   }
 }
-
-nicknameInput.addEventListener("change", () => applyNickname(nicknameInput.value));
-
-// Explicit save alongside the field's own change handler. The handler already
-// persists on blur, so this is about affordance and confirmation - and saving
-// here counts as choosing a name, which retires the post-run prompt.
-nicknameSettingsSave.addEventListener("click", () => {
-  applyNickname(nicknameInput.value);
-  markNicknameChosen();
-  nicknameSettingsSave.textContent = "Saved!";
-  window.setTimeout(() => {
-    nicknameSettingsSave.textContent = "Save";
-  }, 1400);
-});
 
 /** Works out where this visit came from, for acquisition tracking.
  *
@@ -1817,7 +1799,6 @@ function syncNotifyAvailability(): void {
  * called before, which is a name the account may not even own. */
 function completeAccountPrompt(username: string): void {
   applyNickname(username);
-  markNicknameChosen();
   // An account supersedes the old sync code, however this player got here.
   clearSyncToken();
   const submit = pendingScoreSubmit;
@@ -2037,13 +2018,15 @@ function endRun(): void {
     lastShareText = null;
   }
 
-  // A run worth putting on the leaderboard, by someone who isn't logged in, is
-  // the one moment where asking is actually worth interrupting for. `submitRun`
-  // being set already implies a successful, non-orphan run, so there's nothing
-  // to ask about otherwise. Someone who has already declined is left alone for
-  // a week, and their runs go up anonymously in the meantime.
-  if (submitRun && !isLoggedIn() && !accountPromptRecentlyDeclined()) {
-    openAccountPrompt(submitRun);
+  // A place on the leaderboard belongs to an account, so a logged-out run never
+  // goes up. `submitRun` being set already implies a successful, non-orphan run,
+  // so there is nothing to ask about otherwise.
+  if (submitRun && !isLoggedIn()) {
+    // Someone who declined recently isn't asked again for a week. Their run
+    // still counts locally - the personal best above is already saved - it just
+    // doesn't reach the board.
+    if (accountPromptRecentlyDeclined()) resultsScreen.classList.remove("hidden");
+    else openAccountPrompt(submitRun);
   } else {
     submitRun?.();
     resultsScreen.classList.remove("hidden");
@@ -2471,9 +2454,6 @@ function updateAccountUi(): void {
   const user = currentUser();
   accountLoggedOut.classList.toggle("hidden", user !== null);
   accountLoggedIn.classList.toggle("hidden", user === null);
-  nicknameInput.disabled = user !== null;
-  nicknameSettingsSave.classList.toggle("hidden", user !== null);
-  nicknameAccountNote.classList.toggle("hidden", user === null);
   // The upgrade offer only means anything to someone holding an old code who
   // hasn't already got an account.
   syncMigrateRow.classList.toggle("hidden", user !== null || loadSyncToken() === null);
@@ -2652,7 +2632,6 @@ function syncSoundUi(): void {
 
 function openProfile(): void {
   profileOpen = true;
-  nicknameInput.value = nickname;
   updateAccountUi();
   renderLocalStats();
   syncSoundUi();

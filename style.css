@@ -830,13 +830,6 @@ body {
   font-weight: 700;
 }
 
-#nickname-row {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  max-width: 260px;
-}
-
 /* The account prompt shown after a finished run by a logged-out player.
    Reuses the .screen/.panel shell; one panel holds three views (the choice and
    the two forms), only one of which is ever visible. */
@@ -926,22 +919,6 @@ body {
 
 .account-skip-link.hidden {
   display: none;
-}
-
-#nickname-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  font-size: 0.9rem;
-  color: #f0f2f5;
-  background: #10141a;
-  border: 1px solid #2c3542;
-  border-radius: 6px;
-}
-
-#nickname-input:focus {
-  outline: none;
-  border-color: #4a5566;
 }
 
 #leaderboard {
@@ -1460,8 +1437,7 @@ button:active {
   flex: 1 1 0;
 }
 
-/* The nickname field at the bottom, separated from the leaderboard by a
-   hairline. */
+/* The footer below the leaderboard, separated from it by a hairline. */
 #home-footer {
   display: flex;
   flex-direction: column;
