@@ -1,4 +1,4 @@
-import type { Difficulty } from "./api.js";
+import type { Account, Difficulty } from "./api.js";
 import type { GhostRecording } from "./ghost.js";
 
 const STORAGE_PREFIX = "unstable-truck:pb:";
@@ -324,16 +324,62 @@ export function clearSyncToken(): void {
 
 // --- Login session ---------------------------------------------------------
 
-const AUTH_TOKEN_KEY = "unstable-truck:auth";
+const AUTH_KEY = "unstable-truck:auth";
 
-/** The bearer token for the logged-in account, if there is one.
- *
- * Read-only for now: nothing sets this yet, because logging in is Phase 3 of
- * the accounts plan. It exists so api.ts can already authenticate the calls the
- * server started checking in Phase 2 - a registered player whose requests
- * carried no token would have their own name refused. */
+interface StoredAuth {
+  token: string;
+  /** Cached alongside the token so logged-in state renders immediately on load,
+   * and still renders when the server can't be reached at all. */
+  account: Account;
+}
+
+export function loadAuthSession(): StoredAuth | null {
+  const raw = localStorage.getItem(AUTH_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
+    if (typeof parsed.token !== "string" || !parsed.account || typeof parsed.account.username !== "string") {
+      localStorage.removeItem(AUTH_KEY);
+      return null;
+    }
+    return { token: parsed.token, account: parsed.account };
+  } catch {
+    localStorage.removeItem(AUTH_KEY);
+    return null;
+  }
+}
+
+export function saveAuthSession(token: string, account: Account): void {
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ token, account }));
+}
+
+export function clearAuthSession(): void {
+  localStorage.removeItem(AUTH_KEY);
+}
+
+/** The bearer token on its own, for api.ts to attach to requests. */
 export function loadAuthToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  return loadAuthSession()?.token ?? null;
+}
+
+// --- Account prompt cooldown -----------------------------------------------
+
+const ACCOUNT_DECLINED_KEY = "unstable-truck:account-declined";
+/** How long "Don't register score" keeps the prompt away. Long enough not to
+ * nag someone who has already said no, short enough that a player who gets
+ * hooked in week two is asked again. */
+const ACCOUNT_PROMPT_COOLDOWN_MS = 7 * DAY_MS;
+
+export function recordAccountPromptDeclined(): void {
+  localStorage.setItem(ACCOUNT_DECLINED_KEY, String(Date.now()));
+}
+
+export function accountPromptRecentlyDeclined(): boolean {
+  const raw = localStorage.getItem(ACCOUNT_DECLINED_KEY);
+  if (!raw) return false;
+  const declinedAt = Number(raw);
+  if (!Number.isFinite(declinedAt)) return false;
+  return Date.now() - declinedAt < ACCOUNT_PROMPT_COOLDOWN_MS;
 }
 
 // --- Sound preferences -----------------------------------------------------

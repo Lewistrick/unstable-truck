@@ -291,15 +291,51 @@
       </div>
     </div>
 
-    <div id="nickname-screen" class="screen hidden">
-      <div class="panel">
-        <h1 id="nickname-prompt-title">How do you want to show up in the leaderboard?</h1>
-        <input type="text" id="nickname-prompt-input" maxlength="16" autocomplete="off" />
-        <div id="nickname-prompt-actions">
-          <button id="nickname-prompt-save" type="button">Save</button>
-          <button id="nickname-prompt-cancel" class="btn-secondary" type="button">Cancel</button>
+    <div id="account-screen" class="screen hidden">
+      <div class="panel account-panel">
+        <h1 id="account-title">Log in or create an account to register your score</h1>
+
+        <div id="account-choice" class="account-view">
+          <button id="account-create-btn" type="button">Create account</button>
+          <button id="account-login-btn" class="btn-secondary" type="button">Log in</button>
+          <button id="account-skip-btn" class="btn-secondary" type="button">Don't register score</button>
         </div>
-        <p class="muted" id="nickname-prompt-hint">Cancel keeps this run off the leaderboard.</p>
+
+        <form id="account-register-form" class="account-view hidden">
+          <input type="text" id="register-username" class="account-input" maxlength="16" placeholder="Username"
+            autocomplete="username" autocapitalize="off" spellcheck="false" />
+          <input type="password" id="register-password" class="account-input" placeholder="Password"
+            autocomplete="new-password" />
+          <input type="email" id="register-email" class="account-input" maxlength="254"
+            placeholder="Email (optional)" autocomplete="email" autocapitalize="off" spellcheck="false" />
+          <label class="account-check">
+            <input type="checkbox" id="register-notify-daily" disabled /> Daily reminder
+          </label>
+          <label class="account-check">
+            <input type="checkbox" id="register-notify-updates" disabled /> Game updates
+          </label>
+          <p class="muted account-note">Your username is your leaderboard name. Any scores already set under it
+            become yours. Without an email there is no way to reset a forgotten password.</p>
+          <div class="account-actions">
+            <button type="submit" id="register-submit">Create account</button>
+            <button type="button" class="btn-secondary account-back">Back</button>
+          </div>
+        </form>
+
+        <form id="account-login-form" class="account-view hidden">
+          <input type="text" id="login-username" class="account-input" maxlength="16" placeholder="Username"
+            autocomplete="username" autocapitalize="off" spellcheck="false" />
+          <input type="password" id="login-password" class="account-input" placeholder="Password"
+            autocomplete="current-password" />
+          <div class="account-actions">
+            <button type="submit" id="login-submit">Log in</button>
+            <button type="button" class="btn-secondary account-back">Back</button>
+          </div>
+        </form>
+
+        <p id="account-error" class="account-error hidden" role="alert"></p>
+        <button id="account-skip-link" class="btn-secondary account-skip-link hidden" type="button">Don't register
+          score</button>
       </div>
     </div>
   </div>

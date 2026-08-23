@@ -17,6 +17,7 @@ import {
 } from "./game/api.js";
 import { COUNTDOWN_STEP_DURATION, countdownLabel } from "./game/countdown.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
+import { isLoggedIn, login, refreshAccount, register } from "./game/auth.js";
 import { createInput } from "./game/input.js";
 import { optimalRowIndex } from "./game/leaderboard-order.js";
 import {
@@ -33,6 +34,7 @@ import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camer
 import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import { GameSession } from "./game/session.js";
 import {
+    accountPromptRecentlyDeclined,
     addPlayTime,
     clearSyncToken,
     computeBestStreak,
@@ -56,9 +58,8 @@ import {
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
     saveSyncToken,
-    hasChosenNickname,
-    isDefaultNickname,
     markNicknameChosen,
+    recordAccountPromptDeclined,
     setNickname,
     loadSoundPrefs,
     saveSoundPrefs,
@@ -303,10 +304,24 @@ const countdownText = document.getElementById("countdown-text")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const nicknameSettingsSave = document.getElementById("nickname-settings-save") as HTMLButtonElement;
-const nicknameScreen = document.getElementById("nickname-screen")!;
-const nicknamePromptInput = document.getElementById("nickname-prompt-input") as HTMLInputElement;
-const nicknamePromptSave = document.getElementById("nickname-prompt-save") as HTMLButtonElement;
-const nicknamePromptCancel = document.getElementById("nickname-prompt-cancel") as HTMLButtonElement;
+const accountScreen = document.getElementById("account-screen")!;
+const accountChoice = document.getElementById("account-choice")!;
+const accountRegisterForm = document.getElementById("account-register-form") as HTMLFormElement;
+const accountLoginForm = document.getElementById("account-login-form") as HTMLFormElement;
+const accountCreateBtn = document.getElementById("account-create-btn") as HTMLButtonElement;
+const accountLoginBtn = document.getElementById("account-login-btn") as HTMLButtonElement;
+const accountSkipBtn = document.getElementById("account-skip-btn") as HTMLButtonElement;
+const accountSkipLink = document.getElementById("account-skip-link") as HTMLButtonElement;
+const accountError = document.getElementById("account-error")!;
+const registerUsername = document.getElementById("register-username") as HTMLInputElement;
+const registerPassword = document.getElementById("register-password") as HTMLInputElement;
+const registerEmail = document.getElementById("register-email") as HTMLInputElement;
+const registerNotifyDaily = document.getElementById("register-notify-daily") as HTMLInputElement;
+const registerNotifyUpdates = document.getElementById("register-notify-updates") as HTMLInputElement;
+const registerSubmit = document.getElementById("register-submit") as HTMLButtonElement;
+const loginUsername = document.getElementById("login-username") as HTMLInputElement;
+const loginPassword = document.getElementById("login-password") as HTMLInputElement;
+const loginSubmit = document.getElementById("login-submit") as HTMLButtonElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
 const streakBadge = document.getElementById("streak-badge")!;
@@ -395,6 +410,12 @@ if (document.readyState === "loading") {
 if (loadSyncToken()) {
   void doSync();
 }
+
+// Re-check the login on load, so a session revoked elsewhere (a password change
+// on another device) stops counting as logged in here. The cached account
+// answers isLoggedIn() until this returns, and being offline leaves it alone -
+// see refreshAccount().
+void refreshAccount();
 
 function refreshViewedUi(): void {
   const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
@@ -1647,9 +1668,9 @@ function beginRun(playable: Playable): void {
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
-  // Leaving the results behind also drops the name prompt and anything it
+  // Leaving the results behind also drops the account prompt and anything it
   // was holding, so a queued submission can never outlive its run.
-  nicknameScreen.classList.add("hidden");
+  closeAccountPrompt();
   pendingScoreSubmit = null;
   hud.classList.remove("hidden");
   countdownOverlay.classList.remove("hidden");
@@ -1660,43 +1681,150 @@ function beginRun(playable: Playable): void {
 // drops it, keeping that run off the board entirely.
 let pendingScoreSubmit: (() => void) | null = null;
 
-/** Asks a player still carrying an auto-generated "Racer1234" name how they
- * want to appear, in place of the results screen rather than on top of it. */
-function openNicknamePrompt(submit: () => void): void {
+/** Asks a logged-out player to sign in before their run is put on the board,
+ * in place of the results screen rather than on top of it.
+ *
+ * One panel, three views: the choice, and a form behind each of the first two
+ * buttons. Whichever way it ends, the player lands on the results screen. */
+function openAccountPrompt(submit: () => void): void {
   pendingScoreSubmit = submit;
-  nicknamePromptInput.value = nickname;
-  nicknameScreen.classList.remove("hidden");
-  nicknamePromptInput.focus();
-  nicknamePromptInput.select();
+  showAccountView(accountChoice);
+  registerUsername.value = nickname;
+  registerPassword.value = "";
+  registerEmail.value = "";
+  registerNotifyDaily.checked = false;
+  registerNotifyUpdates.checked = false;
+  loginUsername.value = nickname;
+  loginPassword.value = "";
+  syncNotifyAvailability();
+  accountScreen.classList.remove("hidden");
 }
 
-/** Dismisses the prompt and hands the player on to the results they'd normally
- * have seen straight away. */
-function closeNicknamePrompt(): void {
-  nicknameScreen.classList.add("hidden");
+/** Shows one of the prompt's three views and hides the rest. The skip link
+ * rides along: it belongs on the forms, where the choice's own third button
+ * isn't visible, so there is always a way out. */
+function showAccountView(view: HTMLElement): void {
+  for (const el of [accountChoice, accountRegisterForm, accountLoginForm]) {
+    el.classList.toggle("hidden", el !== view);
+  }
+  accountSkipLink.classList.toggle("hidden", view === accountChoice);
+  accountError.classList.add("hidden");
+  setAccountBusy(false);
+}
+
+function closeAccountPrompt(): void {
+  accountScreen.classList.add("hidden");
+}
+
+/** Hands the player on to the results they would have seen straight away. */
+function finishAccountPrompt(): void {
+  closeAccountPrompt();
   resultsScreen.classList.remove("hidden");
 }
 
-nicknamePromptSave.addEventListener("click", () => {
-  applyNickname(nicknamePromptInput.value);
-  // Marked chosen even if the name is unchanged - they were asked and answered.
+function showAccountError(message: string): void {
+  accountError.textContent = message;
+  accountError.classList.remove("hidden");
+}
+
+/** Disables the forms while a request is in flight, so a double tap can't
+ * register twice. The skip button stays live on purpose - a player must never
+ * be stuck waiting on a server that isn't going to answer. */
+function setAccountBusy(busy: boolean): void {
+  registerSubmit.disabled = busy;
+  loginSubmit.disabled = busy;
+  registerSubmit.textContent = busy ? "Creating…" : "Create account";
+  loginSubmit.textContent = busy ? "Logging in…" : "Log in";
+}
+
+/** A subscription needs somewhere to send to, and the server rejects the
+ * combination outright, so the boxes only unlock once an address is typed. */
+function syncNotifyAvailability(): void {
+  const hasEmail = registerEmail.value.trim() !== "";
+  registerNotifyDaily.disabled = !hasEmail;
+  registerNotifyUpdates.disabled = !hasEmail;
+  if (!hasEmail) {
+    registerNotifyDaily.checked = false;
+    registerNotifyUpdates.checked = false;
+  }
+}
+
+/** Runs the held-back submission under the now-logged-in identity.
+ *
+ * The username is the leaderboard name, so the local nickname follows it -
+ * otherwise the queued submission would go up under whatever this device was
+ * called before, which is a name the account may not even own. */
+function completeAccountPrompt(username: string): void {
+  applyNickname(username);
   markNicknameChosen();
   const submit = pendingScoreSubmit;
   pendingScoreSubmit = null;
-  closeNicknamePrompt();
-  // Submitted after applyNickname() so the run lands under the new name.
+  finishAccountPrompt();
   submit?.();
-});
+}
 
-nicknamePromptCancel.addEventListener("click", () => {
-  // Neither submits nor marks the name as chosen: this run stays off the
-  // leaderboard, and the question comes back after the next finished run.
+/** Abandons the prompt: this run stays off the leaderboard, and the question
+ * stays away for a week rather than greeting every finish. */
+function declineAccountPrompt(): void {
+  recordAccountPromptDeclined();
   pendingScoreSubmit = null;
-  closeNicknamePrompt();
+  finishAccountPrompt();
+}
+
+accountCreateBtn.addEventListener("click", () => {
+  showAccountView(accountRegisterForm);
+  registerUsername.focus();
+  registerUsername.select();
 });
 
-nicknamePromptInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") nicknamePromptSave.click();
+accountLoginBtn.addEventListener("click", () => {
+  showAccountView(accountLoginForm);
+  loginUsername.focus();
+  loginUsername.select();
+});
+
+accountSkipBtn.addEventListener("click", declineAccountPrompt);
+accountSkipLink.addEventListener("click", declineAccountPrompt);
+registerEmail.addEventListener("input", syncNotifyAvailability);
+
+// forEach rather than for-of: the tsconfig lib list is ES2022 + DOM without
+// DOM.Iterable, so a NodeList isn't iterable as far as the compiler is
+// concerned.
+document.querySelectorAll<HTMLButtonElement>(".account-back").forEach((backBtn) => {
+  backBtn.addEventListener("click", () => showAccountView(accountChoice));
+});
+
+accountRegisterForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAccountBusy(true);
+  accountError.classList.add("hidden");
+  const email = registerEmail.value.trim();
+  const result = await register({
+    username: registerUsername.value.trim(),
+    password: registerPassword.value,
+    ...(email ? { email } : {}),
+    notifyDaily: registerNotifyDaily.checked,
+    notifyUpdates: registerNotifyUpdates.checked,
+  });
+  setAccountBusy(false);
+  if (!result.ok) {
+    showAccountError(result.error);
+    return;
+  }
+  completeAccountPrompt(result.account.username);
+});
+
+accountLoginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAccountBusy(true);
+  accountError.classList.add("hidden");
+  const result = await login(loginUsername.value.trim(), loginPassword.value);
+  setAccountBusy(false);
+  if (!result.ok) {
+    showAccountError(result.error);
+    return;
+  }
+  completeAccountPrompt(result.account.username);
 });
 
 function endRun(): void {
@@ -1840,12 +1968,13 @@ function endRun(): void {
     lastShareText = null;
   }
 
-  // A run worth putting on the leaderboard, by someone who has never been asked
-  // what to call themselves, is the one moment where the question is actually
-  // worth interrupting for. `submitRun` being set already implies a successful,
-  // non-orphan run, so there's nothing to ask about otherwise.
-  if (submitRun && !hasChosenNickname() && isDefaultNickname(nickname)) {
-    openNicknamePrompt(submitRun);
+  // A run worth putting on the leaderboard, by someone who isn't logged in, is
+  // the one moment where asking is actually worth interrupting for. `submitRun`
+  // being set already implies a successful, non-orphan run, so there's nothing
+  // to ask about otherwise. Someone who has already declined is left alone for
+  // a week, and their runs go up anonymously in the meantime.
+  if (submitRun && !isLoggedIn() && !accountPromptRecentlyDeclined()) {
+    openAccountPrompt(submitRun);
   } else {
     submitRun?.();
     resultsScreen.classList.remove("hidden");
@@ -1873,9 +2002,9 @@ function goHome(): void {
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
-  // Leaving the results behind also drops the name prompt and anything it
+  // Leaving the results behind also drops the account prompt and anything it
   // was holding, so a queued submission can never outlive its run.
-  nicknameScreen.classList.add("hidden");
+  closeAccountPrompt();
   pendingScoreSubmit = null;
   startScreen.classList.remove("hidden");
   // A just-finished first delivery flips "has played", which reveals the browse
@@ -1956,9 +2085,9 @@ function startTutorial(): void {
 
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
-  // Leaving the results behind also drops the name prompt and anything it
+  // Leaving the results behind also drops the account prompt and anything it
   // was holding, so a queued submission can never outlive its run.
-  nicknameScreen.classList.add("hidden");
+  closeAccountPrompt();
   pendingScoreSubmit = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
@@ -2628,11 +2757,12 @@ minimapCanvas.addEventListener("keydown", (e) => {
 playBtn.addEventListener("click", () => beginRun(viewed));
 
 window.addEventListener("keydown", (e) => {
-  // The leaderboard-name prompt is modal: Enter saves (handled on the field
-  // itself) and Escape cancels, while the run controls behind it stay inert -
-  // otherwise Enter would save the name and immediately restart the run.
-  if (!nicknameScreen.classList.contains("hidden")) {
-    if (e.key === "Escape") nicknamePromptCancel.click();
+  // The account prompt is modal: Enter submits whichever form is open (the
+  // browser does that for us) and Escape declines, while the run controls
+  // behind it stay inert - otherwise Enter would submit the form and
+  // immediately restart the run as well.
+  if (!accountScreen.classList.contains("hidden")) {
+    if (e.key === "Escape") declineAccountPrompt();
     return;
   }
   // While the help overlay is up it captures Escape (to close itself) and

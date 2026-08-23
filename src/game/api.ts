@@ -204,6 +204,91 @@ export async function fetchOptimalRoute(
   }
 }
 
+// --- Accounts --------------------------------------------------------------
+
+/** A registered player, as the server describes them. Never carries anything
+ * secret, so it is safe to cache locally. */
+export interface Account {
+  id: number;
+  username: string;
+  email: string | null;
+  notifyDaily: boolean;
+  notifyUpdates: boolean;
+  isAdmin: boolean;
+}
+
+export interface RegisterFields {
+  username: string;
+  password: string;
+  email?: string;
+  notifyDaily?: boolean;
+  notifyUpdates?: boolean;
+}
+
+/** Register/login either works or explains why in a sentence fit to show the
+ * player. The server's own messages ("that username is taken", "username or
+ * password is incorrect") are already written for that, so they are passed
+ * through rather than re-worded here. */
+export type AuthResponse = { ok: true; token: string; account: Account } | { ok: false; error: string };
+
+const UNREACHABLE_MESSAGE = "Can't reach the server. Check your connection and try again.";
+
+async function postAuth(path: string, body: unknown): Promise<AuthResponse> {
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as { token?: string; user?: Account; error?: string };
+    if (!res.ok || !data.token || !data.user) {
+      return { ok: false, error: data.error ?? "Something went wrong. Try again." };
+    }
+    return { ok: true, token: data.token, account: data.user };
+  } catch {
+    return { ok: false, error: UNREACHABLE_MESSAGE };
+  }
+}
+
+export function registerAccount(fields: RegisterFields): Promise<AuthResponse> {
+  return postAuth("api/auth/register", fields);
+}
+
+export function loginAccount(username: string, password: string): Promise<AuthResponse> {
+  return postAuth("api/auth/login", { username, password });
+}
+
+/** Ends the session server-side. Best-effort: the local session is dropped
+ * either way, so a failure here only leaves a row to expire on its own. */
+export async function logoutAccount(): Promise<void> {
+  try {
+    await fetch(apiUrl("api/auth/logout"), { method: "POST", headers: { ...authHeaders() } });
+  } catch {
+    // Nothing to do - see above.
+  }
+}
+
+/** Re-reads the logged-in account.
+ *
+ * "logged-out" and "offline" are kept apart on purpose: the first means the
+ * session is genuinely gone and the local copy should be cleared, the second
+ * means we simply couldn't ask, and a cached account is still the best answer
+ * available. Collapsing them would log players out every time they opened the
+ * game on a train. */
+export type AccountCheck = { status: "ok"; account: Account } | { status: "logged-out" } | { status: "offline" };
+
+export async function fetchAccount(): Promise<AccountCheck> {
+  try {
+    const res = await fetch(apiUrl("api/auth/me"), { headers: { ...authHeaders() } });
+    if (res.status === 401) return { status: "logged-out" };
+    if (!res.ok) return { status: "offline" };
+    const data = (await res.json()) as { user: Account };
+    return { status: "ok", account: data.user };
+  } catch {
+    return { status: "offline" };
+  }
+}
+
 // --- Cross-device sync account API -----------------------------------------
 
 export interface AccountData {

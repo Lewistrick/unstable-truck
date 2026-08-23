@@ -851,36 +851,95 @@ body {
   max-width: 260px;
 }
 
-/* The leaderboard-name prompt shown after a first finished run. Reuses the
-   .screen/.panel shell; only the question and the button row need sizing. */
-#nickname-prompt-title {
+/* The account prompt shown after a finished run by a logged-out player.
+   Reuses the .screen/.panel shell; one panel holds three views (the choice and
+   the two forms), only one of which is ever visible. */
+.account-panel {
+  width: min(100%, 320px);
+}
+
+#account-title {
   font-size: 1.05rem;
   line-height: 1.35;
   text-align: center;
-  max-width: 20ch;
+  max-width: 24ch;
   text-wrap: balance;
 }
 
-#nickname-prompt-input {
+.account-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   width: 100%;
-  max-width: 220px;
+  align-items: stretch;
+}
+
+.account-view.hidden {
+  display: none;
+}
+
+.account-input {
+  width: 100%;
   padding: 8px 10px;
   font-size: 1rem;
-  text-align: center;
   color: #f0f2f5;
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 6px;
 }
 
-#nickname-prompt-actions {
+.account-check {
   display: flex;
+  align-items: center;
   gap: 8px;
+  font-size: 0.85rem;
+  color: #9aa5b1;
 }
 
-#nickname-prompt-hint {
-  font-size: 0.8rem;
+/* A subscription needs an address to send to, so the boxes stay disabled until
+   there is one - the server rejects that combination, and a disabled box
+   explains why better than an error would. */
+.account-check input:disabled + span,
+.account-check:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.account-note {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.account-actions button {
+  flex: 1;
+}
+
+.account-error {
+  font-size: 0.85rem;
+  line-height: 1.35;
   text-align: center;
+  color: #ff8f8f;
+  margin: 0;
+}
+
+.account-error.hidden {
+  display: none;
+}
+
+/* Always-available way out of the forms, so a player can never be trapped by a
+   server that won't answer. */
+.account-skip-link {
+  font-size: 0.8rem;
+}
+
+.account-skip-link.hidden {
+  display: none;
 }
 
 #nickname-input {
