@@ -32,4 +32,6 @@ exec docker run --rm \
     node scripts/password-check.mjs
     echo
     node scripts/rate-limit-check.mjs
+    echo
+    node scripts/account-state-check.mjs
   '

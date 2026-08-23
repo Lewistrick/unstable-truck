@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS users (
   notify_daily   BOOLEAN NOT NULL DEFAULT FALSE,
   notify_updates BOOLEAN NOT NULL DEFAULT FALSE,
   is_admin       BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Everything that used to live only in the browser's localStorage: completed
+  -- and played days, the difficulty preference, total play time, the
+  -- first-touch acquisition source, and the truck's appearance. One JSONB
+  -- column rather than a table per concept, because it is read and written
+  -- whole and never queried by field. See server/account-state.ts.
+  user_state     JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at   TIMESTAMPTZ
 );

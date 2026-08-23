@@ -31,6 +31,7 @@ import {
 import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import { GameSession } from "./game/session.js";
+import { pullAccountBests, syncAccountState } from "./game/sync.js";
 import {
     accountPromptRecentlyDeclined,
     addPlayTime,
@@ -415,11 +416,44 @@ if (document.readyState === "loading") {
   logGameStarted();
 }
 
+/** Pushes this device's progress to the account, applies whatever comes back,
+ * and pulls down any personal bests this device has never seen.
+ *
+ * Best-effort throughout: offline, nothing happens and nothing breaks. Doing
+ * both halves together is what makes logging in on a new device restore a
+ * player's streak and their ghosts in one go. */
+async function syncAccount(): Promise<void> {
+  if (!isLoggedIn()) return;
+  const applied = await syncAccountState();
+  const takenBests = await pullAccountBests();
+  if (!applied && takenBests === 0) return;
+  if (takenBests > 0) refreshCachedPersonalBests();
+  renderProgressStrip();
+  refreshViewedUi();
+  renderLeaderboardList();
+}
+
+/** Re-reads the personal best of every level already built this session.
+ *
+ * The cache holds whole generated levels, so throwing it away to pick up new
+ * personal bests would mean regenerating every one of them. The geometry hasn't
+ * changed - only the best time attached to it has. */
+function refreshCachedPersonalBests(): void {
+  for (const cacheMode of ["daily", "weekly"] as const) {
+    for (const cacheDifficulty of ["easy", "hard"] as const) {
+      for (const playable of playableCache[cacheMode][cacheDifficulty].values()) {
+        playable.personalBest = loadPersonalBest(playable.seed, cacheDifficulty);
+      }
+    }
+  }
+}
+
 // Re-check the login on load, so a session revoked elsewhere (a password change
 // on another device) stops counting as logged in here. The cached account
 // answers isLoggedIn() until this returns, and being offline leaves it alone -
-// see refreshAccount().
-void refreshAccount();
+// see refreshAccount(). A surviving session then syncs, which is what restores
+// progress on a device that has just been logged in to.
+void refreshAccount().then(syncAccount);
 
 function refreshViewedUi(): void {
   const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
@@ -1790,6 +1824,10 @@ function completeAccountPrompt(username: string): void {
   pendingScoreSubmit = null;
   finishAccountPrompt();
   submit?.();
+  // Logging in on a fresh device is the moment this matters most: it is what
+  // brings back a streak, a difficulty preference, and every personal-best
+  // ghost the account has stored.
+  void syncAccount();
 }
 
 /** Abandons the prompt. After a run that means the score stays off the
@@ -1929,6 +1967,7 @@ function endRun(): void {
     if (active.level.kind === "daily" && !active.orphan) {
       recordCompletion(active.seed);
       renderProgressStrip();
+      void syncAccountState();
     }
 
     resultsPersonalBest.textContent = !previousBest

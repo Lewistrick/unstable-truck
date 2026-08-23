@@ -289,6 +289,68 @@ export async function fetchAccount(): Promise<AccountCheck> {
   }
 }
 
+/** How a player's truck looks. Stored and synced, but nothing reads it yet -
+ * the renderer still draws the one fixed truck. Kept in sync with the server's
+ * own copy in server/account-state.ts. */
+export type TruckPattern = "horizontal" | "vertical" | "diagonal" | "striped" | "checkered";
+
+export interface TruckAppearance {
+  /** Body colour as "#rrggbb". */
+  primary: string;
+  /** Second colour, used by whichever pattern is chosen. */
+  secondary: string;
+  pattern: TruckPattern;
+}
+
+/** The per-player state an account carries - everything that used to live only
+ * in localStorage. Merge rules live on the server (server/account-state.ts) so
+ * one set of them governs every device. */
+export interface AccountState {
+  completed: string[];
+  played: string[];
+  difficulty: Difficulty | null;
+  playTimeSeconds: number;
+  source: string | null;
+  truck: TruckAppearance | null;
+}
+
+export interface RemoteBest {
+  seed: string;
+  difficulty: Difficulty;
+  time: number;
+  stability: number;
+  inputLog: number[];
+}
+
+/** Pushes this device's state and returns the merged result, so one round trip
+ * serves as both push and pull. Null if the server couldn't be reached, which
+ * is not an error - the local copy is still authoritative for play. */
+export async function pushAccountState(state: AccountState): Promise<AccountState | null> {
+  try {
+    const res = await fetch(apiUrl("api/me/state"), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ state }),
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as { state: AccountState }).state;
+  } catch {
+    return null;
+  }
+}
+
+/** Every recording stored under this account, for rebuilding personal bests on
+ * a device that has never seen them. One request rather than one per seed. */
+export async function fetchAccountBests(): Promise<RemoteBest[]> {
+  try {
+    const res = await fetch(apiUrl("api/me/bests"), { headers: { ...authHeaders() } });
+    if (!res.ok) return [];
+    return ((await res.json()) as { bests: RemoteBest[] }).bests;
+  } catch {
+    return [];
+  }
+}
+
 /** Fields for a partial account update. Anything left out is untouched, which
  * is what lets the settings page save an email without disturbing a password
  * and vice versa. `email: null` clears the address. */

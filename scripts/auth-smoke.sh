@@ -216,6 +216,40 @@ expect "own run log is kept" "true" "$(printf '%s' "$BODY" | jq -r '.logged')"
 req POST "/api/champions/$SEED" '{"difficulty":"hard","championTime":30}'
 expect "champion backfill refused without a token" 401 "$STATUS"
 
+# --- account state (Phase 5) ------------------------------------------------
+
+echo
+req GET /api/me/state
+expect "state needs a token" 401 "$STATUS"
+
+req PUT /api/me/state "{\"state\":{\"completed\":[\"2026-08-20\"],\"played\":[\"2026-08-20\"],\"difficulty\":\"hard\",\"playTimeSeconds\":600,\"source\":\"reddit\"}}" "$TOKEN"
+expect "push state" 200 "$STATUS"
+expect "completed came back" "2026-08-20" "$(printf '%s' "$BODY" | jq -r '.state.completed[0]')"
+
+# A second device pushing a different day must add to the first, not replace it.
+req PUT /api/me/state "{\"state\":{\"completed\":[\"2026-08-21\"],\"difficulty\":\"easy\",\"playTimeSeconds\":60,\"source\":\"itch\"}}" "$TOKEN"
+expect "days are unioned across devices" "2026-08-20 2026-08-21" "$(printf '%s' "$BODY" | jq -r '.state.completed | join(" ")')"
+expect "the account's difficulty wins" "hard" "$(printf '%s' "$BODY" | jq -r '.state.difficulty')"
+expect "play time keeps the larger" "600" "$(printf '%s' "$BODY" | jq -r '.state.playTimeSeconds')"
+expect "acquisition source stays first-touch" "reddit" "$(printf '%s' "$BODY" | jq -r '.state.source')"
+
+req GET /api/me/state "" "$TOKEN"
+expect "state reads back" "2026-08-20 2026-08-21" "$(printf '%s' "$BODY" | jq -r '.state.completed | join(" ")')"
+
+# Junk from a hostile client is dropped rather than stored.
+req PUT /api/me/state '{"state":{"completed":["not-a-seed"],"playTimeSeconds":-1,"truck":{"primary":"red","secondary":"#000000","pattern":"polkadot"}}}' "$TOKEN"
+expect "malformed seeds are not stored" "2026-08-20 2026-08-21" "$(printf '%s' "$BODY" | jq -r '.state.completed | join(" ")')"
+expect "an invalid truck is rejected" "null" "$(printf '%s' "$BODY" | jq -r '.state.truck // "null"')"
+
+req PUT /api/me/state '{"state":{"truck":{"primary":"#3a4653","secondary":"#2b3440","pattern":"diagonal"}}}' "$TOKEN"
+expect "a valid truck is stored" "diagonal" "$(printf '%s' "$BODY" | jq -r '.state.truck.pattern')"
+
+# The score submitted under this name earlier in the run should come back here.
+req GET /api/me/bests "" "$TOKEN"
+expect "bests are fetched in one request" 200 "$STATUS"
+expect "the earlier score is among them" "true" "$(printf '%s' "$BODY" | jq -r --arg s "$SEED" '[.bests[] | select(.seed == $s)] | length > 0')"
+expect "a best carries its input log" "true" "$(printf '%s' "$BODY" | jq -r '.bests[0].inputLog | type == "array"')"
+
 # --- deletion ---------------------------------------------------------------
 
 echo

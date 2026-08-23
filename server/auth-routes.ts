@@ -10,11 +10,16 @@ import {
   deleteUser,
   deleteUserSessions,
   getPasswordHash,
+  getPlayerScores,
   getUserForLogin,
+  getUserState,
+  saveUserState,
   updateUserContactPrefs,
   updateUserPassword,
   type UserRecord,
 } from "./db.js";
+import { EASY_CODE } from "./db.js";
+import { mergeState, parseState } from "./account-state.js";
 import { bearerToken, hashSessionToken, mintSessionToken, requireAuth, sessionExpiry } from "./auth.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { RateLimiter } from "./rate-limit.js";
@@ -309,6 +314,70 @@ authRouter.delete(
       res.status(204).end();
     } catch (err) {
       console.error("account delete failed:", (err as Error).message);
+      res.status(503).json({ error: "storage unavailable" });
+    }
+  }),
+);
+
+
+// --- Account state ----------------------------------------------------------
+
+/** Ceiling on recordings returned by /api/me/bests. Comfortably above what the
+ * client keeps: it prunes daily personal bests at 30 days and weekly ones at
+ * about a year, so roughly 170 is the most it can hold. */
+const MAX_BESTS = 400;
+
+authRouter.get(
+  "/api/me/state",
+  requireAuth(async (_req, res, user) => {
+    try {
+      res.json({ state: parseState(await getUserState(user.id)) });
+    } catch (err) {
+      console.error("state fetch failed:", (err as Error).message);
+      res.status(503).json({ error: "storage unavailable" });
+    }
+  }),
+);
+
+/** Folds this device's state into the account's and returns the result.
+ *
+ * Merging happens here rather than on the client so one set of rules governs
+ * every device - see mergeState() for what they are and why. The response is
+ * the merged state, which the caller writes back locally, so a push doubles as
+ * a pull. */
+authRouter.put(
+  "/api/me/state",
+  requireAuth(async (req, res, user) => {
+    const incoming = parseState((req.body as Record<string, unknown>)?.state);
+    try {
+      const merged = mergeState(parseState(await getUserState(user.id)), incoming);
+      await saveUserState(user.id, merged);
+      res.json({ state: merged });
+    } catch (err) {
+      console.error("state save failed:", (err as Error).message);
+      res.status(503).json({ error: "storage unavailable" });
+    }
+  }),
+);
+
+/** Every recording stored under this account's name, so a new device can
+ * rebuild its personal bests in one request instead of one per seed. */
+authRouter.get(
+  "/api/me/bests",
+  requireAuth(async (_req, res, user) => {
+    try {
+      const rows = await getPlayerScores(user.username, MAX_BESTS);
+      res.json({
+        bests: rows.map((row) => ({
+          seed: row.seed,
+          difficulty: row.difficulty === EASY_CODE ? "easy" : "hard",
+          time: row.time,
+          stability: row.stability,
+          inputLog: row.inputLog,
+        })),
+      });
+    } catch (err) {
+      console.error("bests fetch failed:", (err as Error).message);
       res.status(503).json({ error: "storage unavailable" });
     }
   }),

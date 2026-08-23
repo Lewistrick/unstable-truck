@@ -1,4 +1,4 @@
-import type { Account, Difficulty } from "./api.js";
+import type { Account, Difficulty, TruckAppearance } from "./api.js";
 import type { GhostRecording } from "./ghost.js";
 
 const STORAGE_PREFIX = "unstable-truck:pb:";
@@ -266,6 +266,53 @@ export function loadPlayTime(): number {
 export function addPlayTime(seconds: number): void {
   if (!Number.isFinite(seconds) || seconds <= 0) return;
   localStorage.setItem(PLAY_TIME_KEY, String(loadPlayTime() + seconds));
+}
+
+/** Replaces the running total outright, for applying a merged one back from the
+ * account. Only ever moves forward - the merge takes the larger of the two, so
+ * a smaller value here would mean something went wrong upstream. */
+export function setPlayTime(seconds: number): void {
+  if (!Number.isFinite(seconds) || seconds <= loadPlayTime()) return;
+  localStorage.setItem(PLAY_TIME_KEY, String(Math.floor(seconds)));
+}
+
+// --- Truck appearance ------------------------------------------------------
+
+const TRUCK_KEY = "unstable-truck:truck";
+
+/** The truck as it is drawn today (see drawTruck in render.ts), so a stored
+ * appearance starts out identical to the fixed one and nothing changes
+ * visually until something actually reads this. */
+export const DEFAULT_TRUCK: TruckAppearance = { primary: "#3a4653", secondary: "#2b3440", pattern: "horizontal" };
+
+const TRUCK_PATTERNS = new Set(["horizontal", "vertical", "diagonal", "striped", "checkered"]);
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+
+/** Stored, synced, and not yet used by anything: the renderer still draws one
+ * fixed truck. This is the space for it, ready for whatever chooses it later. */
+export function loadTruckAppearance(): TruckAppearance {
+  const raw = localStorage.getItem(TRUCK_KEY);
+  if (!raw) return DEFAULT_TRUCK;
+  try {
+    const parsed = JSON.parse(raw) as Partial<TruckAppearance>;
+    if (
+      typeof parsed.primary !== "string" ||
+      !HEX_COLOUR.test(parsed.primary) ||
+      typeof parsed.secondary !== "string" ||
+      !HEX_COLOUR.test(parsed.secondary) ||
+      typeof parsed.pattern !== "string" ||
+      !TRUCK_PATTERNS.has(parsed.pattern)
+    ) {
+      return DEFAULT_TRUCK;
+    }
+    return { primary: parsed.primary, secondary: parsed.secondary, pattern: parsed.pattern };
+  } catch {
+    return DEFAULT_TRUCK;
+  }
+}
+
+export function saveTruckAppearance(truck: TruckAppearance): void {
+  localStorage.setItem(TRUCK_KEY, JSON.stringify(truck));
 }
 
 // --- Best streak -----------------------------------------------------------

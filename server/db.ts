@@ -185,10 +185,13 @@ export async function ensureSchema(): Promise<void> {
        notify_daily   BOOLEAN NOT NULL DEFAULT FALSE,
        notify_updates BOOLEAN NOT NULL DEFAULT FALSE,
        is_admin       BOOLEAN NOT NULL DEFAULT FALSE,
+       user_state     JSONB NOT NULL DEFAULT '{}'::jsonb,
        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
        last_seen_at   TIMESTAMPTZ
      )`,
   );
+  // For users tables created before the state column existed.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_state JSONB NOT NULL DEFAULT '{}'::jsonb`);
   await pool.query(
     `CREATE TABLE IF NOT EXISTS sessions (
        token_hash   TEXT PRIMARY KEY,
@@ -459,6 +462,38 @@ export async function updateAccount(token: string, nickname: string, difficulty:
   return (result.rowCount ?? 0) > 0;
 }
 
+/** Every stored recording for a player, newest first.
+ *
+ * Capped rather than unbounded: input logs are the bulk of each row, and this
+ * is fetched in one go when a player logs in on a new device. The cap sits well
+ * above what the client can even use - it prunes daily bests at 30 days and
+ * weekly ones at about a year. */
+export async function getPlayerScores(
+  nickname: string,
+  limit: number,
+): Promise<{ seed: string; difficulty: DifficultyCode; time: number; stability: number; inputLog: number[] }[]> {
+  const result = await pool.query<{
+    seed: string;
+    difficulty: DifficultyCode;
+    time_seconds: number;
+    stability: number;
+    input_log: number[];
+  }>(
+    `SELECT seed, difficulty, time_seconds, stability, input_log
+     FROM scores WHERE nickname = $1
+     ORDER BY updated_at DESC
+     LIMIT $2`,
+    [nickname, limit],
+  );
+  return result.rows.map((row) => ({
+    seed: row.seed,
+    difficulty: row.difficulty,
+    time: row.time_seconds,
+    stability: row.stability,
+    inputLog: row.input_log,
+  }));
+}
+
 export interface PlayerStats {
   totalScores: number;
   worldFirsts: number;
@@ -623,6 +658,17 @@ export async function updateUserPassword(userId: number, passwordHash: string): 
  * it inherits those scores. */
 export async function deleteUser(userId: number): Promise<void> {
   await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+}
+
+/** The account's stored state blob, exactly as written. Callers parse it -
+ * db.ts stays SQL and knows nothing about the shape. */
+export async function getUserState(userId: number): Promise<unknown> {
+  const result = await pool.query<{ user_state: unknown }>(`SELECT user_state FROM users WHERE id = $1`, [userId]);
+  return result.rows[0]?.user_state ?? null;
+}
+
+export async function saveUserState(userId: number, state: unknown): Promise<void> {
+  await pool.query(`UPDATE users SET user_state = $2::jsonb WHERE id = $1`, [userId, JSON.stringify(state)]);
 }
 
 export async function touchUserLastSeen(userId: number): Promise<void> {
