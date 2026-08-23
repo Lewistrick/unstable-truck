@@ -338,11 +338,6 @@ body {
   font-size: 0.85rem;
 }
 
-#stats-difficulty-switch {
-  margin-top: 4px;
-}
-
-
 
 /* The account section of the settings panel. It shares the .account-* input and
    checkbox styling with the post-run prompt, which is also where its Log in /
@@ -457,9 +452,10 @@ body {
   color: #c3cad4;
 }
 
-/* Shared pill-toggle look: the Daily/Weekly switch (#mode-toggle) and the
-   Easy/Hard switch (.mode-toggle, under the Tutorial/How To buttons) render
-   identically - same shape, same active/inactive button styling below. */
+/* Shared pill-toggle look: the Daily/Weekly switch (#mode-toggle) and both
+   Easy/Hard switches (.mode-toggle - under the Tutorial/How To buttons, and in
+   the settings panel's stats section) render identically - same shape, same
+   active/inactive button styling below. */
 #mode-toggle,
 .mode-toggle {
   display: flex;
@@ -1415,14 +1411,18 @@ button:active {
 /* Easy/Hard switch, directly under the Tutorial/How To row - hidden until the
    player has finished a run in either mode (see updateDifficultySwitchVisibility),
    and hidden outright in weekly mode (Weekly is Hard-only). */
-#difficulty-switch {
+#difficulty-switch,
+#stats-difficulty-switch {
   display: flex;
   justify-content: center;
   width: 100%;
   margin-top: 4px;
 }
 
-#difficulty-switch.hidden {
+/* Both need to out-specify the bare .hidden rule, since .mode-toggle inside
+   them is display:flex. */
+#difficulty-switch.hidden,
+#stats-difficulty-switch.hidden {
   display: none;
 }
 
