@@ -22,7 +22,7 @@ import {
   type UserRecord,
 } from "./db.js";
 import crypto from "node:crypto";
-import { authenticate } from "./auth.js";
+import { authenticate, requireAdmin } from "./auth.js";
 import { ensureOptimalRoute } from "./optimal.js";
 
 export const scoresRouter = Router();
@@ -225,17 +225,25 @@ scoresRouter.post("/api/runs", async (req, res) => {
 });
 
 /** A page of run-log rows (newest first) for the /logs inspector. `limit` is
- * capped at 200; `offset` pages back through history. */
-scoresRouter.get("/api/runs", async (req, res) => {
-  const limit = Math.min(200, Math.max(1, Number.parseInt(String(req.query.limit ?? ""), 10) || 100));
-  const offset = Math.max(0, Number.parseInt(String(req.query.offset ?? ""), 10) || 0);
-  try {
-    res.json(await listRuns(limit, offset));
-  } catch (err) {
-    console.error("run log list failed:", (err as Error).message);
-    res.status(503).json({ error: "storage unavailable" });
-  }
-});
+ * capped at 200; `offset` pages back through history.
+ *
+ * Admins only. Every row carries a player's name, the seed they were on, and
+ * their acquisition source - being unlinked was never the same as being
+ * private, and this is about to be reachable from an audience rather than just
+ * from me. */
+scoresRouter.get(
+  "/api/runs",
+  requireAdmin(async (req, res) => {
+    const limit = Math.min(200, Math.max(1, Number.parseInt(String(req.query.limit ?? ""), 10) || 100));
+    const offset = Math.max(0, Number.parseInt(String(req.query.offset ?? ""), 10) || 0);
+    try {
+      res.json(await listRuns(limit, offset));
+    } catch (err) {
+      console.error("run log list failed:", (err as Error).message);
+      res.status(503).json({ error: "storage unavailable" });
+    }
+  }),
+);
 
 /** Seeds a seed's champion threshold if it doesn't have one yet (frozen once
  * set). Lets a client freeze the threshold for a day whose record already beats

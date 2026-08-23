@@ -671,6 +671,30 @@ export async function saveUserState(userId: number, state: unknown): Promise<voi
   await pool.query(`UPDATE users SET user_state = $2::jsonb WHERE id = $1`, [userId, JSON.stringify(state)]);
 }
 
+/** Grants admin to exactly the named users and revokes it from everyone else,
+ * reporting whatever actually changed.
+ *
+ * Driven by the ADMIN_USERNAMES env var, so deployment config is the single
+ * source of truth: taking a name out of it removes the rights on the next boot
+ * rather than leaving a forgotten admin in the database. Idempotent - the WHERE
+ * clause means a boot with nothing to change writes no rows at all.
+ *
+ * A name with no account is silently ignored; admin is granted the moment that
+ * username registers. */
+export async function syncAdmins(usernames: string[]): Promise<{ promoted: string[]; demoted: string[] }> {
+  const lowered = usernames.map((u) => u.toLowerCase());
+  const result = await pool.query<{ username: string; is_admin: boolean }>(
+    `UPDATE users SET is_admin = (username_lower = ANY($1))
+     WHERE is_admin <> (username_lower = ANY($1))
+     RETURNING username, is_admin`,
+    [lowered],
+  );
+  return {
+    promoted: result.rows.filter((row) => row.is_admin).map((row) => row.username),
+    demoted: result.rows.filter((row) => !row.is_admin).map((row) => row.username),
+  };
+}
+
 export async function touchUserLastSeen(userId: number): Promise<void> {
   await pool.query(`UPDATE users SET last_seen_at = now() WHERE id = $1`, [userId]);
 }

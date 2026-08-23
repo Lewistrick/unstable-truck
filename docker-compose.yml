@@ -28,6 +28,10 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-truck}:${POSTGRES_PASSWORD:-truck}@db:5432/${POSTGRES_DB:-unstable_truck}
       PORT: 8003
+      # Comma-separated usernames allowed to read the run log at /logs. This is
+      # the source of truth: a name removed here loses admin on the next boot.
+      # Leave the variable out entirely to leave existing admins untouched.
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
     depends_on:
       db:
         condition: service_healthy

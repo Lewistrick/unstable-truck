@@ -446,9 +446,11 @@ acquisition tag. This is now **user-accounts.md §6** (admin gating), which is
 sequenced early there precisely because it closes a live leak rather than a
 hypothetical one.
 
-- [ ] Nothing to do here. Just confirm it actually landed before the itch page
-      leaves draft — `curl https://lewistrick.com/unstable-truck/api/runs`
-      should not return rows.
+- [x] Landed in the accounts work: `GET /api/runs` is admin-only, and
+      `logs.html` puts up a login form when it is turned away. Still worth
+      confirming on the deployed server before the itch page leaves draft —
+      `curl https://lewistrick.com/unstable-truck/api/runs` should return 401,
+      not rows.
 
 ### 4.5 Account spam — **↓ accounts**
 

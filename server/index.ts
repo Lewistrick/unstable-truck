@@ -1,7 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDatabaseHealth, ensureSchema, pruneExpiredSessions, pruneOldRunLogs } from "./db.js";
+import { checkDatabaseHealth, ensureSchema, pruneExpiredSessions, pruneOldRunLogs, syncAdmins } from "./db.js";
 import { startPrecomputeSchedule } from "./optimal.js";
 import { scoresRouter } from "./routes.js";
 import { authRouter } from "./auth-routes.js";
@@ -50,7 +50,33 @@ const port = Number(process.env.PORT) || 8080;
 // Ensure newer tables exist (init.sql only runs on first DB init) before
 // serving. Best-effort: a DB hiccup here shouldn't stop the app from booting,
 // since scoring is already resilient to the DB being unreachable.
+/** Who may read the run log, from ADMIN_USERNAMES (comma-separated).
+ *
+ * Unset is deliberately different from empty: unset means "not configured
+ * here", and leaves whatever is in the database alone, so a deploy that forgets
+ * the variable doesn't silently strip everyone's rights. Set-but-empty means
+ * "nobody", and is honoured. */
+function configuredAdmins(): string[] | null {
+  const raw = process.env.ADMIN_USERNAMES;
+  if (raw === undefined) return null;
+  return raw
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
 ensureSchema()
+  .then(async () => {
+    const admins = configuredAdmins();
+    if (admins === null) return;
+    try {
+      const { promoted, demoted } = await syncAdmins(admins);
+      if (promoted.length > 0) console.log(`Granted admin to: ${promoted.join(", ")}`);
+      if (demoted.length > 0) console.log(`Revoked admin from: ${demoted.join(", ")}`);
+    } catch (err) {
+      console.error("Admin sync failed:", (err as Error).message);
+    }
+  })
   .then(() => {
     // Once the optimal_routes table is guaranteed to exist, begin precomputing
     // (and daily-refreshing) the "Optimal" solver route for every browsable

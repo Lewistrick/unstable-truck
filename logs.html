@@ -98,6 +98,33 @@
     #filter-clear:hover { background: #232b36; }
     td.player { cursor: pointer; }
     td.player:hover { text-decoration: underline; }
+    #gate {
+      max-width: 300px;
+      margin: 40px auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #gate input {
+      padding: 8px 10px;
+      font: inherit;
+      color: #d6dbe2;
+      background: #10141a;
+      border: 1px solid #2c3542;
+      border-radius: 6px;
+    }
+    #gate button {
+      padding: 8px 14px;
+      font: inherit;
+      color: #d6dbe2;
+      background: #1c222b;
+      border: 1px solid #2c3542;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #gate button:hover { background: #232b36; }
+    #gate-error { color: #ff8f8f; margin: 0; }
+    .hidden { display: none; }
   </style>
 </head>
 
@@ -106,6 +133,16 @@
     <h1>Event log — newest first</h1>
     <a class="back-btn" href=".">← Back to game</a>
   </header>
+  <form id="gate" class="hidden">
+    <p id="gate-message">This log is for admins. Log in to read it.</p>
+    <input type="text" id="gate-username" placeholder="Username" autocomplete="username" autocapitalize="off"
+      spellcheck="false" />
+    <input type="password" id="gate-password" placeholder="Password" autocomplete="current-password" />
+    <button type="submit" id="gate-submit">Log in</button>
+    <p id="gate-error" class="hidden"></p>
+  </form>
+
+  <div id="log-view" class="hidden">
   <div id="filters">
     <label>Include player
       <input type="text" id="filter-include" placeholder="e.g. Racer, Stranger" autocomplete="off" />
@@ -130,6 +167,7 @@
   </table>
   <p id="status"></p>
   <button id="more" type="button">Show 100 more</button>
+  </div>
 
   <script>
     const PAGE = 100;
@@ -142,6 +180,66 @@
     const excludeEl = document.getElementById("filter-exclude");
     const clearBtn = document.getElementById("filter-clear");
     const FILTER_KEY = "unstable-truck:log-filter";
+    // The same key the game stores its session under. This page is served from
+    // the same origin, so an admin who is already logged in there needs no
+    // second login here - the form below is the fallback, not the norm.
+    const AUTH_KEY = "unstable-truck:auth";
+    const gateEl = document.getElementById("gate");
+    const gateMessage = document.getElementById("gate-message");
+    const gateUsername = document.getElementById("gate-username");
+    const gatePassword = document.getElementById("gate-password");
+    const gateSubmit = document.getElementById("gate-submit");
+    const gateError = document.getElementById("gate-error");
+    const logView = document.getElementById("log-view");
+
+    function storedToken() {
+      try {
+        return JSON.parse(localStorage.getItem(AUTH_KEY) || "null")?.token ?? null;
+      } catch {
+        return null;
+      }
+    }
+
+    function authHeaders() {
+      const token = storedToken();
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
+    function showGate(message) {
+      gateMessage.textContent = message;
+      gateEl.classList.remove("hidden");
+      logView.classList.add("hidden");
+      gateUsername.focus();
+    }
+
+    function showLog() {
+      gateEl.classList.add("hidden");
+      logView.classList.remove("hidden");
+    }
+
+    gateEl.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      gateError.classList.add("hidden");
+      gateSubmit.disabled = true;
+      try {
+        const res = await fetch("api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: gateUsername.value.trim(), password: gatePassword.value }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.token) throw new Error(data.error || `HTTP ${res.status}`);
+        localStorage.setItem(AUTH_KEY, JSON.stringify({ token: data.token, account: data.user }));
+        gatePassword.value = "";
+        showLog();
+        loadMore();
+      } catch (err) {
+        gateError.textContent = err.message;
+        gateError.classList.remove("hidden");
+      } finally {
+        gateSubmit.disabled = false;
+      }
+    });
     // Every row fetched so far. Filtering happens over this rather than over the
     // DOM, so changing a filter re-renders from data instead of hunting for
     // rows to unhide.
@@ -237,7 +335,18 @@
       moreBtn.disabled = true;
       moreBtn.textContent = "Loading…";
       try {
-        const res = await fetch(`api/runs?limit=${PAGE}&offset=${offset}`);
+        const res = await fetch(`api/runs?limit=${PAGE}&offset=${offset}`, { headers: authHeaders() });
+        // 401 is "log in", which the form can fix. 403 is "logged in, but not
+        // an admin", which it can't - so say so rather than inviting a retry
+        // that will fail the same way.
+        if (res.status === 401 || res.status === 403) {
+          showGate(
+            res.status === 403
+              ? "That account isn't an admin. Log in with one that is."
+              : "This log is for admins. Log in to read it.",
+          );
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = await res.json();
         allRows.push(...rows);
@@ -259,6 +368,9 @@
     }
 
     moreBtn.addEventListener("click", loadMore);
+    // Try straight away with whatever session is already stored; loadMore()
+    // puts the gate up itself if that turns out not to be an admin's.
+    showLog();
     loadMore();
   </script>
 </body>

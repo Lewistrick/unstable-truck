@@ -231,7 +231,31 @@ body {
 }
 
 .profile-panel {
+  /* Anchors the corner dismiss below. The panel scrolls with .screen rather
+     than internally, so an absolutely-positioned child stays put against the
+     panel's own top corner. */
+  position: relative;
   max-width: 420px;
+}
+
+/* Corner dismiss on the settings panel: the same thing as the Close button at
+   the bottom, within reach without scrolling past every section to find it. */
+.panel-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 2px 8px;
+  font-size: 1.4rem;
+  line-height: 1;
+  font-weight: 400;
+  color: #9aa4b2;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.panel-dismiss:hover {
+  color: #f0f2f5;
+  background: #232b36;
 }
 
 .settings-section {

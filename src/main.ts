@@ -225,6 +225,7 @@ const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElem
 const profileScreen = document.getElementById("profile-screen")!;
 const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
 const profileCloseBtn = document.getElementById("profile-close-btn") as HTMLButtonElement;
+const profileDismissBtn = document.getElementById("profile-dismiss-btn") as HTMLButtonElement;
 const accountLoggedOut = document.getElementById("account-logged-out")!;
 const accountLoggedIn = document.getElementById("account-logged-in")!;
 const settingsLoginBtn = document.getElementById("settings-login-btn") as HTMLButtonElement;
@@ -2647,6 +2648,7 @@ function closeProfile(): void {
 }
 profileBtn.addEventListener("click", openProfile);
 profileCloseBtn.addEventListener("click", closeProfile);
+profileDismissBtn.addEventListener("click", closeProfile);
 profileScreen.addEventListener("click", (e) => {
   if (e.target === profileScreen) closeProfile();
 });

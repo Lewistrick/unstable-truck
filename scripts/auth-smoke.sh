@@ -250,6 +250,19 @@ expect "bests are fetched in one request" 200 "$STATUS"
 expect "the earlier score is among them" "true" "$(printf '%s' "$BODY" | jq -r --arg s "$SEED" '[.bests[] | select(.seed == $s)] | length > 0')"
 expect "a best carries its input log" "true" "$(printf '%s' "$BODY" | jq -r '.bests[0].inputLog | type == "array"')"
 
+# --- admin gating (Phase 6) --------------------------------------------------
+
+# The smoke-test user is an ordinary account, so it should be turned away with a
+# 403 - logged in, but not an admin. A missing token is a 401 instead, because
+# that is something a client can actually fix by logging in.
+echo
+req GET "/api/runs?limit=1"
+expect "run log needs a token" 401 "$STATUS"
+req GET "/api/runs?limit=1" "" "$TOKEN"
+expect "run log refuses a non-admin" 403 "$STATUS"
+req GET "/api/runs?limit=1" "" "not-a-real-token"
+expect "run log refuses a bogus token" 401 "$STATUS"
+
 # --- deletion ---------------------------------------------------------------
 
 echo

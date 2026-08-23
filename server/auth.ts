@@ -77,3 +77,18 @@ export function requireAuth(handler: (req: Request, res: Response, user: UserRec
     await handler(req, res, user);
   };
 }
+
+/** As requireAuth, but the session also has to belong to an admin.
+ *
+ * 401 and 403 are kept apart deliberately: the first means "log in", which a
+ * client can act on, and the second means "you are logged in and this still
+ * isn't yours", which it can't. */
+export function requireAdmin(handler: (req: Request, res: Response, user: UserRecord) => Promise<void>): RequestHandler {
+  return requireAuth(async (req, res, user) => {
+    if (!user.isAdmin) {
+      res.status(403).json({ error: "admins only" });
+      return;
+    }
+    await handler(req, res, user);
+  });
+}

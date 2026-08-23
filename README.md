@@ -378,6 +378,15 @@ Defaults (all overridable via environment variables or a `.env` file):
 | `POSTGRES_USER`     | `truck`          | Postgres user                                |
 | `POSTGRES_PASSWORD` | `truck`          | Postgres password                            |
 | `POSTGRES_DB`       | `unstable_truck` | Postgres database name                       |
+| `ADMIN_USERNAMES`   | _(empty)_        | Comma-separated usernames that may read `/logs` |
+
+`ADMIN_USERNAMES` is the source of truth for who is an admin: the listed
+accounts are granted it at boot and every other account has it revoked, so
+removing a name takes the rights away on the next restart. A name that has no
+account yet is ignored, and becomes an admin as soon as that username
+registers. Leaving the variable out of the environment altogether is different
+from setting it empty - unset means "not configured here" and leaves the
+database as it is, so a deploy that forgets it doesn't strip everyone's access.
 
 ### Deploying behind a reverse proxy under a sub-path
 
