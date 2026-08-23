@@ -289,6 +289,51 @@ export async function fetchAccount(): Promise<AccountCheck> {
   }
 }
 
+/** Fields for a partial account update. Anything left out is untouched, which
+ * is what lets the settings page save an email without disturbing a password
+ * and vice versa. `email: null` clears the address. */
+export interface AccountUpdateFields {
+  email?: string | null;
+  notifyDaily?: boolean;
+  notifyUpdates?: boolean;
+  currentPassword?: string;
+  newPassword?: string;
+}
+
+/** A password change rotates every session, so the server hands back a fresh
+ * token for the device that made the change. Absent for other updates. */
+export type AccountUpdateResponse = { ok: true; account: Account; token?: string } | { ok: false; error: string };
+
+export async function patchAccount(fields: AccountUpdateFields): Promise<AccountUpdateResponse> {
+  try {
+    const res = await fetch(apiUrl("api/auth/me"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(fields),
+    });
+    const data = (await res.json().catch(() => ({}))) as { user?: Account; token?: string; error?: string };
+    if (!res.ok || !data.user) return { ok: false, error: data.error ?? "Something went wrong. Try again." };
+    return data.token ? { ok: true, account: data.user, token: data.token } : { ok: true, account: data.user };
+  } catch {
+    return { ok: false, error: UNREACHABLE_MESSAGE };
+  }
+}
+
+export async function deleteAccountRequest(password: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(apiUrl("api/auth/me"), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: data.error ?? "Something went wrong. Try again." };
+  } catch {
+    return { ok: false, error: UNREACHABLE_MESSAGE };
+  }
+}
+
 // --- Cross-device sync account API -----------------------------------------
 
 export interface AccountData {

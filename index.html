@@ -214,29 +214,69 @@
             <input type="text" id="nickname-input" maxlength="16" autocomplete="off" />
             <button id="nickname-settings-save" class="btn-secondary" type="button">Save</button>
           </div>
+          <p id="nickname-account-note" class="muted account-note hidden">Your username is your leaderboard name while
+            you're logged in.</p>
         </div>
         <hr class="section-divider" />
-        <div id="sync-section" class="settings-section">
-          <div class="section-header">Sync devices</div>
-          <p class="sync-desc muted">Play on multiple devices with the same nickname and streak.</p>
-          <div id="sync-unlinked">
-            <button id="sync-generate-btn" class="btn-secondary" type="button">Generate sync code</button>
-            <div id="sync-link-row">
-              <input type="text" id="sync-link-input" maxlength="6" placeholder="Enter code" autocomplete="off" spellcheck="false" />
-              <button id="sync-link-btn" class="btn-secondary" type="button">Link</button>
+        <div id="account-section" class="settings-section">
+          <div class="section-header">Account</div>
+
+          <div id="account-logged-out">
+            <p class="account-desc muted">An account keeps your streak, personal bests and leaderboard name on every
+              device you play on.</p>
+            <div class="account-actions">
+              <button id="settings-login-btn" class="btn-secondary" type="button">Log in</button>
+              <button id="settings-register-btn" class="btn-secondary" type="button">Create account</button>
+            </div>
+            <div id="sync-migrate-row" class="hidden">
+              <p class="muted account-note">This device still has an old sync code. Turn it into an account and your
+                nickname and completed days come with it.</p>
+              <button id="sync-migrate-btn" class="btn-secondary" type="button">Upgrade sync code</button>
             </div>
           </div>
-          <div id="sync-linked" class="hidden">
-            <div id="sync-code-display">
-              <span class="sync-label muted">Your sync code</span>
-              <span id="sync-code-value"></span>
-              <button id="sync-copy-btn" class="btn-secondary" type="button" title="Copy code">Copy</button>
+
+          <div id="account-logged-in" class="hidden">
+            <div id="account-username-row">
+              <span class="account-label muted">Logged in as</span>
+              <span id="account-username"></span>
             </div>
-            <div id="sync-status" class="muted"></div>
-            <button id="sync-now-btn" class="btn-secondary" type="button">Sync now</button>
-            <button id="sync-unlink-btn" class="btn-secondary sync-unlink" type="button">Unlink</button>
+
+            <input type="email" id="account-email" class="account-input" maxlength="254" placeholder="Email (optional)"
+              autocomplete="email" autocapitalize="off" spellcheck="false" />
+            <label class="account-check">
+              <input type="checkbox" id="account-notify-daily" disabled /> Daily reminder
+            </label>
+            <label class="account-check">
+              <input type="checkbox" id="account-notify-updates" disabled /> Game updates
+            </label>
+            <button id="account-save-btn" class="btn-secondary" type="button">Save</button>
+
+            <details id="account-password-details">
+              <summary>Change password</summary>
+              <input type="password" id="account-current-password" class="account-input" placeholder="Current password"
+                autocomplete="current-password" />
+              <input type="password" id="account-new-password" class="account-input" placeholder="New password"
+                autocomplete="new-password" />
+              <button id="account-password-btn" class="btn-secondary" type="button">Change password</button>
+            </details>
+
+            <button id="account-logout-btn" class="btn-secondary" type="button">Log out</button>
+            <button id="account-delete-btn" class="btn-secondary account-danger" type="button">Delete account</button>
+            <div id="account-delete-confirm" class="hidden">
+              <p class="muted account-note">This removes your account and frees your username for someone else. Scores
+                you've already set stay on the leaderboard.</p>
+              <input type="password" id="account-delete-password" class="account-input" placeholder="Password"
+                autocomplete="current-password" />
+              <div class="account-actions">
+                <button id="account-delete-confirm-btn" class="btn-secondary account-danger" type="button">Delete for
+                  good</button>
+                <button id="account-delete-cancel-btn" class="btn-secondary" type="button">Cancel</button>
+              </div>
+            </div>
           </div>
-          <p id="sync-error" class="sync-error hidden"></p>
+
+          <p id="account-status" class="muted account-status hidden"></p>
+          <p id="account-section-error" class="account-error hidden" role="alert"></p>
         </div>
         <hr class="section-divider" />
         <div class="settings-section">

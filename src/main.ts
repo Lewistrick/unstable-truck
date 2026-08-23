@@ -1,6 +1,5 @@
 import {
     backfillChampionTime,
-    createSyncAccount,
     fetchChampionTimes,
     fetchLeaderboard,
     fetchOptimalRoute,
@@ -8,7 +7,6 @@ import {
     fetchStats,
     fetchSyncAccount,
     logRun,
-    pushSyncAccount,
     submitScore,
     type Difficulty,
     type LeaderboardEntry,
@@ -17,7 +15,7 @@ import {
 } from "./game/api.js";
 import { COUNTDOWN_STEP_DURATION, countdownLabel } from "./game/countdown.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
-import { isLoggedIn, login, refreshAccount, register } from "./game/auth.js";
+import { currentUser, deleteAccount, isLoggedIn, login, logout, refreshAccount, register, updateAccount } from "./game/auth.js";
 import { createInput } from "./game/input.js";
 import { optimalRowIndex } from "./game/leaderboard-order.js";
 import {
@@ -57,7 +55,6 @@ import {
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
-    saveSyncToken,
     markNicknameChosen,
     recordAccountPromptDeclined,
     setNickname,
@@ -228,17 +225,29 @@ const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElem
 const profileScreen = document.getElementById("profile-screen")!;
 const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
 const profileCloseBtn = document.getElementById("profile-close-btn") as HTMLButtonElement;
-const syncGenerateBtn = document.getElementById("sync-generate-btn") as HTMLButtonElement;
-const syncLinkInput = document.getElementById("sync-link-input") as HTMLInputElement;
-const syncLinkBtn = document.getElementById("sync-link-btn") as HTMLButtonElement;
-const syncUnlinked = document.getElementById("sync-unlinked")!;
-const syncLinked = document.getElementById("sync-linked")!;
-const syncCodeValue = document.getElementById("sync-code-value")!;
-const syncCopyBtn = document.getElementById("sync-copy-btn") as HTMLButtonElement;
-const syncStatus = document.getElementById("sync-status")!;
-const syncNowBtn = document.getElementById("sync-now-btn") as HTMLButtonElement;
-const syncUnlinkBtn = document.getElementById("sync-unlink-btn") as HTMLButtonElement;
-const syncError = document.getElementById("sync-error")!;
+const accountLoggedOut = document.getElementById("account-logged-out")!;
+const accountLoggedIn = document.getElementById("account-logged-in")!;
+const settingsLoginBtn = document.getElementById("settings-login-btn") as HTMLButtonElement;
+const settingsRegisterBtn = document.getElementById("settings-register-btn") as HTMLButtonElement;
+const syncMigrateRow = document.getElementById("sync-migrate-row")!;
+const syncMigrateBtn = document.getElementById("sync-migrate-btn") as HTMLButtonElement;
+const accountUsernameEl = document.getElementById("account-username")!;
+const accountEmailInput = document.getElementById("account-email") as HTMLInputElement;
+const accountNotifyDaily = document.getElementById("account-notify-daily") as HTMLInputElement;
+const accountNotifyUpdates = document.getElementById("account-notify-updates") as HTMLInputElement;
+const accountSaveBtn = document.getElementById("account-save-btn") as HTMLButtonElement;
+const accountCurrentPassword = document.getElementById("account-current-password") as HTMLInputElement;
+const accountNewPassword = document.getElementById("account-new-password") as HTMLInputElement;
+const accountPasswordBtn = document.getElementById("account-password-btn") as HTMLButtonElement;
+const accountLogoutBtn = document.getElementById("account-logout-btn") as HTMLButtonElement;
+const accountDeleteBtn = document.getElementById("account-delete-btn") as HTMLButtonElement;
+const accountDeleteConfirm = document.getElementById("account-delete-confirm")!;
+const accountDeletePassword = document.getElementById("account-delete-password") as HTMLInputElement;
+const accountDeleteConfirmBtn = document.getElementById("account-delete-confirm-btn") as HTMLButtonElement;
+const accountDeleteCancelBtn = document.getElementById("account-delete-cancel-btn") as HTMLButtonElement;
+const accountStatus = document.getElementById("account-status")!;
+const accountSectionError = document.getElementById("account-section-error")!;
+const nicknameAccountNote = document.getElementById("nickname-account-note")!;
 const statsLocal = document.getElementById("stats-local")!;
 const statsServer = document.getElementById("stats-server")!;
 const statsServerError = document.getElementById("stats-server-error")!;
@@ -305,6 +314,7 @@ const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElem
 const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
 const nicknameSettingsSave = document.getElementById("nickname-settings-save") as HTMLButtonElement;
 const accountScreen = document.getElementById("account-screen")!;
+const accountTitle = document.getElementById("account-title")!;
 const accountChoice = document.getElementById("account-choice")!;
 const accountRegisterForm = document.getElementById("account-register-form") as HTMLFormElement;
 const accountLoginForm = document.getElementById("account-login-form") as HTMLFormElement;
@@ -351,7 +361,6 @@ function applyNickname(next: string): void {
   renderLeaderboardList();
   if (nickname !== oldNickname) {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
-    if (loadSyncToken()) void doSync();
   }
 }
 
@@ -404,11 +413,6 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", logGameStarted);
 } else {
   logGameStarted();
-}
-
-// Pull remote state on load if a sync token is stored.
-if (loadSyncToken()) {
-  void doSync();
 }
 
 // Re-check the login on load, so a session revoked elsewhere (a password change
@@ -1681,14 +1685,32 @@ function beginRun(playable: Playable): void {
 // drops it, keeping that run off the board entirely.
 let pendingScoreSubmit: (() => void) | null = null;
 
-/** Asks a logged-out player to sign in before their run is put on the board,
- * in place of the results screen rather than on top of it.
+/** Where the prompt was opened from, which decides its wording, where it
+ * returns to, and whether backing out counts as declining. */
+type AccountPromptContext = "run" | "settings";
+let accountPromptContext: AccountPromptContext = "run";
+
+/** Asks a logged-out player to sign in, in place of whatever screen they came
+ * from rather than on top of it.
  *
  * One panel, three views: the choice, and a form behind each of the first two
- * buttons. Whichever way it ends, the player lands on the results screen. */
-function openAccountPrompt(submit: () => void): void {
+ * buttons. The settings page opens the same forms rather than growing a second
+ * copy of them - it just starts on one directly and returns there afterwards. */
+function openAccountPrompt(
+  submit: (() => void) | null,
+  context: AccountPromptContext = "run",
+  view: HTMLElement = accountChoice,
+): void {
   pendingScoreSubmit = submit;
-  showAccountView(accountChoice);
+  accountPromptContext = context;
+  accountTitle.textContent =
+    context === "run" ? "Log in or create an account to register your score" : "Log in or create an account";
+  // Backing out of a run means the score isn't registered; from settings it is
+  // an ordinary cancel, and shouldn't read as a decision about a score.
+  const skipLabel = context === "run" ? "Don't register score" : "Cancel";
+  accountSkipBtn.textContent = skipLabel;
+  accountSkipLink.textContent = skipLabel;
+  showAccountView(view);
   registerUsername.value = nickname;
   registerPassword.value = "";
   registerEmail.value = "";
@@ -1698,6 +1720,9 @@ function openAccountPrompt(submit: () => void): void {
   loginPassword.value = "";
   syncNotifyAvailability();
   accountScreen.classList.remove("hidden");
+  const firstField = view === accountLoginForm ? loginUsername : view === accountRegisterForm ? registerUsername : null;
+  firstField?.focus();
+  firstField?.select();
 }
 
 /** Shows one of the prompt's three views and hides the rest. The skip link
@@ -1716,10 +1741,12 @@ function closeAccountPrompt(): void {
   accountScreen.classList.add("hidden");
 }
 
-/** Hands the player on to the results they would have seen straight away. */
+/** Hands the player back to wherever they were: the results they would have
+ * seen straight away, or the settings panel they left. */
 function finishAccountPrompt(): void {
   closeAccountPrompt();
-  resultsScreen.classList.remove("hidden");
+  if (accountPromptContext === "run") resultsScreen.classList.remove("hidden");
+  else openProfile();
 }
 
 function showAccountError(message: string): void {
@@ -1757,16 +1784,20 @@ function syncNotifyAvailability(): void {
 function completeAccountPrompt(username: string): void {
   applyNickname(username);
   markNicknameChosen();
+  // An account supersedes the old sync code, however this player got here.
+  clearSyncToken();
   const submit = pendingScoreSubmit;
   pendingScoreSubmit = null;
   finishAccountPrompt();
   submit?.();
 }
 
-/** Abandons the prompt: this run stays off the leaderboard, and the question
- * stays away for a week rather than greeting every finish. */
+/** Abandons the prompt. After a run that means the score stays off the
+ * leaderboard and the question stays away for a week rather than greeting every
+ * finish; from the settings page it is just a cancel, and shouldn't buy a
+ * week's silence the player never asked for. */
 function declineAccountPrompt(): void {
-  recordAccountPromptDeclined();
+  if (accountPromptContext === "run") recordAccountPromptDeclined();
   pendingScoreSubmit = null;
   finishAccountPrompt();
 }
@@ -1898,7 +1929,6 @@ function endRun(): void {
     if (active.level.kind === "daily" && !active.orphan) {
       recordCompletion(active.seed);
       renderProgressStrip();
-      if (loadSyncToken()) void doSync();
     }
 
     resultsPersonalBest.textContent = !previousBest
@@ -2394,72 +2424,54 @@ helpScreen.addEventListener("click", (e) => {
 
 let profileOpen = false;
 
-function showSyncError(msg: string): void {
-  syncError.textContent = msg;
-  syncError.classList.remove("hidden");
-}
-function hideSyncError(): void {
-  syncError.classList.add("hidden");
-}
-
-function updateSyncUi(): void {
-  const token = loadSyncToken();
-  if (token) {
-    syncUnlinked.classList.add("hidden");
-    syncLinked.classList.remove("hidden");
-    syncCodeValue.textContent = token;
-  } else {
-    syncUnlinked.classList.remove("hidden");
-    syncLinked.classList.add("hidden");
+/** Repaints everything in the settings panel that depends on being logged in:
+ * the account section's two views, and the nickname field, which goes
+ * read-only because the username IS the leaderboard name - an editable
+ * nickname beside it would be a second, lying identity. */
+function updateAccountUi(): void {
+  const user = currentUser();
+  accountLoggedOut.classList.toggle("hidden", user !== null);
+  accountLoggedIn.classList.toggle("hidden", user === null);
+  nicknameInput.disabled = user !== null;
+  nicknameSettingsSave.classList.toggle("hidden", user !== null);
+  nicknameAccountNote.classList.toggle("hidden", user === null);
+  // The upgrade offer only means anything to someone holding an old code who
+  // hasn't already got an account.
+  syncMigrateRow.classList.toggle("hidden", user !== null || loadSyncToken() === null);
+  accountDeleteConfirm.classList.add("hidden");
+  accountStatus.classList.add("hidden");
+  accountSectionError.classList.add("hidden");
+  if (user) {
+    accountUsernameEl.textContent = user.username;
+    accountEmailInput.value = user.email ?? "";
+    accountNotifyDaily.checked = user.notifyDaily;
+    accountNotifyUpdates.checked = user.notifyUpdates;
   }
-  hideSyncError();
-}
-
-function applyRemoteState(data: { nickname: string; difficulty: string | null; completed: string[] }): void {
-  if (data.nickname) {
-    setNickname(data.nickname);
-    nickname = getOrCreateNickname();
-    nicknameInput.value = nickname;
-  }
-  if (data.difficulty === "easy" || data.difficulty === "hard") {
-    saveDifficultyPref(data.difficulty);
-  }
-  if (data.completed.length > 0) {
-    for (const seed of data.completed) recordCompletion(seed);
-    renderProgressStrip();
-  }
-  renderLeaderboardList();
-  refreshViewedUi();
+  syncAccountNotifyAvailability();
 }
 
-async function syncPersonalBest(): Promise<void> {
-  const recording = await fetchPlayerRecording(viewed.seed, nickname, viewed.difficulty);
-  if (!recording) return;
-  const ghost: GhostRecording = { seed: recording.seed, time: recording.time, stability: recording.stability, inputLog: recording.inputLog };
-  if (savePersonalBestIfBetter(ghost, viewed.difficulty)) {
-    viewed.personalBest = ghost;
-    playableCache[mode][viewed.difficulty].delete(viewedOffset);
-    refreshViewedUi();
+/** Same rule as the register form: a subscription needs an address to send to,
+ * and the server rejects the pair outright. */
+function syncAccountNotifyAvailability(): void {
+  const hasEmail = accountEmailInput.value.trim() !== "";
+  accountNotifyDaily.disabled = !hasEmail;
+  accountNotifyUpdates.disabled = !hasEmail;
+  if (!hasEmail) {
+    accountNotifyDaily.checked = false;
+    accountNotifyUpdates.checked = false;
   }
 }
 
-async function doSync(): Promise<void> {
-  const token = loadSyncToken();
-  if (!token) return;
-  syncNowBtn.disabled = true;
-  syncStatus.textContent = "Syncing…";
-  const completed = [...loadCompletedDays()];
-  const diffPref = loadDifficultyPref();
-  const result = await pushSyncAccount(token, nickname, diffPref, completed);
-  if (!result) {
-    syncStatus.textContent = "Sync failed";
-    syncNowBtn.disabled = false;
-    return;
-  }
-  applyRemoteState(result);
-  await syncPersonalBest();
-  syncStatus.textContent = `Synced just now`;
-  syncNowBtn.disabled = false;
+function showAccountStatus(message: string): void {
+  accountStatus.textContent = message;
+  accountStatus.classList.remove("hidden");
+  accountSectionError.classList.add("hidden");
+}
+
+function showAccountSectionError(message: string): void {
+  accountSectionError.textContent = message;
+  accountSectionError.classList.remove("hidden");
+  accountStatus.classList.add("hidden");
 }
 
 function formatPlayTime(totalSeconds: number): string {
@@ -2602,7 +2614,7 @@ function syncSoundUi(): void {
 function openProfile(): void {
   profileOpen = true;
   nicknameInput.value = nickname;
-  updateSyncUi();
+  updateAccountUi();
   renderLocalStats();
   syncSoundUi();
   statsDifficulty = difficulty;
@@ -2677,62 +2689,99 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) resumeAudio();
 });
 
-syncGenerateBtn.addEventListener("click", async () => {
-  hideSyncError();
-  syncGenerateBtn.disabled = true;
-  const completed = [...loadCompletedDays()];
-  const diffPref = loadDifficultyPref();
-  const token = await createSyncAccount(nickname, diffPref, completed);
-  syncGenerateBtn.disabled = false;
-  if (!token) {
-    showSyncError("Could not create sync code. Try again later.");
-    return;
-  }
-  saveSyncToken(token);
-  updateSyncUi();
-  syncStatus.textContent = "Synced just now";
+settingsLoginBtn.addEventListener("click", () => {
+  closeProfile();
+  openAccountPrompt(null, "settings", accountLoginForm);
 });
 
-syncLinkBtn.addEventListener("click", async () => {
-  hideSyncError();
-  const code = syncLinkInput.value.trim().toLowerCase();
-  if (!/^[a-z2-9]{6}$/.test(code)) {
-    showSyncError("Code must be 6 characters.");
-    return;
-  }
-  syncLinkBtn.disabled = true;
-  const account = await fetchSyncAccount(code);
-  syncLinkBtn.disabled = false;
-  if (!account) {
-    showSyncError("Code not found. Check and try again.");
-    return;
-  }
-  saveSyncToken(code);
-  applyRemoteState(account);
-  // Push local state to merge completed days
-  void doSync();
-  updateSyncUi();
+settingsRegisterBtn.addEventListener("click", () => {
+  closeProfile();
+  openAccountPrompt(null, "settings", accountRegisterForm);
 });
 
-syncCopyBtn.addEventListener("click", async () => {
+/** Turns an old sync code into a real account.
+ *
+ * Holding the code is the only proof of ownership available, so this is the one
+ * migration that can carry a nickname across without an ownership question. The
+ * code's completed days are merged into local storage first, then the ordinary
+ * register form opens - so whatever the account ends up holding starts from
+ * everything this player had. */
+syncMigrateBtn.addEventListener("click", async () => {
   const token = loadSyncToken();
   if (!token) return;
-  try {
-    await navigator.clipboard.writeText(token);
-    syncCopyBtn.textContent = "Copied!";
-    setTimeout(() => { syncCopyBtn.textContent = "Copy"; }, 1500);
-  } catch {
-    syncCopyBtn.textContent = "Failed";
-    setTimeout(() => { syncCopyBtn.textContent = "Copy"; }, 1500);
+  syncMigrateBtn.disabled = true;
+  const account = await fetchSyncAccount(token);
+  syncMigrateBtn.disabled = false;
+  if (account) {
+    for (const seed of account.completed) recordCompletion(seed);
+    renderProgressStrip();
+    // The code's nickname wins: it's the name their scores are already under.
+    if (account.nickname) applyNickname(account.nickname);
   }
+  closeProfile();
+  openAccountPrompt(null, "settings", accountRegisterForm);
 });
 
-syncNowBtn.addEventListener("click", () => void doSync());
+accountEmailInput.addEventListener("input", syncAccountNotifyAvailability);
 
-syncUnlinkBtn.addEventListener("click", () => {
-  clearSyncToken();
-  updateSyncUi();
-  syncStatus.textContent = "";
+accountSaveBtn.addEventListener("click", async () => {
+  accountSaveBtn.disabled = true;
+  const email = accountEmailInput.value.trim();
+  const result = await updateAccount({
+    email: email === "" ? null : email,
+    notifyDaily: accountNotifyDaily.checked,
+    notifyUpdates: accountNotifyUpdates.checked,
+  });
+  accountSaveBtn.disabled = false;
+  if (result.ok) showAccountStatus("Saved.");
+  else showAccountSectionError(result.error);
+});
+
+accountPasswordBtn.addEventListener("click", async () => {
+  accountPasswordBtn.disabled = true;
+  const result = await updateAccount({
+    currentPassword: accountCurrentPassword.value,
+    newPassword: accountNewPassword.value,
+  });
+  accountPasswordBtn.disabled = false;
+  if (!result.ok) {
+    showAccountSectionError(result.error);
+    return;
+  }
+  accountCurrentPassword.value = "";
+  accountNewPassword.value = "";
+  // The server drops every other session on a password change, so say so -
+  // otherwise being logged out on a second device looks like a fault.
+  showAccountStatus("Password changed. Other devices have been logged out.");
+});
+
+accountLogoutBtn.addEventListener("click", async () => {
+  accountLogoutBtn.disabled = true;
+  await logout();
+  accountLogoutBtn.disabled = false;
+  updateAccountUi();
+});
+
+accountDeleteBtn.addEventListener("click", () => {
+  accountDeletePassword.value = "";
+  accountDeleteConfirm.classList.remove("hidden");
+  accountDeletePassword.focus();
+});
+
+accountDeleteCancelBtn.addEventListener("click", () => {
+  accountDeleteConfirm.classList.add("hidden");
+});
+
+accountDeleteConfirmBtn.addEventListener("click", async () => {
+  accountDeleteConfirmBtn.disabled = true;
+  const result = await deleteAccount(accountDeletePassword.value);
+  accountDeleteConfirmBtn.disabled = false;
+  if (!result.ok) {
+    showAccountSectionError(result.error);
+    return;
+  }
+  updateAccountUi();
+  showAccountStatus("Account deleted.");
 });
 
 attachShareHandler(shareBtn, "results", "Share", () => lastShareText);

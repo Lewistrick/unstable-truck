@@ -4,8 +4,8 @@
 // state around them - the cached account, and persisting or dropping it. Kept
 // separate so main.ts asks "is anyone logged in?" without touching storage or
 // fetch directly.
-import { fetchAccount, loginAccount, logoutAccount, registerAccount } from "./api.js";
-import type { Account, AuthResponse, RegisterFields } from "./api.js";
+import { deleteAccountRequest, fetchAccount, loginAccount, logoutAccount, patchAccount, registerAccount } from "./api.js";
+import type { Account, AccountUpdateFields, AccountUpdateResponse, AuthResponse, RegisterFields } from "./api.js";
 import { clearAuthSession, loadAuthSession, saveAuthSession } from "./storage.js";
 
 let session = loadAuthSession();
@@ -57,4 +57,29 @@ export async function refreshAccount(): Promise<void> {
     session = { token: session.token, account: check.account };
     saveAuthSession(session.token, check.account);
   }
+}
+
+/** Saves a change to the account, keeping the local copy in step. A password
+ * change rotates every session, so the fresh token that comes back replaces the
+ * one this device was using - without it, saving a new password would log you
+ * straight out. */
+export async function updateAccount(fields: AccountUpdateFields): Promise<AccountUpdateResponse> {
+  const result = await patchAccount(fields);
+  if (result.ok) {
+    const token = result.token ?? session?.token;
+    if (token) {
+      session = { token, account: result.account };
+      saveAuthSession(token, result.account);
+    }
+  }
+  return result;
+}
+
+export async function deleteAccount(password: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const result = await deleteAccountRequest(password);
+  if (result.ok) {
+    session = null;
+    clearAuthSession();
+  }
+  return result;
 }

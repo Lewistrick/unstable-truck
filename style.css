@@ -344,110 +344,96 @@ body {
 
 
 
-.sync-desc {
+/* The account section of the settings panel. It shares the .account-* input and
+   checkbox styling with the post-run prompt, which is also where its Log in /
+   Create account buttons lead - one implementation of those two forms, opened
+   from two places. */
+.account-desc {
   font-size: 0.82rem;
   margin-top: -4px;
 }
 
-#sync-unlinked {
+#account-logged-out,
+#account-logged-in {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   width: 100%;
 }
 
-#sync-link-row {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  max-width: 260px;
-}
-
-#sync-link-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  font-size: 0.9rem;
-  font-family: monospace;
-  letter-spacing: 0.12em;
-  text-align: center;
-  color: #f0f2f5;
-  background: #10141a;
-  border: 1px solid #2c3542;
-  border-radius: 6px;
-}
-
-#sync-link-input:focus {
-  outline: none;
-  border-color: #4a5566;
-}
-
-#sync-linked {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
-
-#sync-linked.hidden {
+#account-logged-out.hidden,
+#account-logged-in.hidden,
+#sync-migrate-row.hidden,
+#account-delete-confirm.hidden {
   display: none;
 }
 
-#sync-code-display {
+#sync-migrate-row,
+#account-delete-confirm {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 8px;
+}
+
+#account-username-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
   padding: 10px 16px;
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 8px;
 }
 
-.sync-label {
+.account-label {
   font-size: 0.78rem;
 }
 
-#sync-code-value {
-  font-family: monospace;
-  font-size: 1.15rem;
+#account-username {
+  font-size: 1.05rem;
   font-weight: 700;
-  letter-spacing: 0.18em;
   color: #55e08a;
 }
 
-#sync-copy-btn {
-  padding: 4px 12px;
-  font-size: 0.78rem;
+#account-password-details {
+  font-size: 0.85rem;
+  color: #9aa5b1;
 }
 
-#sync-status {
-  font-size: 0.8rem;
+#account-password-details summary {
+  cursor: pointer;
+  padding: 4px 0;
 }
 
-#sync-now-btn {
-  width: 100%;
-  max-width: 200px;
+#account-password-details[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.sync-unlink {
+.account-danger {
   font-size: 0.78rem;
   padding: 4px 14px;
   color: #9aa4b2;
   background: transparent;
 }
 
-.sync-unlink:hover {
+.account-danger:hover {
   color: #ff6f6f;
 }
 
-.sync-error {
-  font-size: 0.82rem;
-  color: #ff6f6f;
+.account-status {
+  font-size: 0.8rem;
+  text-align: center;
 }
 
-.sync-error.hidden {
+.account-status.hidden {
   display: none;
 }
 
