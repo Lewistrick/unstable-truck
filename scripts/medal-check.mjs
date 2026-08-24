@@ -6,11 +6,15 @@
 // their time is at or under the stored threshold - including losing it when a
 // faster record lowers the threshold beneath them (the streak-strip colouring
 // and the server's monotonic lowering both rely on these semantics).
-import { championTime, medalFor } from "../dist/game/medals.js";
+import { championTime, clampParsToOptimal, medalFor } from "../dist/game/medals.js";
 
 let failures = 0;
 function check(name, actual, expected) {
-  if (actual !== expected) {
+  const same =
+    typeof actual === "object" && actual !== null
+      ? JSON.stringify(actual) === JSON.stringify(expected)
+      : actual === expected;
+  if (!same) {
     console.error(`FAIL: ${name} - expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     failures++;
   } else {
@@ -56,6 +60,38 @@ check("no champion threshold means gold caps the top", medalFor(16, pars, null),
 // behaviour the persisted, ratcheting-down threshold produces.
 check("champion under the old, higher threshold", medalFor(17.5, pars, 18), "champion");
 check("same time loses champion after the threshold drops", medalFor(17.5, pars, 17), "gold");
+
+// --- clampParsToOptimal: keeping gold achievable --------------------------
+
+// The geometric gold is a route-length estimate, and on some maps it lands
+// below what the solver can actually drive - an unobtainable medal, which reads
+// as a broken level rather than a hard one. When that happens the solver's time
+// becomes the new raw gold and the other tiers are re-derived from it with the
+// same multipliers computeMedalPars uses.
+const tight = { gold: 10, silver: 12, bronze: 14 };
+
+// Optimal 13.6s against a gold of 10: gold becomes ceil(13.6 + 0.5) = 15,
+// silver ceil(13.6 * 1.18 + 0.5) = 17, bronze ceil(13.6 * 1.45 + 0.5) = 21.
+const loosened = clampParsToOptimal(tight, 13.6);
+check("impossible gold is raised to the optimal time", loosened.gold, 15);
+check("silver is re-derived from the optimal", loosened.silver, 17);
+check("bronze is re-derived from the optimal", loosened.bronze, 21);
+check("the raised gold is actually reachable", medalFor(13.6, loosened), "gold");
+// Under the original pars that same run was only worth bronze - the gold it
+// was never able to reach is exactly what the clamp exists to fix.
+check("the original gold was out of reach", medalFor(13.6, tight), "bronze");
+
+// It only ever loosens. A map whose gold the solver already beats keeps the
+// geometry-derived pars every player computes offline, untouched.
+const achievable = { gold: 20, silver: 24, bronze: 29 };
+check("an achievable gold is left alone", clampParsToOptimal(achievable, 16), achievable);
+check("gold equal to the optimal is left alone", clampParsToOptimal(achievable, 20), achievable);
+
+// A missing or nonsense optimal must never move the pars.
+check("a zero optimal is ignored", clampParsToOptimal(tight, 0), tight);
+check("a negative optimal is ignored", clampParsToOptimal(tight, -5), tight);
+check("an infinite optimal is ignored", clampParsToOptimal(tight, Infinity), tight);
+check("a NaN optimal is ignored", clampParsToOptimal(tight, NaN), tight);
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
