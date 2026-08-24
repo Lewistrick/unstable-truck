@@ -4,6 +4,10 @@ import type { House, Hub, RoadSegment, Warehouse } from "./types.js";
 
 const V2_GENERATION_START = "2026-08-21";
 const V2_MIN_SPACING = 260;
+/** Base + three pickups + destination. A delivery run with only one or two
+ * stops isn't much of a route, and the medal pars derived from it come out
+ * absurdly tight - so this is a floor, not a target. */
+const MIN_WAREHOUSES = 5;
 
 export function generateWarehouses(
   rng: Rng,
@@ -26,6 +30,32 @@ export function generateWarehouses(
     for (const c of shuffled) {
       if (spots.every((s) => distance(s, c) >= V2_MIN_SPACING)) spots.push(c);
       if (spots.length >= targetCount) break;
+    }
+    // The spacing rule is a preference, not a guarantee: on a map whose hubs and
+    // branch ends cluster, it can reject almost everything and leave a route
+    // with one or two stops. Top up to the floor by taking whichever remaining
+    // candidate is farthest from the spots already chosen, so the extra stops
+    // are still as spread out as the map allows.
+    if (spots.length < MIN_WAREHOUSES) {
+      const taken = new Set(spots);
+      while (spots.length < MIN_WAREHOUSES) {
+        let best: Vec2 | null = null;
+        let bestGap = -1;
+        for (const c of shuffled) {
+          if (taken.has(c)) continue;
+          let gap = Infinity;
+          for (const s of spots) gap = Math.min(gap, distance(s, c));
+          if (gap > bestGap) {
+            bestGap = gap;
+            best = c;
+          }
+        }
+        // Fewer candidates on the whole map than the floor asks for. Nothing
+        // more to place; the map is as long as it can be.
+        if (!best) break;
+        spots.push(best);
+        taken.add(best);
+      }
     }
   } else {
     spots = shuffled.slice(0, targetCount);

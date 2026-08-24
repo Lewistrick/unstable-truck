@@ -157,6 +157,28 @@ export function computeMedalPars(level: Level): MedalPars {
   };
 }
 
+/** Raises the pars when the geometric gold turns out to be faster than anyone
+ * can actually drive the map.
+ *
+ * The gold heuristic is a route-length estimate (see above), and on some maps -
+ * short ones especially - it lands below what the solver achieves with a perfect
+ * line. Gold is then unobtainable, which reads as a broken level rather than a
+ * hard one. So when that happens, the solver's time becomes the new raw gold and
+ * silver/bronze are re-derived from it with the same multipliers, exactly as
+ * computeMedalPars does.
+ *
+ * Only ever loosens: it does nothing unless gold is already below `optimalTime`,
+ * so a map whose heuristic is achievable keeps the geometry-derived pars every
+ * player computes offline. */
+export function clampParsToOptimal(pars: MedalPars, optimalTime: number): MedalPars {
+  if (!Number.isFinite(optimalTime) || optimalTime <= 0 || pars.gold >= optimalTime) return pars;
+  return {
+    gold: roundMedalTime(optimalTime),
+    silver: roundMedalTime(optimalTime * SILVER_MULTIPLIER),
+    bronze: roundMedalTime(optimalTime * BRONZE_MULTIPLIER),
+  };
+}
+
 // Easy's slower top speed and unfailable cargo/boundary earn it looser medal
 // targets, derived from Hard's rather than recomputed from route geometry:
 // gold is 25% more time than Hard gold, and silver/bronze are simple multiples

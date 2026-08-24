@@ -22,6 +22,7 @@ import {
     MEDAL_ICON,
     MEDAL_LABEL,
     championTime,
+    clampParsToOptimal,
     computeEasyMedalPars,
     computeMedalPars,
     medalFor,
@@ -84,11 +85,38 @@ interface Playable {
   orphan?: boolean;
 }
 
+/** Solver routes by seed, from the server's precompute or a local solve.
+ *
+ * Declared up here rather than with the rest of the optimal-ghost machinery
+ * below because parsFor() reads it, and parsFor runs while the first Playable is
+ * built at module scope - a `const` further down the file would still be in its
+ * temporal dead zone at that point, and touching it would throw before anything
+ * rendered. */
+const optimalRecordings = new Map<string, GhostRecording>();
+
+/** Medal targets for a level.
+ *
+ * Geometry-derived, then raised if the solver's route for this seed is known to
+ * be slower than the geometric gold - see clampParsToOptimal. The optimal time
+ * arrives asynchronously, so this is re-run for every built level on a seed once
+ * it lands (applyOptimalToPars). Easy derives from the adjusted Hard pars, since
+ * the solver only ever targets Hard's physics. */
+function parsFor(level: Level, seed: string, difficulty: Difficulty): MedalPars {
+  const geometric = computeMedalPars(level);
+  const optimalTime = optimalRecordings.get(seed)?.time;
+  const hardPars = optimalTime != null ? clampParsToOptimal(geometric, optimalTime) : geometric;
+  return difficulty === "easy" ? computeEasyMedalPars(hardPars) : hardPars;
+}
+
 function makePlayable(seed: string, kind: Mode, difficulty: Difficulty): Playable {
   const level = kind === "weekly" ? generateWeeklyLevel(seed) : generateLevel(seed);
-  const hardPars = computeMedalPars(level);
-  const pars = difficulty === "easy" ? computeEasyMedalPars(hardPars) : hardPars;
-  return { seed, level, difficulty, personalBest: loadPersonalBest(seed, difficulty), pars };
+  return {
+    seed,
+    level,
+    difficulty,
+    personalBest: loadPersonalBest(seed, difficulty),
+    pars: parsFor(level, seed, difficulty),
+  };
 }
 
 // Drop any personal bests past their retention age before loading anything.
@@ -1395,7 +1423,6 @@ const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 }
 // (weekly maps are far too large).
 const optimalEnabled = new URLSearchParams(window.location.search).get("optimal") === "true";
 const OPTIMAL_LABEL = "Optimal";
-const optimalRecordings = new Map<string, GhostRecording>();
 const optimalPending = new Set<string>();
 let optimalWorker: Worker | null = null;
 let optimalWorkerBroken = false;
@@ -1423,22 +1450,43 @@ function getOptimalWorker(): Worker | null {
   }
 }
 
-/** Records a solved route and, if it's for the map on screen, repaints the board
- * so the "Optimal" row appears. */
+/** Records a solved route, re-derives the seed's medal pars from it, and - if
+ * it's for the map on screen - repaints the board and the medal chips. */
 function receiveOptimal(seed: string, recording: GhostRecording): void {
   optimalRecordings.set(seed, recording);
-  if (viewed.seed === seed) renderLeaderboardList();
+  applyOptimalToPars(seed);
+  if (viewed.seed === seed) {
+    renderLeaderboardList();
+    renderMedalTrack();
+    renderProgressStrip();
+  }
 }
 
-/** Kicks off (or reuses a cached) optimal route for a daily seed when
- * ?optimal=true. Prefers the server's precomputed route (no wait); only if the
- * server hasn't solved it yet - or is unreachable - does it fall back to solving
- * locally. No-op for weekly maps, orphan maps, Easy (the solver only ever
- * targets Hard's physics - there's no Easy optimal ghost), or when already
- * solved/in flight. */
+/** Re-derives medal pars for every level already built on a seed, after its
+ * optimal time arrives. Mutating the cached Playables is what updates `viewed`
+ * and `active` too - they hold the same objects. */
+function applyOptimalToPars(seed: string): void {
+  for (const cacheDifficulty of ["easy", "hard"] as const) {
+    for (const playable of playableCache.daily[cacheDifficulty].values()) {
+      if (playable.seed === seed) playable.pars = parsFor(playable.level, seed, cacheDifficulty);
+    }
+  }
+}
+
+/** Fetches (or reuses a cached) optimal route for a daily seed.
+ *
+ * The server's precomputed route is fetched for everyone, not just under
+ * ?optimal=true, because its time is what keeps gold achievable when the
+ * geometric heuristic undershoots (see parsFor). Only the local-solve fallback
+ * stays behind the flag - a ~15s search is fine for a power user who asked for
+ * the ghost, and not something to spend a normal player's CPU on for a medal
+ * adjustment.
+ *
+ * No-op for weekly maps, orphan maps, Easy (the solver only ever targets Hard's
+ * physics), or when already solved/in flight. */
 function requestOptimal(playable: Playable): void {
   const { seed, level } = playable;
-  if (!optimalEnabled || level.kind !== "daily" || playable.difficulty !== "hard") return;
+  if (level.kind !== "daily" || playable.orphan || playable.difficulty !== "hard") return;
   if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
   optimalPending.add(seed);
 
@@ -1447,8 +1495,11 @@ function requestOptimal(playable: Playable): void {
     if (remote && Array.isArray(remote.inputLog)) {
       optimalPending.delete(seed);
       receiveOptimal(seed, { seed, time: remote.time, stability: remote.stability, inputLog: remote.inputLog });
-    } else {
+    } else if (optimalEnabled) {
       solveOptimalLocally(playable);
+    } else {
+      // No stored route and no local solve: the pars stay as the geometry says.
+      optimalPending.delete(seed);
     }
   });
 }
