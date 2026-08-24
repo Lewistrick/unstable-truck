@@ -40,6 +40,8 @@ const MAX_EMAIL_LENGTH = 254;
 // Deliberately loose. An address is only ever proved good by sending to it, so
 // a stricter pattern would reject valid addresses to no benefit.
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const COUNTRY_PATTERN = /^[A-Z]{2}$/;
+const MAX_TIMEZONE_LENGTH = 64;
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -70,9 +72,14 @@ interface ContactPrefs {
   email: string | null;
   notifyDaily: boolean;
   notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
 }
 
-const NO_CONTACT_PREFS: ContactPrefs = { email: null, notifyDaily: false, notifyUpdates: false };
+const NO_CONTACT_PREFS: ContactPrefs = {
+  email: null, notifyDaily: false, notifyUpdates: false,
+  country: null, timezone: null,
+};
 
 /** Reads the optional email and its two subscription flags, falling back to
  * `current` for anything the body leaves out.
@@ -112,7 +119,35 @@ function parseContactPrefs(body: Record<string, unknown>, current: ContactPrefs)
   // Subscribing without an address is a state that can never be acted on, so
   // reject it rather than storing a flag that quietly means nothing.
   if ((notifyDaily || notifyUpdates) && email === null) return null;
-  return { email, notifyDaily, notifyUpdates };
+
+  let country = current.country;
+  if (body.country !== undefined) {
+    if (body.country === null || body.country === "") {
+      country = null;
+    } else if (typeof body.country === "string" && COUNTRY_PATTERN.test(body.country)) {
+      country = body.country;
+    } else {
+      return null;
+    }
+  }
+
+  let timezone = current.timezone;
+  if (body.timezone !== undefined) {
+    if (body.timezone === null || body.timezone === "") {
+      timezone = null;
+    } else if (typeof body.timezone === "string" && body.timezone.length <= MAX_TIMEZONE_LENGTH) {
+      try {
+        Intl.DateTimeFormat("en", { timeZone: body.timezone });
+        timezone = body.timezone;
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  return { email, notifyDaily, notifyUpdates, country, timezone };
 }
 
 function validateUsername(value: unknown): string | null {
@@ -246,6 +281,8 @@ authRouter.patch(
       email: user.email,
       notifyDaily: user.notifyDaily,
       notifyUpdates: user.notifyUpdates,
+      country: user.country,
+      timezone: user.timezone,
     });
     if (!contact) {
       res.status(400).json({ error: "invalid email address, or a subscription requested without one" });
@@ -275,7 +312,10 @@ authRouter.patch(
     }
 
     try {
-      const updated = await updateUserContactPrefs(user.id, contact.email, contact.notifyDaily, contact.notifyUpdates);
+      const updated = await updateUserContactPrefs(
+        user.id, contact.email, contact.notifyDaily, contact.notifyUpdates,
+        contact.country, contact.timezone,
+      );
       if (!updated) {
         res.status(404).json({ error: "not found" });
         return;

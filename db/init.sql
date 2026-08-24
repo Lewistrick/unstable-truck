@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- first-touch acquisition source, and the truck's appearance. One JSONB
   -- column rather than a table per concept, because it is read and written
   -- whole and never queried by field. See server/account-state.ts.
+  country        TEXT,
+  timezone       TEXT,
   user_state     JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at   TIMESTAMPTZ

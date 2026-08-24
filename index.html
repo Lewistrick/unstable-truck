@@ -240,6 +240,14 @@
             <label class="account-check">
               <input type="checkbox" id="account-notify-updates" disabled /> Game updates
             </label>
+            <p class="muted account-note">Used for notifications only. Without an email there is no way to reset a
+              forgotten password.</p>
+            <select id="account-country" class="account-input">
+              <option value="">Country (optional)</option>
+            </select>
+            <select id="account-timezone" class="account-input">
+              <option value="">Timezone (optional)</option>
+            </select>
             <button id="account-save-btn" class="btn-secondary" type="button">Save</button>
 
             <details id="account-password-details">
@@ -347,6 +355,12 @@
           <label class="account-check">
             <input type="checkbox" id="register-notify-updates" disabled /> Game updates
           </label>
+          <select id="register-country" class="account-input">
+            <option value="">Country (optional)</option>
+          </select>
+          <select id="register-timezone" class="account-input">
+            <option value="">Timezone (optional)</option>
+          </select>
           <p class="muted account-note">Your username is your leaderboard name. Any scores already set under it
             become yours. Without an email there is no way to reset a forgotten password.</p>
           <div class="account-actions">

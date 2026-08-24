@@ -214,6 +214,8 @@ export interface Account {
   email: string | null;
   notifyDaily: boolean;
   notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
   isAdmin: boolean;
 }
 
@@ -223,6 +225,8 @@ export interface RegisterFields {
   email?: string;
   notifyDaily?: boolean;
   notifyUpdates?: boolean;
+  country?: string;
+  timezone?: string;
 }
 
 /** Register/login either works or explains why in a sentence fit to show the
@@ -358,6 +362,8 @@ export interface AccountUpdateFields {
   email?: string | null;
   notifyDaily?: boolean;
   notifyUpdates?: boolean;
+  country?: string | null;
+  timezone?: string | null;
   currentPassword?: string;
   newPassword?: string;
 }

@@ -62,6 +62,7 @@ import {
     loadSoundPrefs,
     saveSoundPrefs,
 } from "./game/storage.js";
+import { COUNTRIES } from "./game/countries.js";
 import { Tutorial } from "./game/tutorial.js";
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
 import { resolveSeedTarget } from "./level/seed-target.js";
@@ -264,6 +265,8 @@ const accountUsernameEl = document.getElementById("account-username")!;
 const accountEmailInput = document.getElementById("account-email") as HTMLInputElement;
 const accountNotifyDaily = document.getElementById("account-notify-daily") as HTMLInputElement;
 const accountNotifyUpdates = document.getElementById("account-notify-updates") as HTMLInputElement;
+const accountCountry = document.getElementById("account-country") as HTMLSelectElement;
+const accountTimezone = document.getElementById("account-timezone") as HTMLSelectElement;
 const accountSaveBtn = document.getElementById("account-save-btn") as HTMLButtonElement;
 const accountCurrentPassword = document.getElementById("account-current-password") as HTMLInputElement;
 const accountNewPassword = document.getElementById("account-new-password") as HTMLInputElement;
@@ -354,6 +357,8 @@ const registerPassword = document.getElementById("register-password") as HTMLInp
 const registerEmail = document.getElementById("register-email") as HTMLInputElement;
 const registerNotifyDaily = document.getElementById("register-notify-daily") as HTMLInputElement;
 const registerNotifyUpdates = document.getElementById("register-notify-updates") as HTMLInputElement;
+const registerCountry = document.getElementById("register-country") as HTMLSelectElement;
+const registerTimezone = document.getElementById("register-timezone") as HTMLSelectElement;
 const registerSubmit = document.getElementById("register-submit") as HTMLButtonElement;
 const loginUsername = document.getElementById("login-username") as HTMLInputElement;
 const loginPassword = document.getElementById("login-password") as HTMLInputElement;
@@ -371,6 +376,33 @@ const difficultySwitch = document.getElementById("difficulty-switch")!;
 const difficultyEasyBtn = document.getElementById("difficulty-easy") as HTMLButtonElement;
 const difficultyHardBtn = document.getElementById("difficulty-hard") as HTMLButtonElement;
 const medalTrack = document.getElementById("medal-track")!;
+
+function populateSelectOptions(select: HTMLSelectElement, items: ReadonlyArray<readonly [string, string]>): void {
+  for (const [value, label] of items) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    select.appendChild(opt);
+  }
+}
+
+const timezoneItems: Array<readonly [string, string]> = (
+  typeof Intl !== "undefined" && Intl.supportedValuesOf
+    ? Intl.supportedValuesOf("timeZone")
+    : []
+).map((tz) => [tz, tz.replace(/_/g, " ")] as const);
+
+const detectedTimezone =
+  typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "";
+
+populateSelectOptions(registerCountry, COUNTRIES);
+populateSelectOptions(registerTimezone, timezoneItems);
+populateSelectOptions(accountCountry, COUNTRIES);
+populateSelectOptions(accountTimezone, timezoneItems);
+
+if (detectedTimezone) {
+  registerTimezone.value = detectedTimezone;
+}
 
 let nickname = getOrCreateNickname();
 
@@ -1784,6 +1816,8 @@ function openAccountPrompt(
   registerEmail.value = "";
   registerNotifyDaily.checked = false;
   registerNotifyUpdates.checked = false;
+  registerCountry.value = "";
+  registerTimezone.value = detectedTimezone;
   loginUsername.value = nickname;
   loginPassword.value = "";
   syncNotifyAvailability();
@@ -1901,12 +1935,16 @@ accountRegisterForm.addEventListener("submit", async (e) => {
   setAccountBusy(true);
   accountError.classList.add("hidden");
   const email = registerEmail.value.trim();
+  const country = registerCountry.value;
+  const tz = registerTimezone.value;
   const result = await register({
     username: registerUsername.value.trim(),
     password: registerPassword.value,
     ...(email ? { email } : {}),
     notifyDaily: registerNotifyDaily.checked,
     notifyUpdates: registerNotifyUpdates.checked,
+    ...(country ? { country } : {}),
+    ...(tz ? { timezone: tz } : {}),
   });
   setAccountBusy(false);
   if (!result.ok) {
@@ -2517,6 +2555,8 @@ function updateAccountUi(): void {
     accountEmailInput.value = user.email ?? "";
     accountNotifyDaily.checked = user.notifyDaily;
     accountNotifyUpdates.checked = user.notifyUpdates;
+    accountCountry.value = user.country ?? "";
+    accountTimezone.value = user.timezone ?? "";
   }
   syncAccountNotifyAvailability();
 }
@@ -2798,10 +2838,14 @@ accountEmailInput.addEventListener("input", syncAccountNotifyAvailability);
 accountSaveBtn.addEventListener("click", async () => {
   accountSaveBtn.disabled = true;
   const email = accountEmailInput.value.trim();
+  const country = accountCountry.value;
+  const tz = accountTimezone.value;
   const result = await updateAccount({
     email: email === "" ? null : email,
     notifyDaily: accountNotifyDaily.checked,
     notifyUpdates: accountNotifyUpdates.checked,
+    country: country === "" ? null : country,
+    timezone: tz === "" ? null : tz,
   });
   accountSaveBtn.disabled = false;
   if (result.ok) showAccountStatus("Saved.");

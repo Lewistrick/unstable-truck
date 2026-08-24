@@ -887,6 +887,10 @@ body {
   border-radius: 6px;
 }
 
+select.account-input {
+  cursor: pointer;
+}
+
 .account-check {
   display: flex;
   align-items: center;

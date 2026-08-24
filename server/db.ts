@@ -185,13 +185,17 @@ export async function ensureSchema(): Promise<void> {
        notify_daily   BOOLEAN NOT NULL DEFAULT FALSE,
        notify_updates BOOLEAN NOT NULL DEFAULT FALSE,
        is_admin       BOOLEAN NOT NULL DEFAULT FALSE,
+       country        TEXT,
+       timezone       TEXT,
        user_state     JSONB NOT NULL DEFAULT '{}'::jsonb,
        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
        last_seen_at   TIMESTAMPTZ
      )`,
   );
-  // For users tables created before the state column existed.
+  // For users tables created before these columns existed.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_state JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT`);
   await pool.query(
     `CREATE TABLE IF NOT EXISTS sessions (
        token_hash   TEXT PRIMARY KEY,
@@ -553,6 +557,8 @@ export interface UserRecord {
   email: string | null;
   notifyDaily: boolean;
   notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
   isAdmin: boolean;
 }
 
@@ -562,6 +568,8 @@ interface UserRow {
   email: string | null;
   notify_daily: boolean;
   notify_updates: boolean;
+  country: string | null;
+  timezone: string | null;
   is_admin: boolean;
 }
 
@@ -575,11 +583,13 @@ function toUserRecord(row: UserRow): UserRecord {
     email: row.email,
     notifyDaily: row.notify_daily,
     notifyUpdates: row.notify_updates,
+    country: row.country,
+    timezone: row.timezone,
     isAdmin: row.is_admin,
   };
 }
 
-const USER_COLUMNS = "id, username, email, notify_daily, notify_updates, is_admin";
+const USER_COLUMNS = "id, username, email, notify_daily, notify_updates, country, timezone, is_admin";
 
 /** Creates a user, or returns null if the username is already taken
  * (case-insensitively - see the generated username_lower column).
@@ -593,14 +603,16 @@ export async function createUser(params: {
   email: string | null;
   notifyDaily: boolean;
   notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
 }): Promise<UserRecord | null> {
-  const { username, passwordHash, email, notifyDaily, notifyUpdates } = params;
+  const { username, passwordHash, email, notifyDaily, notifyUpdates, country, timezone } = params;
   const result = await pool.query<UserRow>(
-    `INSERT INTO users (username, password_hash, email, notify_daily, notify_updates)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO users (username, password_hash, email, notify_daily, notify_updates, country, timezone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (username_lower) DO NOTHING
      RETURNING ${USER_COLUMNS}`,
-    [username, passwordHash, email, notifyDaily, notifyUpdates],
+    [username, passwordHash, email, notifyDaily, notifyUpdates, country, timezone],
   );
   const row = result.rows[0];
   return row ? toUserRecord(row) : null;
@@ -637,10 +649,13 @@ export async function updateUserContactPrefs(
   email: string | null,
   notifyDaily: boolean,
   notifyUpdates: boolean,
+  country: string | null,
+  timezone: string | null,
 ): Promise<UserRecord | null> {
   const result = await pool.query<UserRow>(
-    `UPDATE users SET email = $2, notify_daily = $3, notify_updates = $4 WHERE id = $1 RETURNING ${USER_COLUMNS}`,
-    [userId, email, notifyDaily, notifyUpdates],
+    `UPDATE users SET email = $2, notify_daily = $3, notify_updates = $4, country = $5, timezone = $6
+     WHERE id = $1 RETURNING ${USER_COLUMNS}`,
+    [userId, email, notifyDaily, notifyUpdates, country, timezone],
   );
   const row = result.rows[0];
   return row ? toUserRecord(row) : null;
@@ -714,7 +729,7 @@ export async function createSession(tokenHash: string, userId: number, expiresAt
  * so a token is dead the moment it lapses. */
 export async function getSessionUser(tokenHash: string): Promise<UserRecord | null> {
   const result = await pool.query<UserRow>(
-    `SELECT u.id, u.username, u.email, u.notify_daily, u.notify_updates, u.is_admin
+    `SELECT u.id, u.username, u.email, u.notify_daily, u.notify_updates, u.country, u.timezone, u.is_admin
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1 AND s.expires_at > now()`,
     [tokenHash],

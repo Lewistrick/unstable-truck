@@ -307,18 +307,18 @@ Current keys in `src/game/storage.ts`, and where each should live:
 
 Per the decision above: columns and UI, no verification and no sending.
 
-- [ ] `email`, `notify_daily`, `notify_updates` on `users`; optional email field
+- [x] `email`, `notify_daily`, `notify_updates` on `users`; optional email field
       plus two checkboxes in the register form and the settings page.
-- [ ] Basic shape validation only (contains `@`, length cap). No uniqueness
+- [x] Basic shape validation only (contains `@`, length cap). No uniqueness
       constraint — two accounts sharing a family address is legitimate.
-- [ ] **Consequence to write down now:** these addresses are unverified, so a
+- [x] **Consequence to write down now:** these addresses are unverified, so a
       typo is undetectable and nothing can safely be sent to them later without a
       confirm step first. Whenever sending gets built, it starts with
       re-confirming everything collected here.
-- [ ] **No email means no password recovery.** Say so at the point of
+- [x] **No email means no password recovery.** Say so at the point of
       registration — it's the strongest reason to give an address, more than
       reminders are.
-- [ ] Ship `DELETE /api/auth/me` (Phase 1.3) and one plain sentence about what
+- [x] Ship `DELETE /api/auth/me` (Phase 1.3) and one plain sentence about what
       the address is for, from day one. Cheapest possible posture for an
       EU-hosted site storing personal data, and much easier now than retrofitted.
 
@@ -340,27 +340,9 @@ Answering the open question — grouped by how much they're worth.
   approximate.
 
 **Genuinely valuable, small**
-- **Name protection** (Phase 2) — the reason the leaderboard becomes meaningful.
-- **Admin flag** (Phase 6).
-- **A ban / shadow-ban flag.** Once scores are attributable, moderation is a
-  boolean instead of an impossibility.
-- **Timezone.** Seeds are keyed to the *client's* local date, so the server has
-  no idea what "today" means for a given player. Needed for daily reminders, and
-  it also makes run-log analysis honest.
-- **Per-account rate limits**, which are far more meaningful than per-IP ones on
-  mobile networks.
-
-**Plausible later**
-- Favourite / bookmarked seeds.
-- Achievements or badges beyond medals (first champion, 7-day streak, every
-  biome).
-- Friends or a follow list, and a friends-only leaderboard filter — the single
-  most retention-positive feature on this list.
-- Ghost preferences that follow the player (which ghost to race by default).
-- Replay history beyond the personal best — "every run I've made on this seed".
-- Profile page at a shareable URL, which also gives share links something better
-  to point at than the game root.
-- Language / locale.
+- **Name protection** (Phase 2) — the reason the leaderboard becomes meaningful. ✓
+- **Admin flag** (Phase 6). ✓
+- **Country + timezone** — user-selected, stored on the `users` table. ✓
 
 **Deliberately not**
 - Sound preferences (device-scoped, see Phase 5).
