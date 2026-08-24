@@ -1,6 +1,5 @@
 import {
     backfillChampionTime,
-    createSyncAccount,
     fetchChampionTimes,
     fetchLeaderboard,
     fetchOptimalRoute,
@@ -8,7 +7,6 @@ import {
     fetchStats,
     fetchSyncAccount,
     logRun,
-    pushSyncAccount,
     submitScore,
     type Difficulty,
     type LeaderboardEntry,
@@ -17,12 +15,14 @@ import {
 } from "./game/api.js";
 import { COUNTDOWN_STEP_DURATION, countdownLabel } from "./game/countdown.js";
 import { GhostPlayer, ghostCollectTicks, splitDelta, type GhostRecording } from "./game/ghost.js";
+import { currentUser, deleteAccount, isLoggedIn, login, logout, refreshAccount, register, updateAccount } from "./game/auth.js";
 import { createInput } from "./game/input.js";
 import { optimalRowIndex } from "./game/leaderboard-order.js";
 import {
     MEDAL_ICON,
     MEDAL_LABEL,
     championTime,
+    clampParsToOptimal,
     computeEasyMedalPars,
     computeMedalPars,
     medalFor,
@@ -32,7 +32,9 @@ import {
 import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
 import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import { GameSession } from "./game/session.js";
+import { pullAccountBests, syncAccountState } from "./game/sync.js";
 import {
+    accountPromptRecentlyDeclined,
     addPlayTime,
     clearSyncToken,
     computeBestStreak,
@@ -55,14 +57,12 @@ import {
     savePersonalBestIfBetter,
     saveRacePbGhostPref,
     saveSelectedLeaderboardGhost,
-    saveSyncToken,
-    hasChosenNickname,
-    isDefaultNickname,
-    markNicknameChosen,
+    recordAccountPromptDeclined,
     setNickname,
     loadSoundPrefs,
     saveSoundPrefs,
 } from "./game/storage.js";
+import { COUNTRIES } from "./game/countries.js";
 import { Tutorial } from "./game/tutorial.js";
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
 import { resolveSeedTarget } from "./level/seed-target.js";
@@ -86,11 +86,38 @@ interface Playable {
   orphan?: boolean;
 }
 
+/** Solver routes by seed, from the server's precompute or a local solve.
+ *
+ * Declared up here rather than with the rest of the optimal-ghost machinery
+ * below because parsFor() reads it, and parsFor runs while the first Playable is
+ * built at module scope - a `const` further down the file would still be in its
+ * temporal dead zone at that point, and touching it would throw before anything
+ * rendered. */
+const optimalRecordings = new Map<string, GhostRecording>();
+
+/** Medal targets for a level.
+ *
+ * Geometry-derived, then raised if the solver's route for this seed is known to
+ * be slower than the geometric gold - see clampParsToOptimal. The optimal time
+ * arrives asynchronously, so this is re-run for every built level on a seed once
+ * it lands (applyOptimalToPars). Easy derives from the adjusted Hard pars, since
+ * the solver only ever targets Hard's physics. */
+function parsFor(level: Level, seed: string, difficulty: Difficulty): MedalPars {
+  const geometric = computeMedalPars(level);
+  const optimalTime = optimalRecordings.get(seed)?.time;
+  const hardPars = optimalTime != null ? clampParsToOptimal(geometric, optimalTime) : geometric;
+  return difficulty === "easy" ? computeEasyMedalPars(hardPars) : hardPars;
+}
+
 function makePlayable(seed: string, kind: Mode, difficulty: Difficulty): Playable {
   const level = kind === "weekly" ? generateWeeklyLevel(seed) : generateLevel(seed);
-  const hardPars = computeMedalPars(level);
-  const pars = difficulty === "easy" ? computeEasyMedalPars(hardPars) : hardPars;
-  return { seed, level, difficulty, personalBest: loadPersonalBest(seed, difficulty), pars };
+  return {
+    seed,
+    level,
+    difficulty,
+    personalBest: loadPersonalBest(seed, difficulty),
+    pars: parsFor(level, seed, difficulty),
+  };
 }
 
 // Drop any personal bests past their retention age before loading anything.
@@ -227,17 +254,31 @@ const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElem
 const profileScreen = document.getElementById("profile-screen")!;
 const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
 const profileCloseBtn = document.getElementById("profile-close-btn") as HTMLButtonElement;
-const syncGenerateBtn = document.getElementById("sync-generate-btn") as HTMLButtonElement;
-const syncLinkInput = document.getElementById("sync-link-input") as HTMLInputElement;
-const syncLinkBtn = document.getElementById("sync-link-btn") as HTMLButtonElement;
-const syncUnlinked = document.getElementById("sync-unlinked")!;
-const syncLinked = document.getElementById("sync-linked")!;
-const syncCodeValue = document.getElementById("sync-code-value")!;
-const syncCopyBtn = document.getElementById("sync-copy-btn") as HTMLButtonElement;
-const syncStatus = document.getElementById("sync-status")!;
-const syncNowBtn = document.getElementById("sync-now-btn") as HTMLButtonElement;
-const syncUnlinkBtn = document.getElementById("sync-unlink-btn") as HTMLButtonElement;
-const syncError = document.getElementById("sync-error")!;
+const profileDismissBtn = document.getElementById("profile-dismiss-btn") as HTMLButtonElement;
+const accountLoggedOut = document.getElementById("account-logged-out")!;
+const accountLoggedIn = document.getElementById("account-logged-in")!;
+const settingsLoginBtn = document.getElementById("settings-login-btn") as HTMLButtonElement;
+const settingsRegisterBtn = document.getElementById("settings-register-btn") as HTMLButtonElement;
+const syncMigrateRow = document.getElementById("sync-migrate-row")!;
+const syncMigrateBtn = document.getElementById("sync-migrate-btn") as HTMLButtonElement;
+const accountUsernameEl = document.getElementById("account-username")!;
+const accountEmailInput = document.getElementById("account-email") as HTMLInputElement;
+const accountNotifyDaily = document.getElementById("account-notify-daily") as HTMLInputElement;
+const accountNotifyUpdates = document.getElementById("account-notify-updates") as HTMLInputElement;
+const accountCountry = document.getElementById("account-country") as HTMLSelectElement;
+const accountTimezone = document.getElementById("account-timezone") as HTMLSelectElement;
+const accountSaveBtn = document.getElementById("account-save-btn") as HTMLButtonElement;
+const accountCurrentPassword = document.getElementById("account-current-password") as HTMLInputElement;
+const accountNewPassword = document.getElementById("account-new-password") as HTMLInputElement;
+const accountPasswordBtn = document.getElementById("account-password-btn") as HTMLButtonElement;
+const accountLogoutBtn = document.getElementById("account-logout-btn") as HTMLButtonElement;
+const accountDeleteBtn = document.getElementById("account-delete-btn") as HTMLButtonElement;
+const accountDeleteConfirm = document.getElementById("account-delete-confirm")!;
+const accountDeletePassword = document.getElementById("account-delete-password") as HTMLInputElement;
+const accountDeleteConfirmBtn = document.getElementById("account-delete-confirm-btn") as HTMLButtonElement;
+const accountDeleteCancelBtn = document.getElementById("account-delete-cancel-btn") as HTMLButtonElement;
+const accountStatus = document.getElementById("account-status")!;
+const accountSectionError = document.getElementById("account-section-error")!;
 const statsLocal = document.getElementById("stats-local")!;
 const statsServer = document.getElementById("stats-server")!;
 const statsServerError = document.getElementById("stats-server-error")!;
@@ -301,12 +342,27 @@ const playBtn = document.getElementById("play-btn") as HTMLButtonElement;
 const countdownOverlay = document.getElementById("countdown-overlay")!;
 const countdownText = document.getElementById("countdown-text")!;
 const bestShareBtn = document.getElementById("best-share-btn") as HTMLButtonElement;
-const nicknameInput = document.getElementById("nickname-input") as HTMLInputElement;
-const nicknameSettingsSave = document.getElementById("nickname-settings-save") as HTMLButtonElement;
-const nicknameScreen = document.getElementById("nickname-screen")!;
-const nicknamePromptInput = document.getElementById("nickname-prompt-input") as HTMLInputElement;
-const nicknamePromptSave = document.getElementById("nickname-prompt-save") as HTMLButtonElement;
-const nicknamePromptCancel = document.getElementById("nickname-prompt-cancel") as HTMLButtonElement;
+const accountScreen = document.getElementById("account-screen")!;
+const accountTitle = document.getElementById("account-title")!;
+const accountChoice = document.getElementById("account-choice")!;
+const accountRegisterForm = document.getElementById("account-register-form") as HTMLFormElement;
+const accountLoginForm = document.getElementById("account-login-form") as HTMLFormElement;
+const accountCreateBtn = document.getElementById("account-create-btn") as HTMLButtonElement;
+const accountLoginBtn = document.getElementById("account-login-btn") as HTMLButtonElement;
+const accountSkipBtn = document.getElementById("account-skip-btn") as HTMLButtonElement;
+const accountSkipLink = document.getElementById("account-skip-link") as HTMLButtonElement;
+const accountError = document.getElementById("account-error")!;
+const registerUsername = document.getElementById("register-username") as HTMLInputElement;
+const registerPassword = document.getElementById("register-password") as HTMLInputElement;
+const registerEmail = document.getElementById("register-email") as HTMLInputElement;
+const registerNotifyDaily = document.getElementById("register-notify-daily") as HTMLInputElement;
+const registerNotifyUpdates = document.getElementById("register-notify-updates") as HTMLInputElement;
+const registerCountry = document.getElementById("register-country") as HTMLSelectElement;
+const registerTimezone = document.getElementById("register-timezone") as HTMLSelectElement;
+const registerSubmit = document.getElementById("register-submit") as HTMLButtonElement;
+const loginUsername = document.getElementById("login-username") as HTMLInputElement;
+const loginPassword = document.getElementById("login-password") as HTMLInputElement;
+const loginSubmit = document.getElementById("login-submit") as HTMLButtonElement;
 const leaderboardHeaderEl = document.getElementById("leaderboard-header")!;
 const leaderboardList = document.getElementById("leaderboard-list")!;
 const streakBadge = document.getElementById("streak-badge")!;
@@ -321,38 +377,50 @@ const difficultyEasyBtn = document.getElementById("difficulty-easy") as HTMLButt
 const difficultyHardBtn = document.getElementById("difficulty-hard") as HTMLButtonElement;
 const medalTrack = document.getElementById("medal-track")!;
 
-let nickname = getOrCreateNickname();
-nicknameInput.value = nickname;
+function populateSelectOptions(select: HTMLSelectElement, items: ReadonlyArray<readonly [string, string]>): void {
+  for (const [value, label] of items) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    select.appendChild(opt);
+  }
+}
 
-/** Persists a new nickname from wherever it was entered (the settings field or
- * the post-run prompt) and brings the rest of the UI into line. setNickname()
- * ignores blank input, so re-reading the stored value is what keeps the field
- * showing the name that actually took effect. */
+const timezoneItems: Array<readonly [string, string]> = (
+  typeof Intl !== "undefined" && Intl.supportedValuesOf
+    ? Intl.supportedValuesOf("timeZone")
+    : []
+).map((tz) => [tz, tz.replace(/_/g, " ")] as const);
+
+const detectedTimezone =
+  typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "";
+
+populateSelectOptions(registerCountry, COUNTRIES);
+populateSelectOptions(registerTimezone, timezoneItems);
+populateSelectOptions(accountCountry, COUNTRIES);
+populateSelectOptions(accountTimezone, timezoneItems);
+
+if (detectedTimezone) {
+  registerTimezone.value = detectedTimezone;
+}
+
+let nickname = getOrCreateNickname();
+
+/** Adopts a name for this device.
+ *
+ * Only ever called with an account's username now - logging in, or upgrading an
+ * old sync code. Players can no longer type a name of their own, because a name
+ * on the leaderboard is something an account owns. The local nickname survives
+ * as what run logs and leaderboard highlighting are keyed on. */
 function applyNickname(next: string): void {
   const oldNickname = nickname;
   setNickname(next);
   nickname = getOrCreateNickname();
-  nicknameInput.value = nickname;
   renderLeaderboardList();
   if (nickname !== oldNickname) {
     void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
-    if (loadSyncToken()) void doSync();
   }
 }
-
-nicknameInput.addEventListener("change", () => applyNickname(nicknameInput.value));
-
-// Explicit save alongside the field's own change handler. The handler already
-// persists on blur, so this is about affordance and confirmation - and saving
-// here counts as choosing a name, which retires the post-run prompt.
-nicknameSettingsSave.addEventListener("click", () => {
-  applyNickname(nicknameInput.value);
-  markNicknameChosen();
-  nicknameSettingsSave.textContent = "Saved!";
-  window.setTimeout(() => {
-    nicknameSettingsSave.textContent = "Save";
-  }, 1400);
-});
 
 /** Works out where this visit came from, for acquisition tracking.
  *
@@ -391,10 +459,44 @@ if (document.readyState === "loading") {
   logGameStarted();
 }
 
-// Pull remote state on load if a sync token is stored.
-if (loadSyncToken()) {
-  void doSync();
+/** Pushes this device's progress to the account, applies whatever comes back,
+ * and pulls down any personal bests this device has never seen.
+ *
+ * Best-effort throughout: offline, nothing happens and nothing breaks. Doing
+ * both halves together is what makes logging in on a new device restore a
+ * player's streak and their ghosts in one go. */
+async function syncAccount(): Promise<void> {
+  if (!isLoggedIn()) return;
+  const applied = await syncAccountState();
+  const takenBests = await pullAccountBests();
+  if (!applied && takenBests === 0) return;
+  if (takenBests > 0) refreshCachedPersonalBests();
+  renderProgressStrip();
+  refreshViewedUi();
+  renderLeaderboardList();
 }
+
+/** Re-reads the personal best of every level already built this session.
+ *
+ * The cache holds whole generated levels, so throwing it away to pick up new
+ * personal bests would mean regenerating every one of them. The geometry hasn't
+ * changed - only the best time attached to it has. */
+function refreshCachedPersonalBests(): void {
+  for (const cacheMode of ["daily", "weekly"] as const) {
+    for (const cacheDifficulty of ["easy", "hard"] as const) {
+      for (const playable of playableCache[cacheMode][cacheDifficulty].values()) {
+        playable.personalBest = loadPersonalBest(playable.seed, cacheDifficulty);
+      }
+    }
+  }
+}
+
+// Re-check the login on load, so a session revoked elsewhere (a password change
+// on another device) stops counting as logged in here. The cached account
+// answers isLoggedIn() until this returns, and being offline leaves it alone -
+// see refreshAccount(). A surviving session then syncs, which is what restores
+// progress on a device that has just been logged in to.
+void refreshAccount().then(syncAccount);
 
 function refreshViewedUi(): void {
   const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
@@ -1353,7 +1455,6 @@ const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 }
 // (weekly maps are far too large).
 const optimalEnabled = new URLSearchParams(window.location.search).get("optimal") === "true";
 const OPTIMAL_LABEL = "Optimal";
-const optimalRecordings = new Map<string, GhostRecording>();
 const optimalPending = new Set<string>();
 let optimalWorker: Worker | null = null;
 let optimalWorkerBroken = false;
@@ -1381,22 +1482,43 @@ function getOptimalWorker(): Worker | null {
   }
 }
 
-/** Records a solved route and, if it's for the map on screen, repaints the board
- * so the "Optimal" row appears. */
+/** Records a solved route, re-derives the seed's medal pars from it, and - if
+ * it's for the map on screen - repaints the board and the medal chips. */
 function receiveOptimal(seed: string, recording: GhostRecording): void {
   optimalRecordings.set(seed, recording);
-  if (viewed.seed === seed) renderLeaderboardList();
+  applyOptimalToPars(seed);
+  if (viewed.seed === seed) {
+    renderLeaderboardList();
+    renderMedalTrack();
+    renderProgressStrip();
+  }
 }
 
-/** Kicks off (or reuses a cached) optimal route for a daily seed when
- * ?optimal=true. Prefers the server's precomputed route (no wait); only if the
- * server hasn't solved it yet - or is unreachable - does it fall back to solving
- * locally. No-op for weekly maps, orphan maps, Easy (the solver only ever
- * targets Hard's physics - there's no Easy optimal ghost), or when already
- * solved/in flight. */
+/** Re-derives medal pars for every level already built on a seed, after its
+ * optimal time arrives. Mutating the cached Playables is what updates `viewed`
+ * and `active` too - they hold the same objects. */
+function applyOptimalToPars(seed: string): void {
+  for (const cacheDifficulty of ["easy", "hard"] as const) {
+    for (const playable of playableCache.daily[cacheDifficulty].values()) {
+      if (playable.seed === seed) playable.pars = parsFor(playable.level, seed, cacheDifficulty);
+    }
+  }
+}
+
+/** Fetches (or reuses a cached) optimal route for a daily seed.
+ *
+ * The server's precomputed route is fetched for everyone, not just under
+ * ?optimal=true, because its time is what keeps gold achievable when the
+ * geometric heuristic undershoots (see parsFor). Only the local-solve fallback
+ * stays behind the flag - a ~15s search is fine for a power user who asked for
+ * the ghost, and not something to spend a normal player's CPU on for a medal
+ * adjustment.
+ *
+ * No-op for weekly maps, orphan maps, Easy (the solver only ever targets Hard's
+ * physics), or when already solved/in flight. */
 function requestOptimal(playable: Playable): void {
   const { seed, level } = playable;
-  if (!optimalEnabled || level.kind !== "daily" || playable.difficulty !== "hard") return;
+  if (level.kind !== "daily" || playable.orphan || playable.difficulty !== "hard") return;
   if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
   optimalPending.add(seed);
 
@@ -1405,8 +1527,11 @@ function requestOptimal(playable: Playable): void {
     if (remote && Array.isArray(remote.inputLog)) {
       optimalPending.delete(seed);
       receiveOptimal(seed, { seed, time: remote.time, stability: remote.stability, inputLog: remote.inputLog });
-    } else {
+    } else if (optimalEnabled) {
       solveOptimalLocally(playable);
+    } else {
+      // No stored route and no local solve: the pars stay as the geometry says.
+      optimalPending.delete(seed);
     }
   });
 }
@@ -1647,9 +1772,9 @@ function beginRun(playable: Playable): void {
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
-  // Leaving the results behind also drops the name prompt and anything it
+  // Leaving the results behind also drops the account prompt and anything it
   // was holding, so a queued submission can never outlive its run.
-  nicknameScreen.classList.add("hidden");
+  closeAccountPrompt();
   pendingScoreSubmit = null;
   hud.classList.remove("hidden");
   countdownOverlay.classList.remove("hidden");
@@ -1660,43 +1785,186 @@ function beginRun(playable: Playable): void {
 // drops it, keeping that run off the board entirely.
 let pendingScoreSubmit: (() => void) | null = null;
 
-/** Asks a player still carrying an auto-generated "Racer1234" name how they
- * want to appear, in place of the results screen rather than on top of it. */
-function openNicknamePrompt(submit: () => void): void {
+/** Where the prompt was opened from, which decides its wording, where it
+ * returns to, and whether backing out counts as declining. */
+type AccountPromptContext = "run" | "settings";
+let accountPromptContext: AccountPromptContext = "run";
+
+/** Asks a logged-out player to sign in, in place of whatever screen they came
+ * from rather than on top of it.
+ *
+ * One panel, three views: the choice, and a form behind each of the first two
+ * buttons. The settings page opens the same forms rather than growing a second
+ * copy of them - it just starts on one directly and returns there afterwards. */
+function openAccountPrompt(
+  submit: (() => void) | null,
+  context: AccountPromptContext = "run",
+  view: HTMLElement = accountChoice,
+): void {
   pendingScoreSubmit = submit;
-  nicknamePromptInput.value = nickname;
-  nicknameScreen.classList.remove("hidden");
-  nicknamePromptInput.focus();
-  nicknamePromptInput.select();
+  accountPromptContext = context;
+  accountTitle.textContent =
+    context === "run" ? "Log in or create an account to register your score" : "Log in or create an account";
+  // Backing out of a run means the score isn't registered; from settings it is
+  // an ordinary cancel, and shouldn't read as a decision about a score.
+  const skipLabel = context === "run" ? "Don't register score" : "Cancel";
+  accountSkipBtn.textContent = skipLabel;
+  accountSkipLink.textContent = skipLabel;
+  showAccountView(view);
+  registerUsername.value = nickname;
+  registerPassword.value = "";
+  registerEmail.value = "";
+  registerNotifyDaily.checked = false;
+  registerNotifyUpdates.checked = false;
+  registerCountry.value = "";
+  registerTimezone.value = detectedTimezone;
+  loginUsername.value = nickname;
+  loginPassword.value = "";
+  syncNotifyAvailability();
+  accountScreen.classList.remove("hidden");
+  const firstField = view === accountLoginForm ? loginUsername : view === accountRegisterForm ? registerUsername : null;
+  firstField?.focus();
+  firstField?.select();
 }
 
-/** Dismisses the prompt and hands the player on to the results they'd normally
- * have seen straight away. */
-function closeNicknamePrompt(): void {
-  nicknameScreen.classList.add("hidden");
-  resultsScreen.classList.remove("hidden");
+/** Shows one of the prompt's three views and hides the rest. The skip link
+ * rides along: it belongs on the forms, where the choice's own third button
+ * isn't visible, so there is always a way out. */
+function showAccountView(view: HTMLElement): void {
+  for (const el of [accountChoice, accountRegisterForm, accountLoginForm]) {
+    el.classList.toggle("hidden", el !== view);
+  }
+  accountSkipLink.classList.toggle("hidden", view === accountChoice);
+  accountError.classList.add("hidden");
+  setAccountBusy(false);
 }
 
-nicknamePromptSave.addEventListener("click", () => {
-  applyNickname(nicknamePromptInput.value);
-  // Marked chosen even if the name is unchanged - they were asked and answered.
-  markNicknameChosen();
+function closeAccountPrompt(): void {
+  accountScreen.classList.add("hidden");
+}
+
+/** Hands the player back to wherever they were: the results they would have
+ * seen straight away, or the settings panel they left. */
+function finishAccountPrompt(): void {
+  closeAccountPrompt();
+  if (accountPromptContext === "run") resultsScreen.classList.remove("hidden");
+  else openProfile();
+}
+
+function showAccountError(message: string): void {
+  accountError.textContent = message;
+  accountError.classList.remove("hidden");
+}
+
+/** Disables the forms while a request is in flight, so a double tap can't
+ * register twice. The skip button stays live on purpose - a player must never
+ * be stuck waiting on a server that isn't going to answer. */
+function setAccountBusy(busy: boolean): void {
+  registerSubmit.disabled = busy;
+  loginSubmit.disabled = busy;
+  registerSubmit.textContent = busy ? "Creating…" : "Create account";
+  loginSubmit.textContent = busy ? "Logging in…" : "Log in";
+}
+
+/** A subscription needs somewhere to send to, and the server rejects the
+ * combination outright, so the boxes only unlock once an address is typed. */
+function syncNotifyAvailability(): void {
+  const hasEmail = registerEmail.value.trim() !== "";
+  registerNotifyDaily.disabled = !hasEmail;
+  registerNotifyUpdates.disabled = !hasEmail;
+  if (!hasEmail) {
+    registerNotifyDaily.checked = false;
+    registerNotifyUpdates.checked = false;
+  }
+}
+
+/** Runs the held-back submission under the now-logged-in identity.
+ *
+ * The username is the leaderboard name, so the local nickname follows it -
+ * otherwise the queued submission would go up under whatever this device was
+ * called before, which is a name the account may not even own. */
+function completeAccountPrompt(username: string): void {
+  applyNickname(username);
+  // An account supersedes the old sync code, however this player got here.
+  clearSyncToken();
   const submit = pendingScoreSubmit;
   pendingScoreSubmit = null;
-  closeNicknamePrompt();
-  // Submitted after applyNickname() so the run lands under the new name.
+  finishAccountPrompt();
   submit?.();
-});
+  // Logging in on a fresh device is the moment this matters most: it is what
+  // brings back a streak, a difficulty preference, and every personal-best
+  // ghost the account has stored.
+  void syncAccount();
+}
 
-nicknamePromptCancel.addEventListener("click", () => {
-  // Neither submits nor marks the name as chosen: this run stays off the
-  // leaderboard, and the question comes back after the next finished run.
+/** Abandons the prompt. After a run that means the score stays off the
+ * leaderboard and the question stays away for a week rather than greeting every
+ * finish; from the settings page it is just a cancel, and shouldn't buy a
+ * week's silence the player never asked for. */
+function declineAccountPrompt(): void {
+  if (accountPromptContext === "run") recordAccountPromptDeclined();
   pendingScoreSubmit = null;
-  closeNicknamePrompt();
+  finishAccountPrompt();
+}
+
+accountCreateBtn.addEventListener("click", () => {
+  showAccountView(accountRegisterForm);
+  registerUsername.focus();
+  registerUsername.select();
 });
 
-nicknamePromptInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") nicknamePromptSave.click();
+accountLoginBtn.addEventListener("click", () => {
+  showAccountView(accountLoginForm);
+  loginUsername.focus();
+  loginUsername.select();
+});
+
+accountSkipBtn.addEventListener("click", declineAccountPrompt);
+accountSkipLink.addEventListener("click", declineAccountPrompt);
+registerEmail.addEventListener("input", syncNotifyAvailability);
+
+// forEach rather than for-of: the tsconfig lib list is ES2022 + DOM without
+// DOM.Iterable, so a NodeList isn't iterable as far as the compiler is
+// concerned.
+document.querySelectorAll<HTMLButtonElement>(".account-back").forEach((backBtn) => {
+  backBtn.addEventListener("click", () => showAccountView(accountChoice));
+});
+
+accountRegisterForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAccountBusy(true);
+  accountError.classList.add("hidden");
+  const email = registerEmail.value.trim();
+  const country = registerCountry.value;
+  const tz = registerTimezone.value;
+  const result = await register({
+    username: registerUsername.value.trim(),
+    password: registerPassword.value,
+    ...(email ? { email } : {}),
+    notifyDaily: registerNotifyDaily.checked,
+    notifyUpdates: registerNotifyUpdates.checked,
+    ...(country ? { country } : {}),
+    ...(tz ? { timezone: tz } : {}),
+  });
+  setAccountBusy(false);
+  if (!result.ok) {
+    showAccountError(result.error);
+    return;
+  }
+  completeAccountPrompt(result.account.username);
+});
+
+accountLoginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setAccountBusy(true);
+  accountError.classList.add("hidden");
+  const result = await login(loginUsername.value.trim(), loginPassword.value);
+  setAccountBusy(false);
+  if (!result.ok) {
+    showAccountError(result.error);
+    return;
+  }
+  completeAccountPrompt(result.account.username);
 });
 
 function endRun(): void {
@@ -1770,7 +2038,7 @@ function endRun(): void {
     if (active.level.kind === "daily" && !active.orphan) {
       recordCompletion(active.seed);
       renderProgressStrip();
-      if (loadSyncToken()) void doSync();
+      void syncAccountState();
     }
 
     resultsPersonalBest.textContent = !previousBest
@@ -1840,12 +2108,15 @@ function endRun(): void {
     lastShareText = null;
   }
 
-  // A run worth putting on the leaderboard, by someone who has never been asked
-  // what to call themselves, is the one moment where the question is actually
-  // worth interrupting for. `submitRun` being set already implies a successful,
-  // non-orphan run, so there's nothing to ask about otherwise.
-  if (submitRun && !hasChosenNickname() && isDefaultNickname(nickname)) {
-    openNicknamePrompt(submitRun);
+  // A place on the leaderboard belongs to an account, so a logged-out run never
+  // goes up. `submitRun` being set already implies a successful, non-orphan run,
+  // so there is nothing to ask about otherwise.
+  if (submitRun && !isLoggedIn()) {
+    // Someone who declined recently isn't asked again for a week. Their run
+    // still counts locally - the personal best above is already saved - it just
+    // doesn't reach the board.
+    if (accountPromptRecentlyDeclined()) resultsScreen.classList.remove("hidden");
+    else openAccountPrompt(submitRun);
   } else {
     submitRun?.();
     resultsScreen.classList.remove("hidden");
@@ -1873,9 +2144,9 @@ function goHome(): void {
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
   resultsScreen.classList.add("hidden");
-  // Leaving the results behind also drops the name prompt and anything it
+  // Leaving the results behind also drops the account prompt and anything it
   // was holding, so a queued submission can never outlive its run.
-  nicknameScreen.classList.add("hidden");
+  closeAccountPrompt();
   pendingScoreSubmit = null;
   startScreen.classList.remove("hidden");
   // A just-finished first delivery flips "has played", which reveals the browse
@@ -1956,9 +2227,9 @@ function startTutorial(): void {
 
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
-  // Leaving the results behind also drops the name prompt and anything it
+  // Leaving the results behind also drops the account prompt and anything it
   // was holding, so a queued submission can never outlive its run.
-  nicknameScreen.classList.add("hidden");
+  closeAccountPrompt();
   pendingScoreSubmit = null;
   hud.classList.add("hidden");
   countdownOverlay.classList.add("hidden");
@@ -2265,72 +2536,53 @@ helpScreen.addEventListener("click", (e) => {
 
 let profileOpen = false;
 
-function showSyncError(msg: string): void {
-  syncError.textContent = msg;
-  syncError.classList.remove("hidden");
-}
-function hideSyncError(): void {
-  syncError.classList.add("hidden");
-}
-
-function updateSyncUi(): void {
-  const token = loadSyncToken();
-  if (token) {
-    syncUnlinked.classList.add("hidden");
-    syncLinked.classList.remove("hidden");
-    syncCodeValue.textContent = token;
-  } else {
-    syncUnlinked.classList.remove("hidden");
-    syncLinked.classList.add("hidden");
+/** Repaints everything in the settings panel that depends on being logged in:
+ * the account section's two views, and the nickname field, which goes
+ * read-only because the username IS the leaderboard name - an editable
+ * nickname beside it would be a second, lying identity. */
+function updateAccountUi(): void {
+  const user = currentUser();
+  accountLoggedOut.classList.toggle("hidden", user !== null);
+  accountLoggedIn.classList.toggle("hidden", user === null);
+  // The upgrade offer only means anything to someone holding an old code who
+  // hasn't already got an account.
+  syncMigrateRow.classList.toggle("hidden", user !== null || loadSyncToken() === null);
+  accountDeleteConfirm.classList.add("hidden");
+  accountStatus.classList.add("hidden");
+  accountSectionError.classList.add("hidden");
+  if (user) {
+    accountUsernameEl.textContent = user.username;
+    accountEmailInput.value = user.email ?? "";
+    accountNotifyDaily.checked = user.notifyDaily;
+    accountNotifyUpdates.checked = user.notifyUpdates;
+    accountCountry.value = user.country ?? "";
+    accountTimezone.value = user.timezone ?? "";
   }
-  hideSyncError();
-}
-
-function applyRemoteState(data: { nickname: string; difficulty: string | null; completed: string[] }): void {
-  if (data.nickname) {
-    setNickname(data.nickname);
-    nickname = getOrCreateNickname();
-    nicknameInput.value = nickname;
-  }
-  if (data.difficulty === "easy" || data.difficulty === "hard") {
-    saveDifficultyPref(data.difficulty);
-  }
-  if (data.completed.length > 0) {
-    for (const seed of data.completed) recordCompletion(seed);
-    renderProgressStrip();
-  }
-  renderLeaderboardList();
-  refreshViewedUi();
+  syncAccountNotifyAvailability();
 }
 
-async function syncPersonalBest(): Promise<void> {
-  const recording = await fetchPlayerRecording(viewed.seed, nickname, viewed.difficulty);
-  if (!recording) return;
-  const ghost: GhostRecording = { seed: recording.seed, time: recording.time, stability: recording.stability, inputLog: recording.inputLog };
-  if (savePersonalBestIfBetter(ghost, viewed.difficulty)) {
-    viewed.personalBest = ghost;
-    playableCache[mode][viewed.difficulty].delete(viewedOffset);
-    refreshViewedUi();
+/** Same rule as the register form: a subscription needs an address to send to,
+ * and the server rejects the pair outright. */
+function syncAccountNotifyAvailability(): void {
+  const hasEmail = accountEmailInput.value.trim() !== "";
+  accountNotifyDaily.disabled = !hasEmail;
+  accountNotifyUpdates.disabled = !hasEmail;
+  if (!hasEmail) {
+    accountNotifyDaily.checked = false;
+    accountNotifyUpdates.checked = false;
   }
 }
 
-async function doSync(): Promise<void> {
-  const token = loadSyncToken();
-  if (!token) return;
-  syncNowBtn.disabled = true;
-  syncStatus.textContent = "Syncing…";
-  const completed = [...loadCompletedDays()];
-  const diffPref = loadDifficultyPref();
-  const result = await pushSyncAccount(token, nickname, diffPref, completed);
-  if (!result) {
-    syncStatus.textContent = "Sync failed";
-    syncNowBtn.disabled = false;
-    return;
-  }
-  applyRemoteState(result);
-  await syncPersonalBest();
-  syncStatus.textContent = `Synced just now`;
-  syncNowBtn.disabled = false;
+function showAccountStatus(message: string): void {
+  accountStatus.textContent = message;
+  accountStatus.classList.remove("hidden");
+  accountSectionError.classList.add("hidden");
+}
+
+function showAccountSectionError(message: string): void {
+  accountSectionError.textContent = message;
+  accountSectionError.classList.remove("hidden");
+  accountStatus.classList.add("hidden");
 }
 
 function formatPlayTime(totalSeconds: number): string {
@@ -2472,8 +2724,7 @@ function syncSoundUi(): void {
 
 function openProfile(): void {
   profileOpen = true;
-  nicknameInput.value = nickname;
-  updateSyncUi();
+  updateAccountUi();
   renderLocalStats();
   syncSoundUi();
   statsDifficulty = difficulty;
@@ -2488,6 +2739,7 @@ function closeProfile(): void {
 }
 profileBtn.addEventListener("click", openProfile);
 profileCloseBtn.addEventListener("click", closeProfile);
+profileDismissBtn.addEventListener("click", closeProfile);
 profileScreen.addEventListener("click", (e) => {
   if (e.target === profileScreen) closeProfile();
 });
@@ -2548,62 +2800,103 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) resumeAudio();
 });
 
-syncGenerateBtn.addEventListener("click", async () => {
-  hideSyncError();
-  syncGenerateBtn.disabled = true;
-  const completed = [...loadCompletedDays()];
-  const diffPref = loadDifficultyPref();
-  const token = await createSyncAccount(nickname, diffPref, completed);
-  syncGenerateBtn.disabled = false;
-  if (!token) {
-    showSyncError("Could not create sync code. Try again later.");
-    return;
-  }
-  saveSyncToken(token);
-  updateSyncUi();
-  syncStatus.textContent = "Synced just now";
+settingsLoginBtn.addEventListener("click", () => {
+  closeProfile();
+  openAccountPrompt(null, "settings", accountLoginForm);
 });
 
-syncLinkBtn.addEventListener("click", async () => {
-  hideSyncError();
-  const code = syncLinkInput.value.trim().toLowerCase();
-  if (!/^[a-z2-9]{6}$/.test(code)) {
-    showSyncError("Code must be 6 characters.");
-    return;
-  }
-  syncLinkBtn.disabled = true;
-  const account = await fetchSyncAccount(code);
-  syncLinkBtn.disabled = false;
-  if (!account) {
-    showSyncError("Code not found. Check and try again.");
-    return;
-  }
-  saveSyncToken(code);
-  applyRemoteState(account);
-  // Push local state to merge completed days
-  void doSync();
-  updateSyncUi();
+settingsRegisterBtn.addEventListener("click", () => {
+  closeProfile();
+  openAccountPrompt(null, "settings", accountRegisterForm);
 });
 
-syncCopyBtn.addEventListener("click", async () => {
+/** Turns an old sync code into a real account.
+ *
+ * Holding the code is the only proof of ownership available, so this is the one
+ * migration that can carry a nickname across without an ownership question. The
+ * code's completed days are merged into local storage first, then the ordinary
+ * register form opens - so whatever the account ends up holding starts from
+ * everything this player had. */
+syncMigrateBtn.addEventListener("click", async () => {
   const token = loadSyncToken();
   if (!token) return;
-  try {
-    await navigator.clipboard.writeText(token);
-    syncCopyBtn.textContent = "Copied!";
-    setTimeout(() => { syncCopyBtn.textContent = "Copy"; }, 1500);
-  } catch {
-    syncCopyBtn.textContent = "Failed";
-    setTimeout(() => { syncCopyBtn.textContent = "Copy"; }, 1500);
+  syncMigrateBtn.disabled = true;
+  const account = await fetchSyncAccount(token);
+  syncMigrateBtn.disabled = false;
+  if (account) {
+    for (const seed of account.completed) recordCompletion(seed);
+    renderProgressStrip();
+    // The code's nickname wins: it's the name their scores are already under.
+    if (account.nickname) applyNickname(account.nickname);
   }
+  closeProfile();
+  openAccountPrompt(null, "settings", accountRegisterForm);
 });
 
-syncNowBtn.addEventListener("click", () => void doSync());
+accountEmailInput.addEventListener("input", syncAccountNotifyAvailability);
 
-syncUnlinkBtn.addEventListener("click", () => {
-  clearSyncToken();
-  updateSyncUi();
-  syncStatus.textContent = "";
+accountSaveBtn.addEventListener("click", async () => {
+  accountSaveBtn.disabled = true;
+  const email = accountEmailInput.value.trim();
+  const country = accountCountry.value;
+  const tz = accountTimezone.value;
+  const result = await updateAccount({
+    email: email === "" ? null : email,
+    notifyDaily: accountNotifyDaily.checked,
+    notifyUpdates: accountNotifyUpdates.checked,
+    country: country === "" ? null : country,
+    timezone: tz === "" ? null : tz,
+  });
+  accountSaveBtn.disabled = false;
+  if (result.ok) showAccountStatus("Saved.");
+  else showAccountSectionError(result.error);
+});
+
+accountPasswordBtn.addEventListener("click", async () => {
+  accountPasswordBtn.disabled = true;
+  const result = await updateAccount({
+    currentPassword: accountCurrentPassword.value,
+    newPassword: accountNewPassword.value,
+  });
+  accountPasswordBtn.disabled = false;
+  if (!result.ok) {
+    showAccountSectionError(result.error);
+    return;
+  }
+  accountCurrentPassword.value = "";
+  accountNewPassword.value = "";
+  // The server drops every other session on a password change, so say so -
+  // otherwise being logged out on a second device looks like a fault.
+  showAccountStatus("Password changed. Other devices have been logged out.");
+});
+
+accountLogoutBtn.addEventListener("click", async () => {
+  accountLogoutBtn.disabled = true;
+  await logout();
+  accountLogoutBtn.disabled = false;
+  updateAccountUi();
+});
+
+accountDeleteBtn.addEventListener("click", () => {
+  accountDeletePassword.value = "";
+  accountDeleteConfirm.classList.remove("hidden");
+  accountDeletePassword.focus();
+});
+
+accountDeleteCancelBtn.addEventListener("click", () => {
+  accountDeleteConfirm.classList.add("hidden");
+});
+
+accountDeleteConfirmBtn.addEventListener("click", async () => {
+  accountDeleteConfirmBtn.disabled = true;
+  const result = await deleteAccount(accountDeletePassword.value);
+  accountDeleteConfirmBtn.disabled = false;
+  if (!result.ok) {
+    showAccountSectionError(result.error);
+    return;
+  }
+  updateAccountUi();
+  showAccountStatus("Account deleted.");
 });
 
 attachShareHandler(shareBtn, "results", "Share", () => lastShareText);
@@ -2628,11 +2921,12 @@ minimapCanvas.addEventListener("keydown", (e) => {
 playBtn.addEventListener("click", () => beginRun(viewed));
 
 window.addEventListener("keydown", (e) => {
-  // The leaderboard-name prompt is modal: Enter saves (handled on the field
-  // itself) and Escape cancels, while the run controls behind it stay inert -
-  // otherwise Enter would save the name and immediately restart the run.
-  if (!nicknameScreen.classList.contains("hidden")) {
-    if (e.key === "Escape") nicknamePromptCancel.click();
+  // The account prompt is modal: Enter submits whichever form is open (the
+  // browser does that for us) and Escape declines, while the run controls
+  // behind it stay inert - otherwise Enter would submit the form and
+  // immediately restart the run as well.
+  if (!accountScreen.classList.contains("hidden")) {
+    if (e.key === "Escape") declineAccountPrompt();
     return;
   }
   // While the help overlay is up it captures Escape (to close itself) and

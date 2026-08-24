@@ -231,7 +231,31 @@ body {
 }
 
 .profile-panel {
+  /* Anchors the corner dismiss below. The panel scrolls with .screen rather
+     than internally, so an absolutely-positioned child stays put against the
+     panel's own top corner. */
+  position: relative;
   max-width: 420px;
+}
+
+/* Corner dismiss on the settings panel: the same thing as the Close button at
+   the bottom, within reach without scrolling past every section to find it. */
+.panel-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 2px 8px;
+  font-size: 1.4rem;
+  line-height: 1;
+  font-weight: 400;
+  color: #9aa4b2;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.panel-dismiss:hover {
+  color: #f0f2f5;
+  background: #232b36;
 }
 
 .settings-section {
@@ -338,116 +362,97 @@ body {
   font-size: 0.85rem;
 }
 
-#stats-difficulty-switch {
-  margin-top: 4px;
-}
 
-
-
-.sync-desc {
+/* The account section of the settings panel. It shares the .account-* input and
+   checkbox styling with the post-run prompt, which is also where its Log in /
+   Create account buttons lead - one implementation of those two forms, opened
+   from two places. */
+.account-desc {
   font-size: 0.82rem;
   margin-top: -4px;
 }
 
-#sync-unlinked {
+#account-logged-out,
+#account-logged-in {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   width: 100%;
 }
 
-#sync-link-row {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  max-width: 260px;
-}
-
-#sync-link-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  font-size: 0.9rem;
-  font-family: monospace;
-  letter-spacing: 0.12em;
-  text-align: center;
-  color: #f0f2f5;
-  background: #10141a;
-  border: 1px solid #2c3542;
-  border-radius: 6px;
-}
-
-#sync-link-input:focus {
-  outline: none;
-  border-color: #4a5566;
-}
-
-#sync-linked {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
-
-#sync-linked.hidden {
+#account-logged-out.hidden,
+#account-logged-in.hidden,
+#sync-migrate-row.hidden,
+#account-delete-confirm.hidden {
   display: none;
 }
 
-#sync-code-display {
+#sync-migrate-row,
+#account-delete-confirm {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: #10141a;
+  border: 1px solid #2c3542;
+  border-radius: 8px;
+}
+
+#account-username-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
   padding: 10px 16px;
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 8px;
 }
 
-.sync-label {
+.account-label {
   font-size: 0.78rem;
 }
 
-#sync-code-value {
-  font-family: monospace;
-  font-size: 1.15rem;
+#account-username {
+  font-size: 1.05rem;
   font-weight: 700;
-  letter-spacing: 0.18em;
   color: #55e08a;
 }
 
-#sync-copy-btn {
-  padding: 4px 12px;
-  font-size: 0.78rem;
+#account-password-details {
+  font-size: 0.85rem;
+  color: #9aa5b1;
 }
 
-#sync-status {
-  font-size: 0.8rem;
+#account-password-details summary {
+  cursor: pointer;
+  padding: 4px 0;
 }
 
-#sync-now-btn {
-  width: 100%;
-  max-width: 200px;
+#account-password-details[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.sync-unlink {
+.account-danger {
   font-size: 0.78rem;
   padding: 4px 14px;
   color: #9aa4b2;
   background: transparent;
 }
 
-.sync-unlink:hover {
+.account-danger:hover {
   color: #ff6f6f;
 }
 
-.sync-error {
-  font-size: 0.82rem;
-  color: #ff6f6f;
+.account-status {
+  font-size: 0.8rem;
+  text-align: center;
 }
 
-.sync-error.hidden {
+.account-status.hidden {
   display: none;
 }
 
@@ -471,9 +476,10 @@ body {
   color: #c3cad4;
 }
 
-/* Shared pill-toggle look: the Daily/Weekly switch (#mode-toggle) and the
-   Easy/Hard switch (.mode-toggle, under the Tutorial/How To buttons) render
-   identically - same shape, same active/inactive button styling below. */
+/* Shared pill-toggle look: the Daily/Weekly switch (#mode-toggle) and both
+   Easy/Hard switches (.mode-toggle - under the Tutorial/How To buttons, and in
+   the settings panel's stats section) render identically - same shape, same
+   active/inactive button styling below. */
 #mode-toggle,
 .mode-toggle {
   display: flex;
@@ -844,59 +850,99 @@ body {
   font-weight: 700;
 }
 
-#nickname-row {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  max-width: 260px;
+/* The account prompt shown after a finished run by a logged-out player.
+   Reuses the .screen/.panel shell; one panel holds three views (the choice and
+   the two forms), only one of which is ever visible. */
+.account-panel {
+  width: min(100%, 320px);
 }
 
-/* The leaderboard-name prompt shown after a first finished run. Reuses the
-   .screen/.panel shell; only the question and the button row need sizing. */
-#nickname-prompt-title {
+#account-title {
   font-size: 1.05rem;
   line-height: 1.35;
   text-align: center;
-  max-width: 20ch;
+  max-width: 24ch;
   text-wrap: balance;
 }
 
-#nickname-prompt-input {
+.account-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   width: 100%;
-  max-width: 220px;
+  align-items: stretch;
+}
+
+.account-view.hidden {
+  display: none;
+}
+
+.account-input {
+  width: 100%;
   padding: 8px 10px;
   font-size: 1rem;
-  text-align: center;
   color: #f0f2f5;
   background: #10141a;
   border: 1px solid #2c3542;
   border-radius: 6px;
 }
 
-#nickname-prompt-actions {
+select.account-input {
+  cursor: pointer;
+}
+
+.account-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #9aa5b1;
+}
+
+/* A subscription needs an address to send to, so the boxes stay disabled until
+   there is one - the server rejects that combination, and a disabled box
+   explains why better than an error would. */
+.account-check input:disabled + span,
+.account-check:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.account-note {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.account-actions {
   display: flex;
   gap: 8px;
+  margin-top: 4px;
 }
 
-#nickname-prompt-hint {
-  font-size: 0.8rem;
-  text-align: center;
-}
-
-#nickname-input {
+.account-actions button {
   flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  font-size: 0.9rem;
-  color: #f0f2f5;
-  background: #10141a;
-  border: 1px solid #2c3542;
-  border-radius: 6px;
 }
 
-#nickname-input:focus {
-  outline: none;
-  border-color: #4a5566;
+.account-error {
+  font-size: 0.85rem;
+  line-height: 1.35;
+  text-align: center;
+  color: #ff8f8f;
+  margin: 0;
+}
+
+.account-error.hidden {
+  display: none;
+}
+
+/* Always-available way out of the forms, so a player can never be trapped by a
+   server that won't answer. */
+.account-skip-link {
+  font-size: 0.8rem;
+}
+
+.account-skip-link.hidden {
+  display: none;
 }
 
 #leaderboard {
@@ -1393,14 +1439,18 @@ button:active {
 /* Easy/Hard switch, directly under the Tutorial/How To row - hidden until the
    player has finished a run in either mode (see updateDifficultySwitchVisibility),
    and hidden outright in weekly mode (Weekly is Hard-only). */
-#difficulty-switch {
+#difficulty-switch,
+#stats-difficulty-switch {
   display: flex;
   justify-content: center;
   width: 100%;
   margin-top: 4px;
 }
 
-#difficulty-switch.hidden {
+/* Both need to out-specify the bare .hidden rule, since .mode-toggle inside
+   them is display:flex. */
+#difficulty-switch.hidden,
+#stats-difficulty-switch.hidden {
   display: none;
 }
 
@@ -1415,8 +1465,7 @@ button:active {
   flex: 1 1 0;
 }
 
-/* The nickname field at the bottom, separated from the leaderboard by a
-   hairline. */
+/* The footer below the leaderboard, separated from it by a hairline. */
 #home-footer {
   display: flex;
   flex-direction: column;

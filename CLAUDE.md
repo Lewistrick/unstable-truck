@@ -20,10 +20,31 @@ repo mounted read-only. A pass means the same thing as a client pass in
 `npm run build`; it catches the strict-mode errors below in seconds instead of
 after a failed image build.
 
-What it does **not** cover: `npm run build:server` (`server/` imports express
-and pg, so it needs a real `npm ci`) and the test suite. Server-side or test
-changes are still unverified until the user builds — say so plainly rather than
-calling them "working" or "done".
+What it does **not** cover: the server, or running anything.
+
+For server changes there are two more Docker-backed scripts, same pattern —
+pinned deps in a named volume, repo mounted read-only:
+
+```sh
+scripts/typecheck-server.sh   # tsc -p server/tsconfig.json --noEmit, ~5s
+scripts/server-check.sh       # compiles server/, runs the DB-free unit checks
+```
+
+`typecheck-server.sh` needs express and pg present to resolve their imports, so
+it uses its own volume (`unstable-truck-server-deps`) and copies the repo into a
+writable layer — NodeNext wants `node_modules` next to the sources, and the real
+checkout has none. `package.json` gets copied along too: NodeNext decides
+ESM-vs-CommonJS from the nearest one, and without it every `import.meta` in
+`server/` is a TS1470 error.
+
+`server-check.sh` emits and runs `scripts/password-check.mjs` and
+`scripts/rate-limit-check.mjs`. Those two cover the only server modules that
+import nothing external (`server/password.ts`, `server/rate-limit.ts`) — which
+is exactly why they're kept dependency-free.
+
+Still **not** verifiable on this host: anything touching Postgres or HTTP, and
+the client test suite (`npm test` needs a real `npm ci`). Say so plainly rather
+than calling such changes "working" or "done".
 
 ## Type rules that have actually broken the build
 

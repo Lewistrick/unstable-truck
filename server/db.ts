@@ -173,6 +173,40 @@ export async function ensureSchema(): Promise<void> {
        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
      )`,
   );
+  // Registered players and their login sessions. See db/init.sql for why
+  // username_lower is a generated column and why sessions store a hash.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS users (
+       id             BIGSERIAL PRIMARY KEY,
+       username       TEXT NOT NULL,
+       username_lower TEXT GENERATED ALWAYS AS (lower(username)) STORED UNIQUE,
+       password_hash  TEXT NOT NULL,
+       email          TEXT,
+       notify_daily   BOOLEAN NOT NULL DEFAULT FALSE,
+       notify_updates BOOLEAN NOT NULL DEFAULT FALSE,
+       is_admin       BOOLEAN NOT NULL DEFAULT FALSE,
+       country        TEXT,
+       timezone       TEXT,
+       user_state     JSONB NOT NULL DEFAULT '{}'::jsonb,
+       created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+       last_seen_at   TIMESTAMPTZ
+     )`,
+  );
+  // For users tables created before these columns existed.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_state JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT`);
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS sessions (
+       token_hash   TEXT PRIMARY KEY,
+       user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+       last_used_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+       expires_at   TIMESTAMPTZ NOT NULL
+     )`,
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)`);
 }
 
 /** Every kind of event written to run_logs. Kept in sync with the client's own
@@ -432,6 +466,38 @@ export async function updateAccount(token: string, nickname: string, difficulty:
   return (result.rowCount ?? 0) > 0;
 }
 
+/** Every stored recording for a player, newest first.
+ *
+ * Capped rather than unbounded: input logs are the bulk of each row, and this
+ * is fetched in one go when a player logs in on a new device. The cap sits well
+ * above what the client can even use - it prunes daily bests at 30 days and
+ * weekly ones at about a year. */
+export async function getPlayerScores(
+  nickname: string,
+  limit: number,
+): Promise<{ seed: string; difficulty: DifficultyCode; time: number; stability: number; inputLog: number[] }[]> {
+  const result = await pool.query<{
+    seed: string;
+    difficulty: DifficultyCode;
+    time_seconds: number;
+    stability: number;
+    input_log: number[];
+  }>(
+    `SELECT seed, difficulty, time_seconds, stability, input_log
+     FROM scores WHERE nickname = $1
+     ORDER BY updated_at DESC
+     LIMIT $2`,
+    [nickname, limit],
+  );
+  return result.rows.map((row) => ({
+    seed: row.seed,
+    difficulty: row.difficulty,
+    time: row.time_seconds,
+    stability: row.stability,
+    inputLog: row.input_log,
+  }));
+}
+
 export interface PlayerStats {
   totalScores: number;
   worldFirsts: number;
@@ -479,6 +545,226 @@ export async function getPlayerStats(nickname: string, difficulty: DifficultyCod
       none: Number(row.none),
     },
   };
+}
+
+// --- User accounts ----------------------------------------------------------
+
+/** A user as the rest of the server sees them. Deliberately never carries
+ * password_hash, so it can be returned to a client as-is. */
+export interface UserRecord {
+  id: number;
+  username: string;
+  email: string | null;
+  notifyDaily: boolean;
+  notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
+  isAdmin: boolean;
+}
+
+interface UserRow {
+  id: string;
+  username: string;
+  email: string | null;
+  notify_daily: boolean;
+  notify_updates: boolean;
+  country: string | null;
+  timezone: string | null;
+  is_admin: boolean;
+}
+
+// id is BIGSERIAL, which pg hands back as a string to avoid precision loss.
+// Numbers this small are exactly representable, so narrowing here keeps the
+// rest of the server dealing in plain numbers.
+function toUserRecord(row: UserRow): UserRecord {
+  return {
+    id: Number(row.id),
+    username: row.username,
+    email: row.email,
+    notifyDaily: row.notify_daily,
+    notifyUpdates: row.notify_updates,
+    country: row.country,
+    timezone: row.timezone,
+    isAdmin: row.is_admin,
+  };
+}
+
+const USER_COLUMNS = "id, username, email, notify_daily, notify_updates, country, timezone, is_admin";
+
+/** Creates a user, or returns null if the username is already taken
+ * (case-insensitively - see the generated username_lower column).
+ *
+ * Uses ON CONFLICT rather than catching a unique-violation error code, so a
+ * taken username is an ordinary result rather than an exception that has to be
+ * told apart from a real database failure. */
+export async function createUser(params: {
+  username: string;
+  passwordHash: string;
+  email: string | null;
+  notifyDaily: boolean;
+  notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
+}): Promise<UserRecord | null> {
+  const { username, passwordHash, email, notifyDaily, notifyUpdates, country, timezone } = params;
+  const result = await pool.query<UserRow>(
+    `INSERT INTO users (username, password_hash, email, notify_daily, notify_updates, country, timezone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (username_lower) DO NOTHING
+     RETURNING ${USER_COLUMNS}`,
+    [username, passwordHash, email, notifyDaily, notifyUpdates, country, timezone],
+  );
+  const row = result.rows[0];
+  return row ? toUserRecord(row) : null;
+}
+
+/** Looks a user up by name for login, including the stored password hash.
+ * Case-insensitive, matching how usernames are made unique. */
+export async function getUserForLogin(username: string): Promise<{ user: UserRecord; passwordHash: string } | null> {
+  const result = await pool.query<UserRow & { password_hash: string }>(
+    `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE username_lower = lower($1)`,
+    [username],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { user: toUserRecord(row), passwordHash: row.password_hash };
+}
+
+/** The stored password hash for a user id, used to confirm destructive changes
+ * (password change, account deletion) against a live session. */
+export async function getPasswordHash(userId: number): Promise<string | null> {
+  const result = await pool.query<{ password_hash: string }>(`SELECT password_hash FROM users WHERE id = $1`, [userId]);
+  return result.rows[0]?.password_hash ?? null;
+}
+
+/** Whether a username is registered. This is the check that makes a name
+ * protected on the leaderboard. */
+export async function isUsernameTaken(username: string): Promise<boolean> {
+  const result = await pool.query(`SELECT 1 FROM users WHERE username_lower = lower($1)`, [username]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function updateUserContactPrefs(
+  userId: number,
+  email: string | null,
+  notifyDaily: boolean,
+  notifyUpdates: boolean,
+  country: string | null,
+  timezone: string | null,
+): Promise<UserRecord | null> {
+  const result = await pool.query<UserRow>(
+    `UPDATE users SET email = $2, notify_daily = $3, notify_updates = $4, country = $5, timezone = $6
+     WHERE id = $1 RETURNING ${USER_COLUMNS}`,
+    [userId, email, notifyDaily, notifyUpdates, country, timezone],
+  );
+  const row = result.rows[0];
+  return row ? toUserRecord(row) : null;
+}
+
+export async function updateUserPassword(userId: number, passwordHash: string): Promise<void> {
+  await pool.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [userId, passwordHash]);
+}
+
+/** Deletes a user; their sessions go with them via ON DELETE CASCADE.
+ *
+ * Their scores do NOT: those rows are keyed by nickname text, and deleting them
+ * would tear holes in past leaderboards and break any ghost replaying against
+ * them. It does mean the username becomes registerable again, and whoever takes
+ * it inherits those scores. */
+export async function deleteUser(userId: number): Promise<void> {
+  await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+}
+
+/** The account's stored state blob, exactly as written. Callers parse it -
+ * db.ts stays SQL and knows nothing about the shape. */
+export async function getUserState(userId: number): Promise<unknown> {
+  const result = await pool.query<{ user_state: unknown }>(`SELECT user_state FROM users WHERE id = $1`, [userId]);
+  return result.rows[0]?.user_state ?? null;
+}
+
+export async function saveUserState(userId: number, state: unknown): Promise<void> {
+  await pool.query(`UPDATE users SET user_state = $2::jsonb WHERE id = $1`, [userId, JSON.stringify(state)]);
+}
+
+/** Grants admin to exactly the named users and revokes it from everyone else,
+ * reporting whatever actually changed.
+ *
+ * Driven by the ADMIN_USERNAMES env var, so deployment config is the single
+ * source of truth: taking a name out of it removes the rights on the next boot
+ * rather than leaving a forgotten admin in the database. Idempotent - the WHERE
+ * clause means a boot with nothing to change writes no rows at all.
+ *
+ * A name with no account is silently ignored; admin is granted the moment that
+ * username registers. */
+export async function syncAdmins(usernames: string[]): Promise<{ promoted: string[]; demoted: string[] }> {
+  const lowered = usernames.map((u) => u.toLowerCase());
+  const result = await pool.query<{ username: string; is_admin: boolean }>(
+    `UPDATE users SET is_admin = (username_lower = ANY($1))
+     WHERE is_admin <> (username_lower = ANY($1))
+     RETURNING username, is_admin`,
+    [lowered],
+  );
+  return {
+    promoted: result.rows.filter((row) => row.is_admin).map((row) => row.username),
+    demoted: result.rows.filter((row) => !row.is_admin).map((row) => row.username),
+  };
+}
+
+export async function touchUserLastSeen(userId: number): Promise<void> {
+  await pool.query(`UPDATE users SET last_seen_at = now() WHERE id = $1`, [userId]);
+}
+
+// --- Sessions ---------------------------------------------------------------
+
+export async function createSession(tokenHash: string, userId: number, expiresAt: Date): Promise<void> {
+  await pool.query(`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`, [
+    tokenHash,
+    userId,
+    expiresAt,
+  ]);
+}
+
+/** The user behind a session token hash, or null if there is no such session or
+ * it has expired. Expiry is enforced here rather than left to the prune sweep,
+ * so a token is dead the moment it lapses. */
+export async function getSessionUser(tokenHash: string): Promise<UserRecord | null> {
+  const result = await pool.query<UserRow>(
+    `SELECT u.id, u.username, u.email, u.notify_daily, u.notify_updates, u.country, u.timezone, u.is_admin
+     FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = $1 AND s.expires_at > now()`,
+    [tokenHash],
+  );
+  const row = result.rows[0];
+  return row ? toUserRecord(row) : null;
+}
+
+/** Slides a session's expiry forward on use, so an active player is never
+ * logged out mid-streak. Rate-limited to once an hour by the WHERE clause -
+ * without it this would be an extra write on every authenticated request. */
+export async function touchSession(tokenHash: string, expiresAt: Date): Promise<void> {
+  await pool.query(
+    `UPDATE sessions SET last_used_at = now(), expires_at = $2
+     WHERE token_hash = $1 AND last_used_at < now() - INTERVAL '1 hour'`,
+    [tokenHash, expiresAt],
+  );
+}
+
+export async function deleteSession(tokenHash: string): Promise<void> {
+  await pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
+}
+
+/** Drops every session a user has. Called on password change, so changing a
+ * password actually evicts whoever else was logged in. */
+export async function deleteUserSessions(userId: number): Promise<void> {
+  await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+}
+
+/** Deletes lapsed sessions; returns how many. Runs on the same daily schedule
+ * as the run-log prune. Expired sessions are already refused by
+ * getSessionUser(), so this is housekeeping, not enforcement. */
+export async function pruneExpiredSessions(): Promise<number> {
+  const result = await pool.query(`DELETE FROM sessions WHERE expires_at < now()`);
+  return result.rowCount ?? 0;
 }
 
 export async function checkDatabaseHealth(): Promise<void> {

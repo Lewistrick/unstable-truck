@@ -1,3 +1,5 @@
+import { loadAuthToken } from "./storage.js";
+
 export type Difficulty = "easy" | "hard";
 
 export interface LeaderboardEntry {
@@ -42,7 +44,30 @@ function apiUrl(pathAndQuery: string): string {
   return new URL(pathAndQuery, API_ROOT).href;
 }
 
-/** Submits a run's result to the backend. Fails silently (returns false) if
+/** The Authorization header for the logged-in account, or nothing at all when
+ * logged out - which is the ordinary case and stays a valid anonymous request.
+ *
+ * Sent on the three endpoints that now check it: submitting a score, logging a
+ * run, and freezing a champion threshold. A registered player whose requests
+ * arrived without this would be refused their own name. */
+function authHeaders(): Record<string, string> {
+  const token = loadAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** What became of a score submission.
+ *
+ * - `saved`      - stored, and it beat whatever was there before.
+ * - `not-better` - accepted, but an existing best for that seed was faster.
+ * - `name-taken` - the nickname is registered to an account and this request
+ *                  wasn't logged in as it. The only outcome worth telling the
+ *                  player about: it's fixable, by logging in.
+ * - `failed`     - unreachable server, or any other error. Indistinguishable
+ *                  from playing offline, and treated the same way: silently.
+ */
+export type SubmitResult = "saved" | "not-better" | "name-taken" | "failed";
+
+/** Submits a run's result to the backend. Fails silently (returns "failed") if
  * the server is unreachable - the game is fully playable offline, this is
  * best-effort syncing on top of the local personal best. */
 export async function submitScore(
@@ -55,18 +80,19 @@ export async function submitScore(
   championCandidate: number | null,
   isCurrentPeriod: boolean,
   medal: string | null = null,
-): Promise<boolean> {
+): Promise<SubmitResult> {
   try {
     const res = await fetch(apiUrl(`api/scores/${seed}`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ nickname, difficulty, time, stability, inputLog, championCandidate, isCurrentPeriod, medal }),
     });
-    if (!res.ok) return false;
+    if (res.status === 403) return "name-taken";
+    if (!res.ok) return "failed";
     const data = (await res.json()) as { saved?: boolean };
-    return Boolean(data.saved);
+    return data.saved ? "saved" : "not-better";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
@@ -123,7 +149,7 @@ export async function logRun(
   try {
     const res = await fetch(apiUrl("api/runs"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ seed, nickname, status, collected, comment }),
     });
     if (!res.ok) console.warn(`run log "${status}" for ${seed} rejected: HTTP ${res.status}`);
@@ -139,7 +165,7 @@ export async function backfillChampionTime(seed: string, difficulty: Difficulty,
   try {
     await fetch(apiUrl(`api/champions/${seed}`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ difficulty, championTime }),
     });
   } catch {
@@ -175,6 +201,204 @@ export async function fetchOptimalRoute(
     return (await res.json()) as { seed: string; time: number; stability: number; inputLog: number[] };
   } catch {
     return null;
+  }
+}
+
+// --- Accounts --------------------------------------------------------------
+
+/** A registered player, as the server describes them. Never carries anything
+ * secret, so it is safe to cache locally. */
+export interface Account {
+  id: number;
+  username: string;
+  email: string | null;
+  notifyDaily: boolean;
+  notifyUpdates: boolean;
+  country: string | null;
+  timezone: string | null;
+  isAdmin: boolean;
+}
+
+export interface RegisterFields {
+  username: string;
+  password: string;
+  email?: string;
+  notifyDaily?: boolean;
+  notifyUpdates?: boolean;
+  country?: string;
+  timezone?: string;
+}
+
+/** Register/login either works or explains why in a sentence fit to show the
+ * player. The server's own messages ("that username is taken", "username or
+ * password is incorrect") are already written for that, so they are passed
+ * through rather than re-worded here. */
+export type AuthResponse = { ok: true; token: string; account: Account } | { ok: false; error: string };
+
+const UNREACHABLE_MESSAGE = "Can't reach the server. Check your connection and try again.";
+
+async function postAuth(path: string, body: unknown): Promise<AuthResponse> {
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as { token?: string; user?: Account; error?: string };
+    if (!res.ok || !data.token || !data.user) {
+      return { ok: false, error: data.error ?? "Something went wrong. Try again." };
+    }
+    return { ok: true, token: data.token, account: data.user };
+  } catch {
+    return { ok: false, error: UNREACHABLE_MESSAGE };
+  }
+}
+
+export function registerAccount(fields: RegisterFields): Promise<AuthResponse> {
+  return postAuth("api/auth/register", fields);
+}
+
+export function loginAccount(username: string, password: string): Promise<AuthResponse> {
+  return postAuth("api/auth/login", { username, password });
+}
+
+/** Ends the session server-side. Best-effort: the local session is dropped
+ * either way, so a failure here only leaves a row to expire on its own. */
+export async function logoutAccount(): Promise<void> {
+  try {
+    await fetch(apiUrl("api/auth/logout"), { method: "POST", headers: { ...authHeaders() } });
+  } catch {
+    // Nothing to do - see above.
+  }
+}
+
+/** Re-reads the logged-in account.
+ *
+ * "logged-out" and "offline" are kept apart on purpose: the first means the
+ * session is genuinely gone and the local copy should be cleared, the second
+ * means we simply couldn't ask, and a cached account is still the best answer
+ * available. Collapsing them would log players out every time they opened the
+ * game on a train. */
+export type AccountCheck = { status: "ok"; account: Account } | { status: "logged-out" } | { status: "offline" };
+
+export async function fetchAccount(): Promise<AccountCheck> {
+  try {
+    const res = await fetch(apiUrl("api/auth/me"), { headers: { ...authHeaders() } });
+    if (res.status === 401) return { status: "logged-out" };
+    if (!res.ok) return { status: "offline" };
+    const data = (await res.json()) as { user: Account };
+    return { status: "ok", account: data.user };
+  } catch {
+    return { status: "offline" };
+  }
+}
+
+/** How a player's truck looks. Stored and synced, but nothing reads it yet -
+ * the renderer still draws the one fixed truck. Kept in sync with the server's
+ * own copy in server/account-state.ts. */
+export type TruckPattern = "horizontal" | "vertical" | "diagonal" | "striped" | "checkered";
+
+export interface TruckAppearance {
+  /** Body colour as "#rrggbb". */
+  primary: string;
+  /** Second colour, used by whichever pattern is chosen. */
+  secondary: string;
+  pattern: TruckPattern;
+}
+
+/** The per-player state an account carries - everything that used to live only
+ * in localStorage. Merge rules live on the server (server/account-state.ts) so
+ * one set of them governs every device. */
+export interface AccountState {
+  completed: string[];
+  played: string[];
+  difficulty: Difficulty | null;
+  playTimeSeconds: number;
+  source: string | null;
+  truck: TruckAppearance | null;
+}
+
+export interface RemoteBest {
+  seed: string;
+  difficulty: Difficulty;
+  time: number;
+  stability: number;
+  inputLog: number[];
+}
+
+/** Pushes this device's state and returns the merged result, so one round trip
+ * serves as both push and pull. Null if the server couldn't be reached, which
+ * is not an error - the local copy is still authoritative for play. */
+export async function pushAccountState(state: AccountState): Promise<AccountState | null> {
+  try {
+    const res = await fetch(apiUrl("api/me/state"), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ state }),
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as { state: AccountState }).state;
+  } catch {
+    return null;
+  }
+}
+
+/** Every recording stored under this account, for rebuilding personal bests on
+ * a device that has never seen them. One request rather than one per seed. */
+export async function fetchAccountBests(): Promise<RemoteBest[]> {
+  try {
+    const res = await fetch(apiUrl("api/me/bests"), { headers: { ...authHeaders() } });
+    if (!res.ok) return [];
+    return ((await res.json()) as { bests: RemoteBest[] }).bests;
+  } catch {
+    return [];
+  }
+}
+
+/** Fields for a partial account update. Anything left out is untouched, which
+ * is what lets the settings page save an email without disturbing a password
+ * and vice versa. `email: null` clears the address. */
+export interface AccountUpdateFields {
+  email?: string | null;
+  notifyDaily?: boolean;
+  notifyUpdates?: boolean;
+  country?: string | null;
+  timezone?: string | null;
+  currentPassword?: string;
+  newPassword?: string;
+}
+
+/** A password change rotates every session, so the server hands back a fresh
+ * token for the device that made the change. Absent for other updates. */
+export type AccountUpdateResponse = { ok: true; account: Account; token?: string } | { ok: false; error: string };
+
+export async function patchAccount(fields: AccountUpdateFields): Promise<AccountUpdateResponse> {
+  try {
+    const res = await fetch(apiUrl("api/auth/me"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(fields),
+    });
+    const data = (await res.json().catch(() => ({}))) as { user?: Account; token?: string; error?: string };
+    if (!res.ok || !data.user) return { ok: false, error: data.error ?? "Something went wrong. Try again." };
+    return data.token ? { ok: true, account: data.user, token: data.token } : { ok: true, account: data.user };
+  } catch {
+    return { ok: false, error: UNREACHABLE_MESSAGE };
+  }
+}
+
+export async function deleteAccountRequest(password: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(apiUrl("api/auth/me"), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: data.error ?? "Something went wrong. Try again." };
+  } catch {
+    return { ok: false, error: UNREACHABLE_MESSAGE };
   }
 }
 

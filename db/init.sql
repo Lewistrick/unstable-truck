@@ -88,3 +88,54 @@ CREATE TABLE IF NOT EXISTS accounts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Registered players. The username is the leaderboard identity: scores are
+-- keyed by nickname text, so registering a name is what makes it protected
+-- (see the submission guard in server/routes.ts).
+--
+-- username_lower is generated rather than written by hand so it can never drift
+-- from username. It exists because uniqueness has to be case-insensitive while
+-- the scores primary key is case-sensitive - without it, registering "Erick"
+-- would leave "erick" free for someone else to submit under.
+--
+-- email is optional and UNVERIFIED: nothing is ever sent to it as things stand,
+-- and nothing should be until a confirmation step exists.
+CREATE TABLE IF NOT EXISTS users (
+  id             BIGSERIAL PRIMARY KEY,
+  username       TEXT NOT NULL,
+  username_lower TEXT GENERATED ALWAYS AS (lower(username)) STORED UNIQUE,
+  password_hash  TEXT NOT NULL,
+  email          TEXT,
+  notify_daily   BOOLEAN NOT NULL DEFAULT FALSE,
+  notify_updates BOOLEAN NOT NULL DEFAULT FALSE,
+  is_admin       BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Everything that used to live only in the browser's localStorage: completed
+  -- and played days, the difficulty preference, total play time, the
+  -- first-touch acquisition source, and the truck's appearance. One JSONB
+  -- column rather than a table per concept, because it is read and written
+  -- whole and never queried by field. See server/account-state.ts.
+  country        TEXT,
+  timezone       TEXT,
+  user_state     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at   TIMESTAMPTZ
+);
+
+-- Login sessions. The client holds an opaque bearer token; only its SHA-256
+-- hash is stored, so a database dump isn't a pile of live logins.
+--
+-- A bearer token rather than a cookie on purpose: the game is also served
+-- inside a third-party iframe on itch.io, where third-party cookies are blocked
+-- outright in Safari and in Chrome with 3p cookies off. An Authorization header
+-- sidesteps all of it.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash   TEXT PRIMARY KEY,
+  user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at   TIMESTAMPTZ NOT NULL
+);
+
+-- Deleting a user cascades to their sessions; the expiry sweep scans by date.
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);

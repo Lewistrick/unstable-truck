@@ -1,4 +1,4 @@
-import type { Difficulty } from "./api.js";
+import type { Account, Difficulty, TruckAppearance } from "./api.js";
 import type { GhostRecording } from "./ghost.js";
 
 const STORAGE_PREFIX = "unstable-truck:pb:";
@@ -225,34 +225,6 @@ export function setNickname(name: string): void {
   if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
 }
 
-const NICKNAME_CHOSEN_KEY = "unstable-truck:nickname-chosen";
-
-/** Whether a nickname is still one of the auto-generated "Racer1234" defaults
- * rather than something the player picked for themselves. */
-export function isDefaultNickname(name: string): boolean {
-  return /^Racer\d{4}$/.test(name);
-}
-
-/** True once the player has explicitly confirmed a leaderboard name.
- *
- * Deliberately its own flag rather than inferred from the name: someone who
- * opens the prompt and saves the generated Racer1234 unchanged has still
- * chosen it, and testing the pattern alone would keep asking them after every
- * single run. */
-export function hasChosenNickname(): boolean {
-  return localStorage.getItem(NICKNAME_CHOSEN_KEY) === "1";
-}
-
-export function markNicknameChosen(): void {
-  localStorage.setItem(NICKNAME_CHOSEN_KEY, "1");
-}
-
-// --- Difficulty preference ---------------------------------------------------
-// Persisted (not session-scoped) so it survives across visits and every map,
-// matching the requested "sticks even across maps" behaviour. Only meaningful
-// for daily play - weekly is Hard-only - but the preference itself is kept
-// independent of the daily/weekly mode so switching back to daily restores it.
-
 // --- Play time accumulator -------------------------------------------------
 
 const PLAY_TIME_KEY = "unstable-truck:play-time";
@@ -266,6 +238,53 @@ export function loadPlayTime(): number {
 export function addPlayTime(seconds: number): void {
   if (!Number.isFinite(seconds) || seconds <= 0) return;
   localStorage.setItem(PLAY_TIME_KEY, String(loadPlayTime() + seconds));
+}
+
+/** Replaces the running total outright, for applying a merged one back from the
+ * account. Only ever moves forward - the merge takes the larger of the two, so
+ * a smaller value here would mean something went wrong upstream. */
+export function setPlayTime(seconds: number): void {
+  if (!Number.isFinite(seconds) || seconds <= loadPlayTime()) return;
+  localStorage.setItem(PLAY_TIME_KEY, String(Math.floor(seconds)));
+}
+
+// --- Truck appearance ------------------------------------------------------
+
+const TRUCK_KEY = "unstable-truck:truck";
+
+/** The truck as it is drawn today (see drawTruck in render.ts), so a stored
+ * appearance starts out identical to the fixed one and nothing changes
+ * visually until something actually reads this. */
+export const DEFAULT_TRUCK: TruckAppearance = { primary: "#3a4653", secondary: "#2b3440", pattern: "horizontal" };
+
+const TRUCK_PATTERNS = new Set(["horizontal", "vertical", "diagonal", "striped", "checkered"]);
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+
+/** Stored, synced, and not yet used by anything: the renderer still draws one
+ * fixed truck. This is the space for it, ready for whatever chooses it later. */
+export function loadTruckAppearance(): TruckAppearance {
+  const raw = localStorage.getItem(TRUCK_KEY);
+  if (!raw) return DEFAULT_TRUCK;
+  try {
+    const parsed = JSON.parse(raw) as Partial<TruckAppearance>;
+    if (
+      typeof parsed.primary !== "string" ||
+      !HEX_COLOUR.test(parsed.primary) ||
+      typeof parsed.secondary !== "string" ||
+      !HEX_COLOUR.test(parsed.secondary) ||
+      typeof parsed.pattern !== "string" ||
+      !TRUCK_PATTERNS.has(parsed.pattern)
+    ) {
+      return DEFAULT_TRUCK;
+    }
+    return { primary: parsed.primary, secondary: parsed.secondary, pattern: parsed.pattern };
+  } catch {
+    return DEFAULT_TRUCK;
+  }
+}
+
+export function saveTruckAppearance(truck: TruckAppearance): void {
+  localStorage.setItem(TRUCK_KEY, JSON.stringify(truck));
 }
 
 // --- Best streak -----------------------------------------------------------
@@ -320,6 +339,66 @@ export function saveSyncToken(token: string): void {
 
 export function clearSyncToken(): void {
   localStorage.removeItem(SYNC_TOKEN_KEY);
+}
+
+// --- Login session ---------------------------------------------------------
+
+const AUTH_KEY = "unstable-truck:auth";
+
+interface StoredAuth {
+  token: string;
+  /** Cached alongside the token so logged-in state renders immediately on load,
+   * and still renders when the server can't be reached at all. */
+  account: Account;
+}
+
+export function loadAuthSession(): StoredAuth | null {
+  const raw = localStorage.getItem(AUTH_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
+    if (typeof parsed.token !== "string" || !parsed.account || typeof parsed.account.username !== "string") {
+      localStorage.removeItem(AUTH_KEY);
+      return null;
+    }
+    return { token: parsed.token, account: parsed.account };
+  } catch {
+    localStorage.removeItem(AUTH_KEY);
+    return null;
+  }
+}
+
+export function saveAuthSession(token: string, account: Account): void {
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ token, account }));
+}
+
+export function clearAuthSession(): void {
+  localStorage.removeItem(AUTH_KEY);
+}
+
+/** The bearer token on its own, for api.ts to attach to requests. */
+export function loadAuthToken(): string | null {
+  return loadAuthSession()?.token ?? null;
+}
+
+// --- Account prompt cooldown -----------------------------------------------
+
+const ACCOUNT_DECLINED_KEY = "unstable-truck:account-declined";
+/** How long "Don't register score" keeps the prompt away. Long enough not to
+ * nag someone who has already said no, short enough that a player who gets
+ * hooked in week two is asked again. */
+const ACCOUNT_PROMPT_COOLDOWN_MS = 7 * DAY_MS;
+
+export function recordAccountPromptDeclined(): void {
+  localStorage.setItem(ACCOUNT_DECLINED_KEY, String(Date.now()));
+}
+
+export function accountPromptRecentlyDeclined(): boolean {
+  const raw = localStorage.getItem(ACCOUNT_DECLINED_KEY);
+  if (!raw) return false;
+  const declinedAt = Number(raw);
+  if (!Number.isFinite(declinedAt)) return false;
+  return Date.now() - declinedAt < ACCOUNT_PROMPT_COOLDOWN_MS;
 }
 
 // --- Sound preferences -----------------------------------------------------

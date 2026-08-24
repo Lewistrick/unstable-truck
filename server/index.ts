@@ -1,9 +1,10 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDatabaseHealth, ensureSchema, pruneOldRunLogs } from "./db.js";
+import { checkDatabaseHealth, ensureSchema, pruneExpiredSessions, pruneOldRunLogs, syncAdmins } from "./db.js";
 import { startPrecomputeSchedule } from "./optimal.js";
 import { scoresRouter } from "./routes.js";
+import { authRouter } from "./auth-routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // This file compiles to <project-root>/server/dist/index.js, so climbing two
@@ -13,6 +14,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, "..", "..");
 
 const app = express();
+// One proxy hop: Caddy sits in front (see docker-compose.yml's `edge` network).
+// Without this, req.ip is the proxy's address for every request, and the login
+// rate limiters in auth-routes.ts would either do nothing or throttle the entire
+// internet as a single client.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "256kb" }));
 
 app.use("/dist", express.static(path.join(projectRoot, "dist")));
@@ -27,6 +33,7 @@ app.get("/logs", (_req, res) => {
   res.sendFile(path.join(projectRoot, "logs.html"));
 });
 
+app.use(authRouter);
 app.use(scoresRouter);
 
 app.get("/api/health", async (_req, res) => {
@@ -43,7 +50,33 @@ const port = Number(process.env.PORT) || 8080;
 // Ensure newer tables exist (init.sql only runs on first DB init) before
 // serving. Best-effort: a DB hiccup here shouldn't stop the app from booting,
 // since scoring is already resilient to the DB being unreachable.
+/** Who may read the run log, from ADMIN_USERNAMES (comma-separated).
+ *
+ * Unset is deliberately different from empty: unset means "not configured
+ * here", and leaves whatever is in the database alone, so a deploy that forgets
+ * the variable doesn't silently strip everyone's rights. Set-but-empty means
+ * "nobody", and is honoured. */
+function configuredAdmins(): string[] | null {
+  const raw = process.env.ADMIN_USERNAMES;
+  if (raw === undefined) return null;
+  return raw
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
 ensureSchema()
+  .then(async () => {
+    const admins = configuredAdmins();
+    if (admins === null) return;
+    try {
+      const { promoted, demoted } = await syncAdmins(admins);
+      if (promoted.length > 0) console.log(`Granted admin to: ${promoted.join(", ")}`);
+      if (demoted.length > 0) console.log(`Revoked admin from: ${demoted.join(", ")}`);
+    } catch (err) {
+      console.error("Admin sync failed:", (err as Error).message);
+    }
+  })
   .then(() => {
     // Once the optimal_routes table is guaranteed to exist, begin precomputing
     // (and daily-refreshing) the "Optimal" solver route for every browsable
@@ -55,19 +88,25 @@ ensureSchema()
     console.error("Schema check failed:", (err as Error).message);
   });
 
-// Retention: drop run_logs rows past their window (see pruneOldRunLogs), at
-// boot and once a day after. Best-effort - a failure just leaves old rows for
-// the next sweep.
-const RUN_LOG_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-function pruneRunLogs(): void {
+// Retention: drop run_logs rows past their window (see pruneOldRunLogs) and
+// lapsed login sessions, at boot and once a day after. Both are best-effort - a
+// failure just leaves the rows for the next sweep, and an expired session is
+// already refused by getSessionUser() regardless of whether its row is gone.
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+function pruneStaleRows(): void {
   pruneOldRunLogs()
     .then((removed) => {
       if (removed > 0) console.log(`Pruned ${removed} run-log row(s) past the retention window`);
     })
     .catch((err) => console.error("Run-log prune failed:", (err as Error).message));
+  pruneExpiredSessions()
+    .then((removed) => {
+      if (removed > 0) console.log(`Pruned ${removed} expired session(s)`);
+    })
+    .catch((err) => console.error("Session prune failed:", (err as Error).message));
 }
-pruneRunLogs();
-setInterval(pruneRunLogs, RUN_LOG_PRUNE_INTERVAL_MS).unref();
+pruneStaleRows();
+setInterval(pruneStaleRows, PRUNE_INTERVAL_MS).unref();
 
 app.listen(port, () => {
   console.log(`Unstable Truck server listening on port ${port}`);
