@@ -87,6 +87,15 @@ interface Playable {
   orphan?: boolean;
 }
 
+/** Solver routes by seed, from the server's precompute or a local solve.
+ *
+ * Declared up here rather than with the rest of the optimal-ghost machinery
+ * below because parsFor() reads it, and parsFor runs while the first Playable is
+ * built at module scope - a `const` further down the file would still be in its
+ * temporal dead zone at that point, and touching it would throw before anything
+ * rendered. */
+const optimalRecordings = new Map<string, GhostRecording>();
+
 /** Medal targets for a level.
  *
  * Geometry-derived, then raised if the solver's route for this seed is known to
@@ -1372,7 +1381,6 @@ const camera: Camera = { x: viewed.level.width / 2, y: viewed.level.height / 2 }
 // (weekly maps are far too large).
 const optimalEnabled = new URLSearchParams(window.location.search).get("optimal") === "true";
 const OPTIMAL_LABEL = "Optimal";
-const optimalRecordings = new Map<string, GhostRecording>();
 const optimalPending = new Set<string>();
 let optimalWorker: Worker | null = null;
 let optimalWorkerBroken = false;
