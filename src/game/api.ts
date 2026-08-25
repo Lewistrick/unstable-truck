@@ -1,3 +1,4 @@
+import { resolveApiRoot } from "./config.js";
 import { loadAuthToken } from "./storage.js";
 
 export type Difficulty = "easy" | "hard";
@@ -28,15 +29,7 @@ export interface RemoteRecording {
   inputLog: number[];
 }
 
-// The game can be served from the domain root (local dev / `npm start`) or
-// under a sub-path behind a reverse proxy (e.g.
-// https://lewistrick.com/unstable-truck/). Resolving API URLs relative to the
-// document's own directory - instead of a root-absolute "/api/..." that would
-// escape the sub-path and 404 - lets both work without the frontend knowing
-// its deploy path. This relies on the page being served with a trailing slash
-// so the base directory is right, so the proxy must redirect
-// /unstable-truck -> /unstable-truck/.
-const API_ROOT = new URL(".", document.baseURI);
+const API_ROOT = resolveApiRoot();
 
 /** Builds an absolute API URL from a path relative to the app's base (no
  * leading slash), e.g. apiUrl(`api/scores/${seed}`). */
