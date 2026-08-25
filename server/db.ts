@@ -153,12 +153,13 @@ export async function ensureSchema(): Promise<void> {
        seed TEXT NOT NULL,
        status TEXT NOT NULL,
        collected INTEGER NOT NULL DEFAULT 0,
+       difficulty TEXT,
        comment TEXT,
        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
      )`,
   );
-  // Add the free-form comment column to run_logs tables created before it existed.
   await pool.query(`ALTER TABLE run_logs ADD COLUMN IF NOT EXISTS comment TEXT`);
+  await pool.query(`ALTER TABLE run_logs ADD COLUMN IF NOT EXISTS difficulty TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_run_logs_seed_created ON run_logs (seed, created_at DESC)`);
   // Global newest-first ordering (the /logs list) and the retention prune both
   // scan by created_at.
@@ -242,16 +243,14 @@ export async function logRun(params: {
   seed: string;
   status: RunStatus;
   collected: number;
+  difficulty?: string | null;
   comment?: string | null;
 }): Promise<void> {
-  const { nickname, seed, status, collected, comment } = params;
-  await pool.query(`INSERT INTO run_logs (nickname, seed, status, collected, comment) VALUES ($1, $2, $3, $4, $5)`, [
-    nickname,
-    seed,
-    status,
-    collected,
-    comment ?? null,
-  ]);
+  const { nickname, seed, status, collected, difficulty, comment } = params;
+  await pool.query(
+    `INSERT INTO run_logs (nickname, seed, status, collected, difficulty, comment) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [nickname, seed, status, collected, difficulty ?? null, comment ?? null],
+  );
 }
 
 /** Deletes run_logs rows older than the retention window. Best-effort, so the
@@ -280,31 +279,64 @@ export interface RunLogRow {
   seed: string;
   status: string;
   collected: number;
+  difficulty: string | null;
   comment: string | null;
   createdAt: string;
 }
 
-/** A page of run-log rows, newest first, for the /logs inspector. */
-export async function listRuns(limit: number, offset: number): Promise<RunLogRow[]> {
+export interface RunLogFilter {
+  include?: string[];
+  exclude?: string[];
+}
+
+/** A page of run-log rows, newest first, for the /logs inspector.
+ *
+ * Filters are applied inside the query so the requested `limit` rows are
+ * returned after filtering, not before — otherwise excluding a prolific player
+ * drains the page to a handful of rows. */
+export async function listRuns(limit: number, offset: number, filter?: RunLogFilter): Promise<RunLogRow[]> {
+  const params: unknown[] = [limit, offset];
+  const clauses: string[] = [];
+  let idx = 3;
+
+  if (filter?.include && filter.include.length > 0) {
+    const conds = filter.include.map((t) => {
+      params.push(`%${t}%`);
+      return `nickname ILIKE $${idx++}`;
+    });
+    clauses.push(`(${conds.join(" OR ")})`);
+  }
+  if (filter?.exclude && filter.exclude.length > 0) {
+    for (const t of filter.exclude) {
+      params.push(`%${t}%`);
+      clauses.push(`nickname NOT ILIKE $${idx++}`);
+    }
+  }
+
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+
   const result = await pool.query<{
     nickname: string;
     seed: string;
     status: string;
     collected: number;
+    difficulty: string | null;
     comment: string | null;
     created_at: Date;
   }>(
-    `SELECT nickname, seed, status, collected, comment, created_at
+    `SELECT nickname, seed, status, collected, difficulty, comment, created_at
        FROM run_logs
+       ${where}
        ORDER BY created_at DESC, id DESC
        LIMIT $1 OFFSET $2`,
-    [limit, offset],
+    params,
   );
   return result.rows.map((r) => ({
     nickname: r.nickname,
     seed: r.seed,
     status: r.status,
     collected: r.collected,
+    difficulty: r.difficulty,
     comment: r.comment,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
   }));
@@ -712,6 +744,10 @@ export async function syncAdmins(usernames: string[]): Promise<{ promoted: strin
 
 export async function touchUserLastSeen(userId: number): Promise<void> {
   await pool.query(`UPDATE users SET last_seen_at = now() WHERE id = $1`, [userId]);
+}
+
+export async function promoteToAdmin(userId: number): Promise<void> {
+  await pool.query(`UPDATE users SET is_admin = TRUE WHERE id = $1`, [userId]);
 }
 
 // --- Sessions ---------------------------------------------------------------

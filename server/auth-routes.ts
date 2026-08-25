@@ -13,12 +13,14 @@ import {
   getPlayerScores,
   getUserForLogin,
   getUserState,
+  promoteToAdmin,
   saveUserState,
   updateUserContactPrefs,
   updateUserPassword,
   type UserRecord,
 } from "./db.js";
 import { EASY_CODE } from "./db.js";
+import { configuredAdmins } from "./config.js";
 import { mergeState, parseState } from "./account-state.js";
 import { bearerToken, hashSessionToken, mintSessionToken, requireAuth, sessionExpiry } from "./auth.js";
 import { hashPassword, verifyPassword } from "./password.js";
@@ -204,6 +206,11 @@ authRouter.post("/api/auth/register", async (req, res) => {
     if (!user) {
       res.status(409).json({ error: "that username is taken" });
       return;
+    }
+    const admins = configuredAdmins();
+    if (admins && admins.some((a) => a.toLowerCase() === username.toLowerCase())) {
+      await promoteToAdmin(user.id);
+      user.isAdmin = true;
     }
     res.json({ token: await startSession(user), user });
   } catch (err) {

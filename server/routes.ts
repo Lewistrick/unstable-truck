@@ -201,6 +201,8 @@ scoresRouter.post("/api/runs", async (req, res) => {
   const status = typeof b.status === "string" ? b.status : "";
   const collected =
     typeof b.collected === "number" && Number.isInteger(b.collected) && b.collected >= 0 ? b.collected : 0;
+  const difficulty = typeof b.difficulty === "string" && (b.difficulty === "easy" || b.difficulty === "hard")
+    ? b.difficulty : null;
   const comment = typeof b.comment === "string" && b.comment.length > 0 ? b.comment.slice(0, MAX_COMMENT_LENGTH) : null;
   if (nickname.length === 0 || seed.length === 0 || !RUN_STATUSES.has(status as RunStatus)) {
     res.status(400).json({ error: "invalid run log" });
@@ -216,7 +218,7 @@ scoresRouter.post("/api/runs", async (req, res) => {
       res.json({ logged: false });
       return;
     }
-    await logRun({ nickname, seed, status: status as RunStatus, collected, comment });
+    await logRun({ nickname, seed, status: status as RunStatus, collected, difficulty, comment });
     res.json({ logged: true });
   } catch (err) {
     console.error(`run log failed for seed ${seed} (${status}):`, (err as Error).message);
@@ -236,8 +238,12 @@ scoresRouter.get(
   requireAdmin(async (req, res) => {
     const limit = Math.min(200, Math.max(1, Number.parseInt(String(req.query.limit ?? ""), 10) || 100));
     const offset = Math.max(0, Number.parseInt(String(req.query.offset ?? ""), 10) || 0);
+    const include = typeof req.query.include === "string" && req.query.include
+      ? req.query.include.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+    const exclude = typeof req.query.exclude === "string" && req.query.exclude
+      ? req.query.exclude.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
     try {
-      res.json(await listRuns(limit, offset));
+      res.json(await listRuns(limit, offset, { include, exclude }));
     } catch (err) {
       console.error("run log list failed:", (err as Error).message);
       res.status(503).json({ error: "storage unavailable" });

@@ -145,12 +145,13 @@ export async function logRun(
   status: RunStatus,
   collected: number,
   comment?: string,
+  difficulty?: Difficulty,
 ): Promise<void> {
   try {
     const res = await fetch(apiUrl("api/runs"), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ seed, nickname, status, collected, comment }),
+      body: JSON.stringify({ seed, nickname, status, collected, difficulty, comment }),
     });
     if (!res.ok) console.warn(`run log "${status}" for ${seed} rejected: HTTP ${res.status}`);
   } catch (err) {

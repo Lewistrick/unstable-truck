@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS run_logs (
   seed TEXT NOT NULL,
   status TEXT NOT NULL,
   collected INTEGER NOT NULL DEFAULT 0,
+  difficulty TEXT,
   comment TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -14,6 +14,28 @@ body {
   color: #f0f2f5;
 }
 
+#pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: #5a6a7a;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+#pull-indicator.visible {
+  opacity: 1;
+}
+
+#pull-indicator.hidden {
+  display: none;
+}
+
 #app {
   position: relative;
   width: 100vw;
@@ -274,11 +296,10 @@ body {
   color: #9aa4b2;
 }
 
-.section-divider {
-  width: 100%;
-  border: none;
+.settings-section + .settings-section {
   border-top: 1px solid #2c3542;
-  margin: 6px 0;
+  padding-top: 16px;
+  margin-top: 6px;
 }
 
 .sound-row {
@@ -420,25 +441,57 @@ body {
   color: #55e08a;
 }
 
-#account-password-details {
+.account-details {
   font-size: 0.85rem;
   color: #9aa5b1;
+  padding-top: 6px;
 }
 
-#account-password-details summary {
+.account-details summary {
   cursor: pointer;
   padding: 4px 0;
 }
 
-#account-password-details[open] {
+.account-details[open] {
+  padding-bottom: 8px;
+}
+
+.account-details > * + * {
+  margin-top: 12px;
+}
+
+.account-details button {
+  font-size: 0.85rem;
+  padding: 8px 14px;
+}
+
+.account-detail-status {
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.account-detail-status.hidden {
+  display: none;
+}
+
+.admin-buttons {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+.admin-btn {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: none;
 }
 
 .account-danger {
-  font-size: 0.78rem;
-  padding: 4px 14px;
   color: #9aa4b2;
   background: transparent;
 }
@@ -447,14 +500,6 @@ body {
   color: #ff6f6f;
 }
 
-.account-status {
-  font-size: 0.8rem;
-  text-align: center;
-}
-
-.account-status.hidden {
-  display: none;
-}
 
 /* Daily/Weekly switch, revealed at the very bottom only once the player has
    earned gold (see updateModeSwitchVisibility) - a "bigger challenge" unlock. */

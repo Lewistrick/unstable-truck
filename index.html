@@ -12,6 +12,7 @@
 </head>
 
 <body>
+  <div id="pull-indicator" class="hidden"></div>
   <div id="app">
     <canvas id="game-canvas"></canvas>
 
@@ -232,52 +233,71 @@
               <span id="account-username"></span>
             </div>
 
-            <input type="email" id="account-email" class="account-input" maxlength="254" placeholder="Email (optional)"
-              autocomplete="email" autocapitalize="off" spellcheck="false" />
-            <label class="account-check">
-              <input type="checkbox" id="account-notify-daily" disabled /> Daily reminder
-            </label>
-            <label class="account-check">
-              <input type="checkbox" id="account-notify-updates" disabled /> Game updates
-            </label>
-            <p class="muted account-note">Used for notifications only. Without an email there is no way to reset a
-              forgotten password.</p>
-            <select id="account-country" class="account-input">
-              <option value="">Country (optional)</option>
-            </select>
-            <select id="account-timezone" class="account-input">
-              <option value="">Timezone (optional)</option>
-            </select>
-            <button id="account-save-btn" class="btn-secondary" type="button">Save</button>
+            <details class="account-details">
+              <summary>Email settings</summary>
+              <input type="email" id="account-email" class="account-input" maxlength="254"
+                placeholder="Email (optional)" autocomplete="email" autocapitalize="off" spellcheck="false" />
+              <label class="account-check">
+                <input type="checkbox" id="account-notify-daily" disabled /> Daily reminder
+              </label>
+              <label class="account-check">
+                <input type="checkbox" id="account-notify-updates" disabled /> Game updates
+              </label>
+              <p class="muted account-note">Used for notifications only. Without an email there is no way to reset a
+                forgotten password.</p>
+              <button id="account-email-save-btn" class="btn-secondary" type="button">Save</button>
+              <p id="account-email-status" class="muted account-detail-status hidden"></p>
+            </details>
 
-            <details id="account-password-details">
+            <details class="account-details">
+              <summary>Location settings</summary>
+              <select id="account-country" class="account-input">
+                <option value="">Country (optional)</option>
+              </select>
+              <select id="account-timezone" class="account-input">
+                <option value="">Timezone (optional)</option>
+              </select>
+              <button id="account-location-save-btn" class="btn-secondary" type="button">Save</button>
+              <p id="account-location-status" class="muted account-detail-status hidden"></p>
+            </details>
+
+            <details class="account-details">
               <summary>Change password</summary>
               <input type="password" id="account-current-password" class="account-input" placeholder="Current password"
                 autocomplete="current-password" />
               <input type="password" id="account-new-password" class="account-input" placeholder="New password"
                 autocomplete="new-password" />
               <button id="account-password-btn" class="btn-secondary" type="button">Change password</button>
+              <p id="account-password-status" class="muted account-detail-status hidden"></p>
             </details>
 
-            <button id="account-logout-btn" class="btn-secondary" type="button">Log out</button>
-            <button id="account-delete-btn" class="btn-secondary account-danger" type="button">Delete account</button>
-            <div id="account-delete-confirm" class="hidden">
-              <p class="muted account-note">This removes your account and frees your username for someone else. Scores
-                you've already set stay on the leaderboard.</p>
-              <input type="password" id="account-delete-password" class="account-input" placeholder="Password"
-                autocomplete="current-password" />
-              <div class="account-actions">
-                <button id="account-delete-confirm-btn" class="btn-secondary account-danger" type="button">Delete for
-                  good</button>
-                <button id="account-delete-cancel-btn" class="btn-secondary" type="button">Cancel</button>
+            <details class="account-details">
+              <summary>Danger zone</summary>
+              <button id="account-logout-btn" class="btn-secondary" type="button">Log out</button>
+              <button id="account-delete-btn" class="btn-secondary account-danger" type="button">Delete account</button>
+              <div id="account-delete-confirm" class="hidden">
+                <p class="muted account-note">This removes your account and frees your username for someone else. Scores
+                  you've already set stay on the leaderboard.</p>
+                <input type="password" id="account-delete-password" class="account-input" placeholder="Password"
+                  autocomplete="current-password" />
+                <div class="account-actions">
+                  <button id="account-delete-confirm-btn" class="btn-secondary account-danger" type="button">Delete for
+                    good</button>
+                  <button id="account-delete-cancel-btn" class="btn-secondary" type="button">Cancel</button>
+                </div>
               </div>
-            </div>
+            </details>
           </div>
 
-          <p id="account-status" class="muted account-status hidden"></p>
           <p id="account-section-error" class="account-error hidden" role="alert"></p>
         </div>
-        <hr class="section-divider" />
+        <div id="admin-section" class="settings-section hidden">
+          <div class="section-header">Admin</div>
+          <div class="admin-buttons">
+            <a id="admin-logs-link" href="/logs" class="btn-secondary admin-btn">Event log</a>
+            <button id="admin-optimal-btn" type="button" class="btn-secondary admin-btn">Optimal: off</button>
+          </div>
+        </div>
         <div class="settings-section">
           <div class="section-header">Sound</div>
           <div class="sound-row">
@@ -299,7 +319,6 @@
             <span class="sound-value" id="sound-effects-val">80%</span>
           </div>
         </div>
-        <hr class="section-divider" />
         <div id="stats-section" class="settings-section">
           <div class="section-header">Your stats</div>
           <div id="stats-local" class="stats-grid"></div>

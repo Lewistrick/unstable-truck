@@ -267,7 +267,11 @@ const accountNotifyDaily = document.getElementById("account-notify-daily") as HT
 const accountNotifyUpdates = document.getElementById("account-notify-updates") as HTMLInputElement;
 const accountCountry = document.getElementById("account-country") as HTMLSelectElement;
 const accountTimezone = document.getElementById("account-timezone") as HTMLSelectElement;
-const accountSaveBtn = document.getElementById("account-save-btn") as HTMLButtonElement;
+const accountEmailSaveBtn = document.getElementById("account-email-save-btn") as HTMLButtonElement;
+const accountEmailStatus = document.getElementById("account-email-status")!;
+const accountLocationSaveBtn = document.getElementById("account-location-save-btn") as HTMLButtonElement;
+const accountLocationStatus = document.getElementById("account-location-status")!;
+const accountPasswordStatus = document.getElementById("account-password-status")!;
 const accountCurrentPassword = document.getElementById("account-current-password") as HTMLInputElement;
 const accountNewPassword = document.getElementById("account-new-password") as HTMLInputElement;
 const accountPasswordBtn = document.getElementById("account-password-btn") as HTMLButtonElement;
@@ -277,8 +281,9 @@ const accountDeleteConfirm = document.getElementById("account-delete-confirm")!;
 const accountDeletePassword = document.getElementById("account-delete-password") as HTMLInputElement;
 const accountDeleteConfirmBtn = document.getElementById("account-delete-confirm-btn") as HTMLButtonElement;
 const accountDeleteCancelBtn = document.getElementById("account-delete-cancel-btn") as HTMLButtonElement;
-const accountStatus = document.getElementById("account-status")!;
 const accountSectionError = document.getElementById("account-section-error")!;
+const adminSection = document.getElementById("admin-section")!;
+const adminOptimalBtn = document.getElementById("admin-optimal-btn") as HTMLButtonElement;
 const statsLocal = document.getElementById("stats-local")!;
 const statsServer = document.getElementById("stats-server")!;
 const statsServerError = document.getElementById("stats-server-error")!;
@@ -418,7 +423,7 @@ function applyNickname(next: string): void {
   nickname = getOrCreateNickname();
   renderLeaderboardList();
   if (nickname !== oldNickname) {
-    void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`);
+    void logRun(viewed.seed, nickname, "username_changed", 0, `${oldNickname} -> ${nickname}`, viewed.difficulty);
   }
 }
 
@@ -450,7 +455,7 @@ function logGameStarted(): void {
   // visit weeks afterwards still reports the channel that originally won the
   // player - which is the whole point of tracking it.
   recordAcquisitionSource(detectSource());
-  void logRun(todaysSeed, nickname, "game_started", 0, `src:${loadAcquisitionSource() ?? "direct"}`);
+  void logRun(todaysSeed, nickname, "game_started", 0, `src:${loadAcquisitionSource() ?? "direct"}`, viewed.difficulty);
 }
 
 if (document.readyState === "loading") {
@@ -1104,7 +1109,7 @@ function navigateTo(offset: number): void {
   refreshViewedSelection();
   // Log a real map change only (boundary clicks that don't move are skipped).
   if (viewed.seed !== prevSeed) {
-    void logRun(viewed.seed, nickname, "navigated", 0, `to ${describeOffset(mode, viewedOffset)}`);
+    void logRun(viewed.seed, nickname, "navigated", 0, `to ${describeOffset(mode, viewedOffset)}`, viewed.difficulty);
   }
 }
 
@@ -1120,7 +1125,7 @@ function switchMode(newMode: Mode): void {
     void refreshStripChampionTimes();
   }
   refreshViewedSelection();
-  void logRun(viewed.seed, nickname, "mode_switched", 0, `to ${newMode}`);
+  void logRun(viewed.seed, nickname, "mode_switched", 0, `to ${newMode}`, viewed.difficulty);
 }
 
 /** Syncs the Easy/Hard toggle buttons to the current `difficulty`, and shows
@@ -1155,7 +1160,7 @@ function switchDifficulty(next: Difficulty): void {
   renderProgressStrip();
   void refreshStripChampionTimes();
   refreshViewedSelection();
-  void logRun(viewed.seed, nickname, "difficulty_switched", 0, `to ${next}`);
+  void logRun(viewed.seed, nickname, "difficulty_switched", 0, `to ${next}`, viewed.difficulty);
 }
 
 /** Shows a shared "orphan" seed - a generated map with no live leaderboard.
@@ -1406,7 +1411,7 @@ function setPaused(next: boolean): void {
 hudTimer.addEventListener("click", () => {
   if (appState !== "playing") return;
   setPaused(!paused);
-  void logRun(active.seed, nickname, paused ? "paused" : "resumed", session?.visited.size ?? 0);
+  void logRun(active.seed, nickname, paused ? "paused" : "resumed", session?.visited.size ?? 0, undefined, active.difficulty);
   // Space is the steering key; drop focus so it doesn't also re-toggle this
   // button once it's been clicked/tapped.
   hudTimer.blur();
@@ -1668,7 +1673,7 @@ function attachShareHandler(btn: HTMLButtonElement, source: string, restLabel: s
     const text = getText();
     if (!text) return;
     const ok = await copyText(text);
-    void logRun(viewed.seed, nickname, "shared", 0, `${source}: ${ok ? "copied" : "copy failed"}`);
+    void logRun(viewed.seed, nickname, "shared", 0, `${source}: ${ok ? "copied" : "copy failed"}`, viewed.difficulty);
     btn.textContent = ok ? "Copied!" : "Copy failed";
     window.clearTimeout(resetTimer);
     resetTimer = window.setTimeout(() => {
@@ -1768,7 +1773,7 @@ function beginRun(playable: Playable): void {
   startEngine();
   startAmbience(playable.level.theme);
   // Diagnostic run log: a run begins here (best-effort, ignores failures).
-  void logRun(playable.seed, nickname, "started", 0);
+  void logRun(playable.seed, nickname, "started", 0, undefined, playable.difficulty);
   setMenuOpen(false);
   startScreen.classList.add("hidden");
   resultsScreen.classList.add("hidden");
@@ -1984,7 +1989,7 @@ function endRun(): void {
     session.status === "success"
       ? `finished in ${formatTime(session.elapsed)}`
       : `survived ${formatTime(session.elapsed)}`;
-  void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote);
+  void logRun(active.seed, nickname, runStatus, session.visited.size, timeNote, active.difficulty);
   hud.classList.add("hidden");
   // Revealing the results is deferred to the end of this function: a player who
   // still has an auto-generated name is asked what to call themselves first,
@@ -2156,7 +2161,7 @@ function goHome(): void {
   updateDifficultySwitchVisibility();
   // Returning to the menu is a page-internal transition (no reload), so
   // game_started never re-fires here - log it as its own menu-shown event.
-  void logRun(viewed.seed, nickname, "menu_shown", 0);
+  void logRun(viewed.seed, nickname, "menu_shown", 0, undefined, viewed.difficulty);
 }
 
 retryBtn.addEventListener("click", () => beginRun(active));
@@ -2217,7 +2222,7 @@ function refreshTutorialOverlay(): void {
  * overlay up. Rendering is driven directly from the Tutorial (see the frame
  * loop), so it doesn't touch the normal run's render state or ghosts. */
 function startTutorial(): void {
-  void logRun(viewed.seed, nickname, "tutorial_started", 0);
+  void logRun(viewed.seed, nickname, "tutorial_started", 0, undefined, viewed.difficulty);
   tutorial = new Tutorial();
   lastTutorialTruck = null;
   camera.x = tutorial.activeTruck.pos.x;
@@ -2242,7 +2247,7 @@ function startTutorial(): void {
  * skipped, escape). */
 function endTutorial(reason = "closed"): void {
   if (appState !== "tutorial") return;
-  void logRun(viewed.seed, nickname, "tutorial_ended", 0, reason);
+  void logRun(viewed.seed, nickname, "tutorial_ended", 0, reason, viewed.difficulty);
   tutorial = null;
   appState = "start";
   tutorialOverlay.classList.add("hidden");
@@ -2381,7 +2386,7 @@ async function startReplay(): Promise<void> {
   replayScrubbing = false;
   accumulator = 0;
   exitWatchMode();
-  void logRun(seed, nickname, "replay_started", 0, `${racers.length} racers: ${racers.map((r) => r.label).join(", ")}`);
+  void logRun(seed, nickname, "replay_started", 0, `${racers.length} racers: ${racers.map((r) => r.label).join(", ")}`, viewed.difficulty);
 
   appState = "replay";
   startScreen.classList.add("hidden");
@@ -2394,7 +2399,7 @@ async function startReplay(): Promise<void> {
 /** Leaves the replay theater back to the main menu. */
 function stopReplay(): void {
   if (appState !== "replay") return;
-  void logRun(replayLevel?.seed ?? viewed.seed, nickname, "replay_stopped", 0);
+  void logRun(replayLevel?.seed ?? viewed.seed, nickname, "replay_stopped", 0, undefined, viewed.difficulty);
   replay = null;
   replayLevel = null;
   appState = "start";
@@ -2513,14 +2518,14 @@ function setHelpDetail(showFull: boolean): void {
 }
 helpDetailCheckbox.addEventListener("change", () => {
   setHelpDetail(helpDetailCheckbox.checked);
-  void logRun(viewed.seed, nickname, "help_toggled", 0, helpDetailCheckbox.checked ? "full" : "summary");
+  void logRun(viewed.seed, nickname, "help_toggled", 0, helpDetailCheckbox.checked ? "full" : "summary", viewed.difficulty);
 });
 
 function openHelp(): void {
   helpOpen = true;
   setHelpDetail(false); // always reopen on the summary
   helpScreen.classList.remove("hidden");
-  void logRun(viewed.seed, nickname, "help_opened", 0);
+  void logRun(viewed.seed, nickname, "help_opened", 0, undefined, viewed.difficulty);
 }
 function closeHelp(): void {
   helpOpen = false;
@@ -2547,9 +2552,13 @@ function updateAccountUi(): void {
   // The upgrade offer only means anything to someone holding an old code who
   // hasn't already got an account.
   syncMigrateRow.classList.toggle("hidden", user !== null || loadSyncToken() === null);
+  adminSection.classList.toggle("hidden", !user?.isAdmin);
+  adminOptimalBtn.textContent = `Optimal: ${optimalEnabled ? "on" : "off"}`;
   accountDeleteConfirm.classList.add("hidden");
-  accountStatus.classList.add("hidden");
   accountSectionError.classList.add("hidden");
+  accountEmailStatus.classList.add("hidden");
+  accountLocationStatus.classList.add("hidden");
+  accountPasswordStatus.classList.add("hidden");
   if (user) {
     accountUsernameEl.textContent = user.username;
     accountEmailInput.value = user.email ?? "";
@@ -2573,16 +2582,15 @@ function syncAccountNotifyAvailability(): void {
   }
 }
 
-function showAccountStatus(message: string): void {
-  accountStatus.textContent = message;
-  accountStatus.classList.remove("hidden");
-  accountSectionError.classList.add("hidden");
+function flashDetailStatus(el: HTMLElement, message: string, durationMs = 3000): void {
+  el.textContent = message;
+  el.classList.remove("hidden");
+  setTimeout(() => el.classList.add("hidden"), durationMs);
 }
 
 function showAccountSectionError(message: string): void {
   accountSectionError.textContent = message;
   accountSectionError.classList.remove("hidden");
-  accountStatus.classList.add("hidden");
 }
 
 function formatPlayTime(totalSeconds: number): string {
@@ -2800,6 +2808,59 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) resumeAudio();
 });
 
+// Pull-to-refresh on mobile navigation screens. The body never scrolls (the
+// layout is overflow:hidden) so the browser's native gesture can't fire; this
+// reimplements it as a touch drag on any .screen element that's at scrollTop 0.
+const PULL_THRESHOLD = 100;
+const pullIndicator = document.getElementById("pull-indicator")!;
+let pullStartY = 0;
+let pulling = false;
+
+function isNavigationScreen(): boolean {
+  return appState === "start" || appState === "ended";
+}
+
+document.addEventListener("touchstart", (e) => {
+  if (!isNavigationScreen()) return;
+  const touch = e.touches[0];
+  if (!touch) return;
+  const target = e.target as HTMLElement;
+  const screen = target.closest(".screen") as HTMLElement | null;
+  if (!screen || screen.scrollTop > 0) return;
+  pullStartY = touch.clientY;
+  pulling = true;
+  pullIndicator.classList.remove("hidden");
+}, { passive: true });
+
+document.addEventListener("touchmove", (e) => {
+  if (!pulling) return;
+  const touch = e.touches[0];
+  if (!touch) return;
+  const dy = touch.clientY - pullStartY;
+  if (dy > 0) {
+    const progress = Math.min(dy / PULL_THRESHOLD, 1);
+    pullIndicator.style.top = `${Math.min(dy * 0.4, 60)}px`;
+    pullIndicator.style.opacity = String(progress);
+    pullIndicator.classList.toggle("visible", progress > 0.1);
+  } else {
+    pullIndicator.classList.remove("visible");
+  }
+}, { passive: true });
+
+document.addEventListener("touchend", () => {
+  if (!pulling) return;
+  pulling = false;
+  const wasVisible = pullIndicator.classList.contains("visible");
+  const top = parseFloat(pullIndicator.style.top || "0");
+  pullIndicator.classList.remove("visible");
+  pullIndicator.classList.add("hidden");
+  pullIndicator.style.top = "0";
+  pullIndicator.style.opacity = "0";
+  if (wasVisible && top >= PULL_THRESHOLD * 0.4) {
+    location.reload();
+  }
+}, { passive: true });
+
 settingsLoginBtn.addEventListener("click", () => {
   closeProfile();
   openAccountPrompt(null, "settings", accountLoginForm);
@@ -2835,20 +2896,29 @@ syncMigrateBtn.addEventListener("click", async () => {
 
 accountEmailInput.addEventListener("input", syncAccountNotifyAvailability);
 
-accountSaveBtn.addEventListener("click", async () => {
-  accountSaveBtn.disabled = true;
+accountEmailSaveBtn.addEventListener("click", async () => {
+  accountEmailSaveBtn.disabled = true;
   const email = accountEmailInput.value.trim();
-  const country = accountCountry.value;
-  const tz = accountTimezone.value;
   const result = await updateAccount({
     email: email === "" ? null : email,
     notifyDaily: accountNotifyDaily.checked,
     notifyUpdates: accountNotifyUpdates.checked,
+  });
+  accountEmailSaveBtn.disabled = false;
+  if (result.ok) flashDetailStatus(accountEmailStatus, "Saved.");
+  else showAccountSectionError(result.error);
+});
+
+accountLocationSaveBtn.addEventListener("click", async () => {
+  accountLocationSaveBtn.disabled = true;
+  const country = accountCountry.value;
+  const tz = accountTimezone.value;
+  const result = await updateAccount({
     country: country === "" ? null : country,
     timezone: tz === "" ? null : tz,
   });
-  accountSaveBtn.disabled = false;
-  if (result.ok) showAccountStatus("Saved.");
+  accountLocationSaveBtn.disabled = false;
+  if (result.ok) flashDetailStatus(accountLocationStatus, "Saved.");
   else showAccountSectionError(result.error);
 });
 
@@ -2865,9 +2935,7 @@ accountPasswordBtn.addEventListener("click", async () => {
   }
   accountCurrentPassword.value = "";
   accountNewPassword.value = "";
-  // The server drops every other session on a password change, so say so -
-  // otherwise being logged out on a second device looks like a fault.
-  showAccountStatus("Password changed. Other devices have been logged out.");
+  flashDetailStatus(accountPasswordStatus, "Password changed. Other devices have been logged out.", 5000);
 });
 
 accountLogoutBtn.addEventListener("click", async () => {
@@ -2896,7 +2964,16 @@ accountDeleteConfirmBtn.addEventListener("click", async () => {
     return;
   }
   updateAccountUi();
-  showAccountStatus("Account deleted.");
+});
+
+adminOptimalBtn.addEventListener("click", () => {
+  const url = new URL(window.location.href);
+  if (optimalEnabled) {
+    url.searchParams.delete("optimal");
+  } else {
+    url.searchParams.set("optimal", "true");
+  }
+  window.location.href = url.toString();
 });
 
 attachShareHandler(shareBtn, "results", "Share", () => lastShareText);
@@ -2961,8 +3038,12 @@ window.addEventListener("keydown", (e) => {
     else if (appState === "start") beginRun(viewed);
   }
   if (e.key === "Backspace" && (appState === "playing" || appState === "countdown")) {
-    e.preventDefault(); // Backspace defaults to browser back-navigation.
+    e.preventDefault();
     beginRun(active);
+  }
+  if ((e.key === "p" || e.key === "P") && appState === "playing") {
+    setPaused(!paused);
+    void logRun(active.seed, nickname, paused ? "paused" : "resumed", session?.visited.size ?? 0, undefined, active.difficulty);
   }
 });
 
