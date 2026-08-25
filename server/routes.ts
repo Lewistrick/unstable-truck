@@ -25,6 +25,7 @@ import crypto from "node:crypto";
 import { authenticate, requireAdmin } from "./auth.js";
 import { ensureOptimalRoute } from "./optimal.js";
 import { RateLimiter } from "./rate-limit.js";
+import { validateReplay } from "./replay.js";
 import type { Response } from "express";
 
 export const scoresRouter = Router();
@@ -189,6 +190,21 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
       res.status(403).json({ error: "that name is registered - log in to submit under it" });
       return;
     }
+
+    const replayDifficulty = score.difficulty === EASY_CODE ? "easy" : "hard";
+    try {
+      const replay = await validateReplay(seed, replayDifficulty, score.inputLog, score.time);
+      if (!replay.valid) {
+        console.warn(`Replay rejected for ${seed} by ${score.nickname}: ${replay.reason}`);
+        res.status(422).json({ error: replay.reason });
+        return;
+      }
+    } catch (err) {
+      console.error(`Replay validation error for ${seed}:`, (err as Error).message);
+      res.status(503).json({ saved: false, error: "validation unavailable" });
+      return;
+    }
+
     const saved = await upsertScoreIfBetter({ seed, ...score });
 
     // Move the champion threshold down toward this run only while the seed is the
