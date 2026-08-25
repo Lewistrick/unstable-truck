@@ -61,7 +61,9 @@ import {
     setNickname,
     loadSoundPrefs,
     saveSoundPrefs,
+    storageFellBack,
 } from "./game/storage.js";
+import { resolveShareUrl, resolveSourceTag } from "./game/config.js";
 import { COUNTRIES } from "./game/countries.js";
 import { Tutorial } from "./game/tutorial.js";
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
@@ -439,6 +441,8 @@ function applyNickname(next: string): void {
  * harmless characters rather than trusted - `?src=` is attacker-controllable
  * like any query string. */
 function detectSource(): string {
+  const buildTag = resolveSourceTag();
+  if (buildTag) return buildTag.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40) || "direct";
   const tagged = new URLSearchParams(location.search).get("src");
   if (tagged) return tagged.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40) || "direct";
   if (!document.referrer) return "direct";
@@ -1612,11 +1616,13 @@ function showMedal(medal: Medal | null, pars: MedalPars, champion: number | null
  * hosted address (not localhost or a bare file). */
 const FALLBACK_GAME_URL = "https://lewistrick.com/unstable-truck";
 
-/** The link to include in shared results: the page's own address when it's a
- * hosted http(s) URL (sub-path deploys included, minus any query/hash), or the
- * canonical public URL for local/dev contexts where the address isn't
- * shareable. */
+/** The link to include in shared results: a build-time override when set (the
+ * itch embed needs this — its own origin is a CDN URL that rots every build),
+ * else the page's own address when it's a hosted http(s) URL (sub-path deploys
+ * included, minus any query/hash), else the canonical public URL. */
 function gameUrl(): string {
+  const override = resolveShareUrl();
+  if (override) return override;
   const { protocol, hostname, origin, pathname } = window.location;
   const hosted =
     (protocol === "https:" || protocol === "http:") &&
@@ -1626,9 +1632,10 @@ function gameUrl(): string {
   return hosted ? origin + pathname : FALLBACK_GAME_URL;
 }
 
-/** The share link for a seed: the base game URL plus `?s=<seed>`, so opening it
- * drops the recipient straight onto that day's/week's map. */
+/** The share link for a seed: the base game URL plus `?s=<seed>` when the host
+ * can forward query strings, or just the base URL on hosts that can't (itch). */
 function shareLinkFor(seed: string): string {
+  if (resolveShareUrl()) return gameUrl();
   return `${gameUrl()}?s=${encodeURIComponent(seed)}`;
 }
 
@@ -1809,7 +1816,11 @@ function openAccountPrompt(
   pendingScoreSubmit = submit;
   accountPromptContext = context;
   accountTitle.textContent =
-    context === "run" ? "Log in or create an account to register your score" : "Log in or create an account";
+    context === "run"
+      ? storageFellBack
+        ? "Log in to keep your score — progress won't survive a reload here"
+        : "Log in or create an account to register your score"
+      : "Log in or create an account";
   // Backing out of a run means the score isn't registered; from settings it is
   // an ordinary cancel, and shouldn't read as a decision about a score.
   const skipLabel = context === "run" ? "Don't register score" : "Cancel";

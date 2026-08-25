@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkDatabaseHealth, ensureSchema, pruneExpiredSessions, pruneOldRunLogs, syncAdmins } from "./db.js";
 import { startPrecomputeSchedule } from "./optimal.js";
+import { cors } from "./cors.js";
 import { scoresRouter } from "./routes.js";
 import { authRouter } from "./auth-routes.js";
 
@@ -33,6 +34,7 @@ app.get("/logs", (_req, res) => {
   res.sendFile(path.join(projectRoot, "logs.html"));
 });
 
+app.use("/api", cors);
 app.use(authRouter);
 app.use(scoresRouter);
 

@@ -1,6 +1,36 @@
 import type { Account, Difficulty, TruckAppearance } from "./api.js";
 import type { GhostRecording } from "./ghost.js";
 
+// --- Safe storage shim -------------------------------------------------------
+// In a cross-origin iframe (itch.io embed with third-party cookies blocked, or
+// a sandbox without allow-same-origin) merely *accessing* window.localStorage
+// throws a SecurityError. The shim probes once and falls back to an in-memory
+// Map so the game boots and plays instead of crashing to a black canvas.
+
+class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length"> {
+  #map = new Map<string, string>();
+  getItem(key: string): string | null { return this.#map.get(key) ?? null; }
+  setItem(key: string, value: string): void { this.#map.set(key, String(value)); }
+  removeItem(key: string): void { this.#map.delete(key); }
+  key(i: number): string | null { return [...this.#map.keys()][i] ?? null; }
+  get length(): number { return this.#map.size; }
+}
+
+function probeStorage(storage: () => Storage): Storage | MemoryStorage {
+  try {
+    const s = storage();
+    s.getItem("__probe__");
+    return s;
+  } catch {
+    return new MemoryStorage();
+  }
+}
+
+const safeLocal = probeStorage(() => window.localStorage);
+const safeSession = probeStorage(() => window.sessionStorage);
+
+export const storageFellBack = safeLocal instanceof MemoryStorage;
+
 const STORAGE_PREFIX = "unstable-truck:pb:";
 // Bumped when the stored shape changes incompatibly (e.g. inputLog switching
 // from float seconds to integer ticks) so old, unreadable entries get
@@ -46,19 +76,19 @@ function legacyHardKey(seed: string): string {
 }
 
 function readPb(key: string, seed: string): GhostRecording | null {
-  const raw = localStorage.getItem(key);
+  const raw = safeLocal.getItem(key);
   if (!raw) return null;
 
   let parsed: Partial<StoredPersonalBest>;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    localStorage.removeItem(key);
+    safeLocal.removeItem(key);
     return null;
   }
 
   if (!isValid(parsed) || !isFresh(parsed.savedAt, maxAgeForSeed(seed))) {
-    localStorage.removeItem(key);
+    safeLocal.removeItem(key);
     return null;
   }
   return parsed;
@@ -77,8 +107,8 @@ export function loadPersonalBest(seed: string, difficulty: Difficulty): GhostRec
 
   const legacy = readPb(legacyHardKey(seed), seed);
   if (!legacy) return null;
-  localStorage.setItem(pbKey(seed, "hard"), JSON.stringify({ ...legacy, version: STORAGE_VERSION, savedAt: Date.now() }));
-  localStorage.removeItem(legacyHardKey(seed));
+  safeLocal.setItem(pbKey(seed, "hard"), JSON.stringify({ ...legacy, version: STORAGE_VERSION, savedAt: Date.now() }));
+  safeLocal.removeItem(legacyHardKey(seed));
   return legacy;
 }
 
@@ -88,23 +118,23 @@ export function savePersonalBestIfBetter(recording: GhostRecording, difficulty: 
   const existing = loadPersonalBest(recording.seed, difficulty);
   if (existing && existing.time <= recording.time) return false;
   const stored: StoredPersonalBest = { ...recording, version: STORAGE_VERSION, savedAt: Date.now() };
-  localStorage.setItem(pbKey(recording.seed, difficulty), JSON.stringify(stored));
+  safeLocal.setItem(pbKey(recording.seed, difficulty), JSON.stringify(stored));
   return true;
 }
 
 /** Removes every stored personal best past its retention age (30 days for daily
  * seeds, about a year for weekly ones), across all seeds and both difficulties
  * - not just whichever ones happen to be loaded via loadPersonalBest(), so old
- * entries can't sit in localStorage forever. Also clears out anything saved in
+ * entries can't sit in safeLocal forever. Also clears out anything saved in
  * an older, incompatible format, including any not-yet-migrated legacy
  * (pre-difficulty) entry. Call once at startup. */
 export function pruneOldPersonalBests(): void {
   const staleKeys: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
+  for (let i = 0; i < safeLocal.length; i++) {
+    const key = safeLocal.key(i);
     if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
 
-    const raw = localStorage.getItem(key);
+    const raw = safeLocal.getItem(key);
     let parsed: Partial<StoredPersonalBest> | null = null;
     try {
       parsed = raw ? JSON.parse(raw) : null;
@@ -120,7 +150,7 @@ export function pruneOldPersonalBests(): void {
       staleKeys.push(key);
     }
   }
-  for (const key of staleKeys) localStorage.removeItem(key);
+  for (const key of staleKeys) safeLocal.removeItem(key);
 }
 
 const COMPLETED_KEY = "unstable-truck:completed";
@@ -149,16 +179,16 @@ function isRecentSeed(seed: string): boolean {
  * completing the same day twice doesn't duplicate it - and prunes entries
  * older than the retention window on write so the set stays bounded. */
 export function recordCompletion(seed: string): void {
-  const set = new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
+  const set = new Set(parseCompleted(safeLocal.getItem(COMPLETED_KEY)));
   set.add(seed);
   const kept = [...set].filter(isRecentSeed).sort();
-  localStorage.setItem(COMPLETED_KEY, JSON.stringify(kept));
+  safeLocal.setItem(COMPLETED_KEY, JSON.stringify(kept));
 }
 
 /** The set of day seeds (YYYY-MM-DD) the player has ever completed, within the
  * retention window. */
 export function loadCompletedDays(): Set<string> {
-  return new Set(parseCompleted(localStorage.getItem(COMPLETED_KEY)));
+  return new Set(parseCompleted(safeLocal.getItem(COMPLETED_KEY)));
 }
 
 const SOURCE_KEY = "unstable-truck:source";
@@ -169,7 +199,7 @@ const SOURCE_KEY = "unstable-truck:source";
  * brought players who *stayed*, and by the time someone comes back on day
  * three the referrer is long gone. So it's recorded once and then kept. */
 export function loadAcquisitionSource(): string | null {
-  return localStorage.getItem(SOURCE_KEY);
+  return safeLocal.getItem(SOURCE_KEY);
 }
 
 /** Stores the acquisition source, keeping whatever was recorded first. Later
@@ -177,8 +207,8 @@ export function loadAcquisitionSource(): string | null {
  * via a bookmark was still won by Reddit, and letting the bookmark visit win
  * would quietly relabel every successful channel as "direct". */
 export function recordAcquisitionSource(source: string): void {
-  if (localStorage.getItem(SOURCE_KEY)) return;
-  localStorage.setItem(SOURCE_KEY, source);
+  if (safeLocal.getItem(SOURCE_KEY)) return;
+  safeLocal.setItem(SOURCE_KEY, source);
 }
 
 const PLAYED_KEY = "unstable-truck:played";
@@ -191,7 +221,7 @@ const PLAYED_KEY = "unstable-truck:played";
  * played, so without merging them an existing player would suddenly see
  * "days played" sitting below their completed count. */
 export function loadPlayedDays(): Set<string> {
-  const merged = new Set(parseCompleted(localStorage.getItem(PLAYED_KEY)));
+  const merged = new Set(parseCompleted(safeLocal.getItem(PLAYED_KEY)));
   for (const seed of loadCompletedDays()) merged.add(seed);
   return merged;
 }
@@ -203,7 +233,7 @@ export function recordPlayed(seed: string): void {
   const set = loadPlayedDays();
   set.add(seed);
   const kept = [...set].filter(isRecentSeed).sort();
-  localStorage.setItem(PLAYED_KEY, JSON.stringify(kept));
+  safeLocal.setItem(PLAYED_KEY, JSON.stringify(kept));
 }
 
 const NICKNAME_KEY = "unstable-truck:nickname";
@@ -212,17 +242,17 @@ const MAX_NICKNAME_LENGTH = 16;
 /** Returns the stored nickname, generating and persisting a friendly default
  * on first visit so score submission works without forcing input up front. */
 export function getOrCreateNickname(): string {
-  const stored = localStorage.getItem(NICKNAME_KEY);
+  const stored = safeLocal.getItem(NICKNAME_KEY);
   if (stored) return stored;
   const generated = `Racer${Math.floor(1000 + Math.random() * 9000)}`;
-  localStorage.setItem(NICKNAME_KEY, generated);
+  safeLocal.setItem(NICKNAME_KEY, generated);
   return generated;
 }
 
 /** Saves a (trimmed, length-capped) nickname; ignores blank input. */
 export function setNickname(name: string): void {
   const trimmed = name.trim().slice(0, MAX_NICKNAME_LENGTH);
-  if (trimmed) localStorage.setItem(NICKNAME_KEY, trimmed);
+  if (trimmed) safeLocal.setItem(NICKNAME_KEY, trimmed);
 }
 
 // --- Play time accumulator -------------------------------------------------
@@ -230,14 +260,14 @@ export function setNickname(name: string): void {
 const PLAY_TIME_KEY = "unstable-truck:play-time";
 
 export function loadPlayTime(): number {
-  const raw = localStorage.getItem(PLAY_TIME_KEY);
+  const raw = safeLocal.getItem(PLAY_TIME_KEY);
   const parsed = raw ? Number(raw) : 0;
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function addPlayTime(seconds: number): void {
   if (!Number.isFinite(seconds) || seconds <= 0) return;
-  localStorage.setItem(PLAY_TIME_KEY, String(loadPlayTime() + seconds));
+  safeLocal.setItem(PLAY_TIME_KEY, String(loadPlayTime() + seconds));
 }
 
 /** Replaces the running total outright, for applying a merged one back from the
@@ -245,7 +275,7 @@ export function addPlayTime(seconds: number): void {
  * a smaller value here would mean something went wrong upstream. */
 export function setPlayTime(seconds: number): void {
   if (!Number.isFinite(seconds) || seconds <= loadPlayTime()) return;
-  localStorage.setItem(PLAY_TIME_KEY, String(Math.floor(seconds)));
+  safeLocal.setItem(PLAY_TIME_KEY, String(Math.floor(seconds)));
 }
 
 // --- Truck appearance ------------------------------------------------------
@@ -263,7 +293,7 @@ const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
 /** Stored, synced, and not yet used by anything: the renderer still draws one
  * fixed truck. This is the space for it, ready for whatever chooses it later. */
 export function loadTruckAppearance(): TruckAppearance {
-  const raw = localStorage.getItem(TRUCK_KEY);
+  const raw = safeLocal.getItem(TRUCK_KEY);
   if (!raw) return DEFAULT_TRUCK;
   try {
     const parsed = JSON.parse(raw) as Partial<TruckAppearance>;
@@ -284,7 +314,7 @@ export function loadTruckAppearance(): TruckAppearance {
 }
 
 export function saveTruckAppearance(truck: TruckAppearance): void {
-  localStorage.setItem(TRUCK_KEY, JSON.stringify(truck));
+  safeLocal.setItem(TRUCK_KEY, JSON.stringify(truck));
 }
 
 // --- Best streak -----------------------------------------------------------
@@ -316,13 +346,13 @@ const DIFFICULTY_KEY = "unstable-truck:difficulty";
  * (a brand-new browser, or one that predates this feature). The caller decides
  * the default for that case. */
 export function loadDifficultyPref(): Difficulty | null {
-  const stored = localStorage.getItem(DIFFICULTY_KEY);
+  const stored = safeLocal.getItem(DIFFICULTY_KEY);
   return stored === "easy" || stored === "hard" ? stored : null;
 }
 
 /** Persists the Easy/Hard preference across visits and maps. */
 export function saveDifficultyPref(difficulty: Difficulty): void {
-  localStorage.setItem(DIFFICULTY_KEY, difficulty);
+  safeLocal.setItem(DIFFICULTY_KEY, difficulty);
 }
 
 // --- Sync token ------------------------------------------------------------
@@ -330,15 +360,15 @@ export function saveDifficultyPref(difficulty: Difficulty): void {
 const SYNC_TOKEN_KEY = "unstable-truck:sync-token";
 
 export function loadSyncToken(): string | null {
-  return localStorage.getItem(SYNC_TOKEN_KEY);
+  return safeLocal.getItem(SYNC_TOKEN_KEY);
 }
 
 export function saveSyncToken(token: string): void {
-  localStorage.setItem(SYNC_TOKEN_KEY, token);
+  safeLocal.setItem(SYNC_TOKEN_KEY, token);
 }
 
 export function clearSyncToken(): void {
-  localStorage.removeItem(SYNC_TOKEN_KEY);
+  safeLocal.removeItem(SYNC_TOKEN_KEY);
 }
 
 // --- Login session ---------------------------------------------------------
@@ -353,27 +383,27 @@ interface StoredAuth {
 }
 
 export function loadAuthSession(): StoredAuth | null {
-  const raw = localStorage.getItem(AUTH_KEY);
+  const raw = safeLocal.getItem(AUTH_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<StoredAuth>;
     if (typeof parsed.token !== "string" || !parsed.account || typeof parsed.account.username !== "string") {
-      localStorage.removeItem(AUTH_KEY);
+      safeLocal.removeItem(AUTH_KEY);
       return null;
     }
     return { token: parsed.token, account: parsed.account };
   } catch {
-    localStorage.removeItem(AUTH_KEY);
+    safeLocal.removeItem(AUTH_KEY);
     return null;
   }
 }
 
 export function saveAuthSession(token: string, account: Account): void {
-  localStorage.setItem(AUTH_KEY, JSON.stringify({ token, account }));
+  safeLocal.setItem(AUTH_KEY, JSON.stringify({ token, account }));
 }
 
 export function clearAuthSession(): void {
-  localStorage.removeItem(AUTH_KEY);
+  safeLocal.removeItem(AUTH_KEY);
 }
 
 /** The bearer token on its own, for api.ts to attach to requests. */
@@ -390,11 +420,11 @@ const ACCOUNT_DECLINED_KEY = "unstable-truck:account-declined";
 const ACCOUNT_PROMPT_COOLDOWN_MS = 7 * DAY_MS;
 
 export function recordAccountPromptDeclined(): void {
-  localStorage.setItem(ACCOUNT_DECLINED_KEY, String(Date.now()));
+  safeLocal.setItem(ACCOUNT_DECLINED_KEY, String(Date.now()));
 }
 
 export function accountPromptRecentlyDeclined(): boolean {
-  const raw = localStorage.getItem(ACCOUNT_DECLINED_KEY);
+  const raw = safeLocal.getItem(ACCOUNT_DECLINED_KEY);
   if (!raw) return false;
   const declinedAt = Number(raw);
   if (!Number.isFinite(declinedAt)) return false;
@@ -420,7 +450,7 @@ const DEFAULT_SOUND_PREFS: SoundPrefs = {
 };
 
 export function loadSoundPrefs(): SoundPrefs {
-  const raw = localStorage.getItem(SOUND_KEY);
+  const raw = safeLocal.getItem(SOUND_KEY);
   if (!raw) return { ...DEFAULT_SOUND_PREFS };
   try {
     const parsed = JSON.parse(raw);
@@ -438,7 +468,7 @@ export function loadSoundPrefs(): SoundPrefs {
 }
 
 export function saveSoundPrefs(prefs: SoundPrefs): void {
-  localStorage.setItem(SOUND_KEY, JSON.stringify(prefs));
+  safeLocal.setItem(SOUND_KEY, JSON.stringify(prefs));
 }
 
 // --- Ghost-race preferences (session-scoped) ------------------------------
@@ -454,27 +484,27 @@ const LEADERBOARD_GHOST_PREFIX = "unstable-truck:lb-ghost:";
 /** Whether to race your own personal-best ghost. Global (not per level), and
  * defaults to on so a first-time PB still shows its ghost. */
 export function loadRacePbGhostPref(): boolean {
-  return sessionStorage.getItem(RACE_PB_GHOST_KEY) !== "0";
+  return safeSession.getItem(RACE_PB_GHOST_KEY) !== "0";
 }
 
 /** Persists the global "race my own ghost" toggle for the rest of the session. */
 export function saveRacePbGhostPref(on: boolean): void {
-  sessionStorage.setItem(RACE_PB_GHOST_KEY, on ? "1" : "0");
+  safeSession.setItem(RACE_PB_GHOST_KEY, on ? "1" : "0");
 }
 
 /** The leaderboard opponent's nickname selected for a given (seed, difficulty),
  * if any. Easy and Hard keep separate selections - they're different boards,
  * and a ghost recorded on one can't race on the other. */
 export function loadSelectedLeaderboardGhost(seed: string, difficulty: Difficulty): string | null {
-  return sessionStorage.getItem(LEADERBOARD_GHOST_PREFIX + difficulty + ":" + seed);
+  return safeSession.getItem(LEADERBOARD_GHOST_PREFIX + difficulty + ":" + seed);
 }
 
 /** Remembers (or, with null, clears) the selected leaderboard opponent for a
  * (seed, difficulty) for the rest of the session. */
 export function saveSelectedLeaderboardGhost(seed: string, difficulty: Difficulty, nickname: string | null): void {
   const key = LEADERBOARD_GHOST_PREFIX + difficulty + ":" + seed;
-  if (nickname) sessionStorage.setItem(key, nickname);
-  else sessionStorage.removeItem(key);
+  if (nickname) safeSession.setItem(key, nickname);
+  else safeSession.removeItem(key);
 }
 
 /** Drops remembered leaderboard-ghost selections for maps that are no longer
@@ -483,13 +513,13 @@ export function saveSelectedLeaderboardGhost(seed: string, difficulty: Difficult
  * it needs no such pruning. */
 export function pruneLeaderboardGhosts(liveSeeds: Set<string>): void {
   const staleKeys: string[] = [];
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
+  for (let i = 0; i < safeSession.length; i++) {
+    const key = safeSession.key(i);
     if (!key || !key.startsWith(LEADERBOARD_GHOST_PREFIX)) continue;
     // Strip the "easy:"/"hard:" difficulty segment to recover the bare seed.
     const rest = key.slice(LEADERBOARD_GHOST_PREFIX.length);
     const seed = rest.startsWith("easy:") ? rest.slice(5) : rest.startsWith("hard:") ? rest.slice(5) : rest;
     if (!liveSeeds.has(seed)) staleKeys.push(key);
   }
-  for (const key of staleKeys) sessionStorage.removeItem(key);
+  for (const key of staleKeys) safeSession.removeItem(key);
 }
