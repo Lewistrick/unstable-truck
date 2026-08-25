@@ -448,7 +448,7 @@ function detectSource(): string {
   if (!document.referrer) return "direct";
   try {
     const host = new URL(document.referrer).hostname.replace(/^www\./, "");
-    return host === location.hostname ? "direct" : host.slice(0, 40);
+    return host.slice(0, 40) || "direct";
   } catch {
     return "unknown";
   }
