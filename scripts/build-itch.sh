@@ -24,7 +24,11 @@ fi
 
 STAGE="$ROOT/out/stage"
 OUT="$ROOT/out/unstable-truck-itch.zip"
-rm -rf "$STAGE" "$OUT"
+# Previous builds leave root-owned files (Docker writes as root); clean up
+# inside a container so ownership doesn't matter, then recreate the directory.
+if [ -d "$ROOT/out" ]; then
+  docker run --rm -v "$ROOT/out:/out" "$IMAGE" rm -rf /out/stage /out/unstable-truck-itch.zip
+fi
 mkdir -p "$STAGE"
 
 # --- Compile and strip source maps (inside the container so file ownership
