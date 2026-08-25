@@ -24,8 +24,27 @@ import {
 import crypto from "node:crypto";
 import { authenticate, requireAdmin } from "./auth.js";
 import { ensureOptimalRoute } from "./optimal.js";
+import { RateLimiter } from "./rate-limit.js";
+import type { Response } from "express";
 
 export const scoresRouter = Router();
+
+const MINUTE = 60_000;
+
+const scoreByIp = new RateLimiter(30, MINUTE);
+const scoreByAccount = new RateLimiter(10, MINUTE);
+const runLogByIp = new RateLimiter(120, MINUTE);
+const championByIp = new RateLimiter(30, MINUTE);
+const championByAccount = new RateLimiter(10, MINUTE);
+
+function clientIp(req: Request): string {
+  return req.ip ?? "unknown";
+}
+
+function tooManyRequests(res: Response, retryAfterSeconds: number): void {
+  res.set("Retry-After", String(retryAfterSeconds));
+  res.status(429).json({ error: "too many attempts, try again later" });
+}
 
 // Daily seeds are dates (YYYY-MM-DD); weekly seeds are ISO year+week
 // (YYYY-Www, e.g. 2026-W31). Both are stored in the same scores table.
@@ -154,11 +173,18 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
     res.status(400).json({ error: "invalid submission" });
     return;
   }
+  const ipCheck = scoreByIp.check(clientIp(req));
+  if (!ipCheck.allowed) { tooManyRequests(res, ipCheck.retryAfterSeconds); return; }
+
   const { championCandidate, isCurrentPeriod, ...score } = submission;
   try {
     // Resolved once and reused below: authenticate() slides the session's
     // expiry as a side effect, so calling it twice would double that write.
     const user = await authenticate(req);
+    if (user) {
+      const acctCheck = scoreByAccount.check(String(user.id));
+      if (!acctCheck.allowed) { tooManyRequests(res, acctCheck.retryAfterSeconds); return; }
+    }
     if (!(await mayUseNickname(user, score.nickname))) {
       res.status(403).json({ error: "that name is registered - log in to submit under it" });
       return;
@@ -177,7 +203,8 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
     // threshold is left alone, so the medal stays where it was until a logged-in
     // player beats it.
     if (isCurrentPeriod && championCandidate != null && user !== null) {
-      await lowerChampionTime(seed, score.difficulty, championCandidate);
+      const clamped = Math.max(championCandidate, score.time);
+      await lowerChampionTime(seed, score.difficulty, clamped);
     }
     res.json({ saved });
   } catch (err) {
@@ -195,6 +222,9 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
  * payload is a 400 and a storage failure is a logged 503, but the client ignores
  * the outcome either way. */
 scoresRouter.post("/api/runs", async (req, res) => {
+  const ipCheck = runLogByIp.check(clientIp(req));
+  if (!ipCheck.allowed) { tooManyRequests(res, ipCheck.retryAfterSeconds); return; }
+
   const b = typeof req.body === "object" && req.body !== null ? (req.body as Record<string, unknown>) : {};
   const nickname = typeof b.nickname === "string" ? b.nickname.trim().slice(0, MAX_NICKNAME_LENGTH) : "";
   const seed = typeof b.seed === "string" ? b.seed.slice(0, MAX_SEED_LENGTH) : "";
@@ -257,6 +287,9 @@ scoresRouter.get(
  * gold par and the day's record. Never overwrites an existing value, so it
  * can't move a frozen past-day threshold. */
 scoresRouter.post("/api/champions/:seed", async (req: Request<{ seed: string }>, res) => {
+  const ipCheck = championByIp.check(clientIp(req));
+  if (!ipCheck.allowed) { tooManyRequests(res, ipCheck.retryAfterSeconds); return; }
+
   const { seed } = req.params;
   if (!isValidSeed(seed)) {
     res.status(400).json({ error: "seed must be YYYY-MM-DD or YYYY-Www" });
@@ -268,13 +301,14 @@ scoresRouter.post("/api/champions/:seed", async (req: Request<{ seed: string }>,
     res.status(400).json({ error: "championTime must be a positive number" });
     return;
   }
-  // Registered players only. Freezing a threshold is a one-way write nobody can
-  // undo (backfillChampionTime never overwrites), so it isn't something to
-  // accept from an anonymous caller.
-  if ((await authenticate(req)) === null) {
+  const user = await authenticate(req);
+  if (user === null) {
     res.status(401).json({ error: "not logged in" });
     return;
   }
+  const acctCheck = championByAccount.check(String(user.id));
+  if (!acctCheck.allowed) { tooManyRequests(res, acctCheck.retryAfterSeconds); return; }
+
   const created = await backfillChampionTime(seed, parseDifficulty(body?.difficulty), championTime);
   res.json({ created });
 });
