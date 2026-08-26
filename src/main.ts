@@ -66,6 +66,7 @@ import {
 import { resolveShareUrl, resolveSourceTag } from "./game/config.js";
 import { COUNTRIES } from "./game/countries.js";
 import { Tutorial } from "./game/tutorial.js";
+import { CAMPAIGN_TOTAL, parseCampaignSeed } from "./level/campaign.js";
 import { generateLevel, generateWeeklyLevel, shiftSeed, todaySeed, weekSeed } from "./level/generate.js";
 import { resolveSeedTarget } from "./level/seed-target.js";
 import { getTheme } from "./level/themes.js";
@@ -208,6 +209,7 @@ function formatTime(seconds: number): string {
 
 let mode: Mode = "daily";
 let viewedOffset = 0;
+let campaignNav: { prefix: string; index: number } | null = null;
 
 // --- Easy/Hard difficulty ----------------------------------------------------
 // A single global preference, independent of (and persisted across) both the
@@ -508,8 +510,13 @@ function refreshCachedPersonalBests(): void {
 void refreshAccount().then(syncAccount);
 
 function refreshViewedUi(): void {
-  const periodLabel = viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
-  viewedDateEl.textContent = `${periodLabel} · ${viewed.seed} · ${getTheme(viewed.level.theme).name}`;
+  const periodLabel = campaignNav
+    ? `Campaign ${campaignNav.index} of ${CAMPAIGN_TOTAL}`
+    : viewed.orphan ? "Shared map" : describeOffset(mode, viewedOffset);
+  const themeName = getTheme(viewed.level.theme).name;
+  viewedDateEl.textContent = campaignNav
+    ? `${periodLabel} · ${themeName}`
+    : `${periodLabel} · ${viewed.seed} · ${themeName}`;
 
   // Sharing the best time is offered only for today, and only once there's a
   // best to share (never on a shared orphan map, which has no leaderboard). The
@@ -1042,38 +1049,48 @@ async function refreshLeaderboard(): Promise<void> {
 // --- Period navigation (day or week) ----------------------------------
 
 function updateNavButtons(): void {
-  // A shared orphan map isn't part of the browsable day/week timeline, so there's
-  // nowhere to step to - use the Daily/Weekly toggle to return to a live period.
-  if (viewed.orphan) {
-    navPrevBtn.disabled = true;
-    navNextBtn.disabled = true;
+  if (campaignNav) {
+    navPrevBtn.classList.remove("hidden");
+    navNextBtn.classList.remove("hidden");
+    navPrevBtn.disabled = campaignNav.index <= 1;
+    navNextBtn.disabled = campaignNav.index >= CAMPAIGN_TOTAL;
+    navPrevBtn.setAttribute("aria-label", "Previous map");
+    navNextBtn.setAttribute("aria-label", "Next map");
     return;
   }
+  if (viewed.orphan) {
+    navPrevBtn.classList.add("hidden");
+    navNextBtn.classList.add("hidden");
+    return;
+  }
+  navPrevBtn.classList.remove("hidden");
+  navNextBtn.classList.remove("hidden");
   navPrevBtn.disabled = viewedOffset <= -maxPastOffset(mode);
   navNextBtn.disabled = viewedOffset >= 0;
+  navPrevBtn.setAttribute("aria-label", mode === "weekly" ? "Previous week" : "Previous day");
+  navNextBtn.setAttribute("aria-label", mode === "weekly" ? "Next week" : "Next day");
 }
 
-/** True when there's an older/newer period to swipe to from the current view.
- * A shared orphan map is off the day/week timeline, so it has no neighbours. */
 function hasOlderPeriod(): boolean {
+  if (campaignNav) return campaignNav.index > 1;
   return !viewed.orphan && viewedOffset > -maxPastOffset(mode);
 }
 function hasNewerPeriod(): boolean {
+  if (campaignNav) return campaignNav.index < CAMPAIGN_TOTAL;
   return !viewed.orphan && viewedOffset < 0;
 }
 
-/** Paints the carousel: the centre canvas is the viewed map, and the flanking
- * canvases hold the previous (older) and next (newer) maps so a swipe reveals
- * the real neighbour sliding in. Missing neighbours (timeline edges, orphan
- * maps) are cleared to an empty slot. */
 function renderMinimaps(): void {
   renderMinimap(minimapCtx, viewed.level, 0, 0, minimapCanvas.width, minimapCanvas.height);
-  paintNeighbourThumb(minimapPrevCtx, minimapPrevCanvas, hasOlderPeriod() ? viewedOffset - 1 : null);
-  paintNeighbourThumb(minimapNextCtx, minimapNextCanvas, hasNewerPeriod() ? viewedOffset + 1 : null);
+  if (campaignNav) {
+    paintCampaignThumb(minimapPrevCtx, minimapPrevCanvas, hasOlderPeriod() ? campaignNav.index - 1 : null);
+    paintCampaignThumb(minimapNextCtx, minimapNextCanvas, hasNewerPeriod() ? campaignNav.index + 1 : null);
+  } else {
+    paintNeighbourThumb(minimapPrevCtx, minimapPrevCanvas, hasOlderPeriod() ? viewedOffset - 1 : null);
+    paintNeighbourThumb(minimapNextCtx, minimapNextCanvas, hasNewerPeriod() ? viewedOffset + 1 : null);
+  }
 }
 
-/** Draws the map at `offset` into a flanking carousel canvas, or clears it to an
- * empty slot when there's no neighbour there. */
 function paintNeighbourThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, offset: number | null): void {
   if (offset === null) {
     ctx.clearRect(0, 0, cv.width, cv.height);
@@ -1082,10 +1099,20 @@ function paintNeighbourThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElemen
   renderMinimap(ctx, getPlayable(mode, offset, effectiveDifficulty(mode)).level, 0, 0, cv.width, cv.height);
 }
 
+function paintCampaignThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, index: number | null): void {
+  if (index === null || !campaignNav) {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    return;
+  }
+  const seed = `${campaignNav.prefix}C${String(index).padStart(2, "0")}`;
+  renderMinimap(ctx, generateLevel(seed), 0, 0, cv.width, cv.height);
+}
+
 /** Re-syncs the whole home view (map, best, ghost toggle, leaderboard) to the
  * currently selected mode + offset. Also leaves any shared "orphan" seed view,
  * since a mode/offset selection is always a live period. */
 function refreshViewedSelection(): void {
+  campaignNav = null;
   viewed = getPlayable(mode, viewedOffset, effectiveDifficulty(mode));
   // A live period has a leaderboard + streak strip again; restore the chrome
   // that showOrphanSeed() hides.
@@ -1172,6 +1199,13 @@ function switchDifficulty(next: Difficulty): void {
  * ghosts, replays, and score submission are all off, with a short notice in
  * place of the leaderboard. */
 function showOrphanSeed(seed: string, genMode: Mode): void {
+  const cp = parseCampaignSeed(seed);
+  if (cp) {
+    const padded = String(cp.index).padStart(2, "0");
+    campaignNav = { prefix: seed.substring(0, seed.indexOf(`C${padded}`)), index: cp.index };
+  } else {
+    campaignNav = null;
+  }
   mode = genMode;
   setModeVisuals();
   progressStrip.classList.add("hidden"); // no streak strip for a one-off map
@@ -1194,7 +1228,7 @@ function showOrphanSeed(seed: string, genMode: Mode): void {
  * others' ghosts, watching replays). */
 function renderOrphanNotice(): void {
   replayControls.classList.add("hidden");
-  leaderboardHeaderEl.textContent = "Shared map";
+  leaderboardHeaderEl.textContent = campaignNav ? "Campaign" : "Shared map";
   leaderboardList.replaceChildren();
   const li = document.createElement("li");
   li.className = "leaderboard-empty";
@@ -1220,8 +1254,22 @@ function openSharedSeed(seed: string): void {
   showOrphanSeed(seed, target.mode);
 }
 
-navPrevBtn.addEventListener("click", () => navigateTo(viewedOffset - 1));
-navNextBtn.addEventListener("click", () => navigateTo(viewedOffset + 1));
+function navigateCampaign(dir: number): void {
+  if (!campaignNav) return;
+  const newIndex = campaignNav.index + dir;
+  if (newIndex < 1 || newIndex > CAMPAIGN_TOTAL) return;
+  const newSeed = `${campaignNav.prefix}C${String(newIndex).padStart(2, "0")}`;
+  showOrphanSeed(newSeed, "daily");
+}
+
+navPrevBtn.addEventListener("click", () => {
+  if (campaignNav) navigateCampaign(-1);
+  else navigateTo(viewedOffset - 1);
+});
+navNextBtn.addEventListener("click", () => {
+  if (campaignNav) navigateCampaign(1);
+  else navigateTo(viewedOffset + 1);
+});
 modeDailyBtn.addEventListener("click", () => switchMode("daily"));
 modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 difficultyEasyBtn.addEventListener("click", () => switchDifficulty("easy"));
@@ -1264,9 +1312,7 @@ function restTrack(): void {
 }
 
 minimapViewport.addEventListener("pointerdown", (e) => {
-  // A shared orphan map isn't on the day/week timeline, so there's nothing to
-  // swipe to (the Daily/Weekly toggle is the way back to a live period).
-  if (viewed.orphan || e.button > 0) return;
+  if ((viewed.orphan && !campaignNav) || e.button > 0) return;
   swipeStartX = e.clientX;
   swipeStartY = e.clientY;
   swipeTracking = true;
@@ -1329,7 +1375,8 @@ window.addEventListener("pointerup", (e) => {
     const shown = dir === -1 ? minimapPrevCanvas : minimapNextCanvas;
     minimapCtx.drawImage(shown, 0, 0);
     restTrack();
-    navigateTo(viewedOffset + dir);
+    if (campaignNav) navigateCampaign(dir);
+    else navigateTo(viewedOffset + dir);
   }, SNAP_MS);
 });
 
