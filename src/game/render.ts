@@ -285,19 +285,25 @@ function drawRock(ctx: CanvasRenderingContext2D, rock: RockObstacle, rockColor: 
   ctx.stroke();
 }
 
-function drawObstacles(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
+function obstacleVisible(pos: Vec2, r: number, bounds: Bounds): boolean {
   const margin = 40;
-  const visible = (pos: Vec2, r: number): boolean =>
+  return (
     pos.x + r >= bounds.minX - margin &&
     pos.x - r <= bounds.maxX + margin &&
     pos.y + r >= bounds.minY - margin &&
-    pos.y - r <= bounds.maxY + margin;
+    pos.y - r <= bounds.maxY + margin
+  );
+}
 
+function drawMuds(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
   for (const mud of level.muds) {
-    if (visible(mud.pos, mud.radius)) drawMud(ctx, mud, level.palette.mud);
+    if (obstacleVisible(mud.pos, mud.radius, bounds)) drawMud(ctx, mud, level.palette.mud);
   }
+}
+
+function drawRocks(ctx: CanvasRenderingContext2D, level: Level, bounds: Bounds): void {
   for (const rock of level.rocks) {
-    if (visible(rock.pos, rock.radius)) drawRock(ctx, rock, level.palette.rock);
+    if (obstacleVisible(rock.pos, rock.radius, bounds)) drawRock(ctx, rock, level.palette.rock);
   }
 }
 
@@ -1018,11 +1024,12 @@ function paintWorld(
     minY: camera.y - halfH,
     maxY: camera.y + halfH,
   };
-  drawObstacles(ctx, level, viewBounds);
+  drawMuds(ctx, level, viewBounds);
   drawHouses(ctx, level);
-  // Scenery sits on the grass (placed off-road), drawn under the warehouses so
-  // gameplay markers stay on top.
   drawScenery(ctx, level, viewBounds);
+  // Rocks are collision hazards, drawn above scenery so tall props (palm trees,
+  // pines) can never hide them from the player.
+  drawRocks(ctx, level, viewBounds);
   // Decorative biome boundary around the map edges (never occludes the
   // objectives, which are drawn next, or the truck, drawn after paintWorld).
   drawBoundary(ctx, level, viewBounds);
