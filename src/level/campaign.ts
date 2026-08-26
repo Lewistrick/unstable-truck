@@ -34,9 +34,8 @@ const MAX_STRAIGHT_RUN = 3;
  * Kept under half a cell so a jittered corner can never cross into a
  * neighbouring cell's territory and tangle two legs together. */
 const BEND_JITTER = 0.28;
-/** Catmull-Rom rounding: 0 = sharp corners, 1/3 = standard smooth. Kept low so
- * routes still read as hard bends with just the tips shaved off. */
-const CORNER_ROUND = 0.18;
+/** Catmull-Rom rounding: 0 = sharp corners, 1/3 = standard smooth. */
+const CORNER_ROUND = 0.45;
 const WALK_ATTEMPTS = 400;
 
 /** Eight-way movement. Orthogonals give 90-degree bends, diagonals give
