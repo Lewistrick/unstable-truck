@@ -211,6 +211,81 @@ let mode: Mode = "daily";
 let viewedOffset = 0;
 let campaignNav: { prefix: string; index: number } | null = null;
 
+// --- Landing / campaign screen navigation -----------------------------------
+const MONTH_ABBRS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;
+
+function campaignPrefix(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${MONTH_ABBRS[now.getMonth()]!}-`;
+}
+
+function campaignMonthLabel(): string {
+  const now = new Date();
+  return now.toLocaleString("en", { month: "long" });
+}
+
+function campaignSeedForIndex(index: number): string {
+  return `${campaignPrefix()}C${String(index).padStart(2, "0")}`;
+}
+
+let homeTarget: "landing" | "campaign" = "landing";
+
+function showLanding(): void {
+  landingScreen.classList.remove("hidden");
+  startScreen.classList.add("hidden");
+  campaignScreen.classList.add("hidden");
+  campaignTileLabel.textContent = `${campaignMonthLabel()} Campaign`;
+}
+
+function showCampaignGrid(): void {
+  campaignScreen.classList.remove("hidden");
+  landingScreen.classList.add("hidden");
+  startScreen.classList.add("hidden");
+  campaignTitle.textContent = `${campaignMonthLabel()} Campaign`;
+  renderCampaignGrid();
+}
+
+let campaignGridBuilt = false;
+
+function renderCampaignGrid(): void {
+  if (campaignGridBuilt) return;
+  campaignGridBuilt = true;
+  campaignGrid.replaceChildren();
+  const prefix = campaignPrefix();
+  for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+    const seed = `${prefix}C${String(i).padStart(2, "0")}`;
+    const cell = document.createElement("button");
+    cell.className = "campaign-cell";
+    cell.type = "button";
+
+    const cv = document.createElement("canvas");
+    cv.width = 150;
+    cv.height = 95;
+    const ctx = cv.getContext("2d")!;
+    const level = generateLevel(seed);
+    renderMinimap(ctx, level, 0, 0, cv.width, cv.height);
+    cell.appendChild(cv);
+
+    const label = document.createElement("span");
+    label.className = "campaign-cell-label";
+    label.textContent = `C${String(i).padStart(2, "0")}`;
+    cell.appendChild(label);
+
+    cell.addEventListener("click", () => {
+      homeTarget = "campaign";
+      showDailyHome();
+      showOrphanSeed(seed, "daily");
+    });
+    campaignGrid.appendChild(cell);
+  }
+}
+
+function showDailyHome(): void {
+  startScreen.classList.remove("hidden");
+  landingScreen.classList.add("hidden");
+  campaignScreen.classList.add("hidden");
+}
+
 // --- Easy/Hard difficulty ----------------------------------------------------
 // A single global preference, independent of (and persisted across) both the
 // viewed offset and the daily/weekly mode. Weekly is always played as Hard
@@ -251,6 +326,11 @@ const minimapPrevCtx = minimapPrevCanvas.getContext("2d")!;
 const minimapNextCanvas = document.getElementById("minimap-next") as HTMLCanvasElement;
 const minimapNextCtx = minimapNextCanvas.getContext("2d")!;
 
+const landingScreen = document.getElementById("landing-screen")!;
+const campaignScreen = document.getElementById("campaign-screen")!;
+const campaignGrid = document.getElementById("campaign-grid")!;
+const campaignTileLabel = document.getElementById("campaign-tile-label")!;
+const campaignTitle = document.getElementById("campaign-title")!;
 const startScreen = document.getElementById("start-screen")!;
 const resultsScreen = document.getElementById("results-screen")!;
 const helpScreen = document.getElementById("help-screen")!;
@@ -1275,6 +1355,28 @@ modeWeeklyBtn.addEventListener("click", () => switchMode("weekly"));
 difficultyEasyBtn.addEventListener("click", () => switchDifficulty("easy"));
 difficultyHardBtn.addEventListener("click", () => switchDifficulty("hard"));
 
+// --- Landing / campaign screen wiring ---
+document.getElementById("campaign-tile")!.addEventListener("click", showCampaignGrid);
+document.getElementById("daily-tile")!.addEventListener("click", () => {
+  homeTarget = "landing";
+  showDailyHome();
+  refreshViewedSelection();
+});
+document.getElementById("campaign-back-btn")!.addEventListener("click", showLanding);
+document.getElementById("home-back-btn")!.addEventListener("click", () => {
+  if (homeTarget === "campaign") showCampaignGrid();
+  else showLanding();
+});
+document.getElementById("landing-tutorial-btn")!.addEventListener("click", () => {
+  homeTarget = "landing";
+  showDailyHome();
+  startTutorial();
+});
+document.getElementById("landing-howto-btn")!.addEventListener("click", () => {
+  showDailyHome();
+  openHelp();
+});
+
 // Carousel navigation over the map thumbnail: drag/swipe right -> previous
 // (older) period, left -> next (newer). While dragging, the track follows the
 // finger so the neighbouring map slides in like a carousel; on release it snaps
@@ -1627,15 +1729,12 @@ function optimalForViewed(): GhostRecording | null {
 // helpers it calls (via exitWatchMode/refreshViewedSelection) read them.
 const sharedSeed = new URLSearchParams(window.location.search).get("s")?.trim();
 if (sharedSeed) {
+  showDailyHome();
   openSharedSeed(sharedSeed);
 } else {
-  // Initial paint: today (offset 0), same steps navigateTo() would do.
-  updateNavButtons();
-  refreshViewedUi();
-  paintViewedTerrainTags();
-  renderMinimaps();
-  void refreshLeaderboard();
-  void restoreSelectedLeaderboardGhost();
+  // No deep link: show the landing screen. The start-screen stays hidden until
+  // the player picks Daily or a campaign map.
+  showLanding();
 }
 
 // --- Medal + share (results screen) ----------------------------------------
@@ -2211,7 +2310,11 @@ function goHome(): void {
   // was holding, so a queued submission can never outlive its run.
   closeAccountPrompt();
   pendingScoreSubmit = null;
-  startScreen.classList.remove("hidden");
+  if (homeTarget === "campaign") {
+    showCampaignGrid();
+  } else {
+    startScreen.classList.remove("hidden");
+  }
   // A just-finished first delivery flips "has played", which reveals the browse
   // arrows and the Easy/Hard switch - re-evaluate both now that we're back on
   // the menu, rather than waiting for the next navigation/mode change to do it.
@@ -2312,7 +2415,9 @@ function endTutorial(reason = "closed"): void {
   // The 3-2-1-GO overlay is shared with normal runs, so make sure a count-in
   // that was on screen when the player bailed doesn't outlive the tutorial.
   countdownOverlay.classList.add("hidden");
-  startScreen.classList.remove("hidden");
+  if (homeTarget === "campaign") showCampaignGrid();
+  else if (homeTarget === "landing") showLanding();
+  else startScreen.classList.remove("hidden");
 }
 
 /** Wires a coach-overlay button, dropping keyboard focus first: the spacebar is
