@@ -5,7 +5,7 @@ import {
   randRange,
   seedFromString,
 } from "../util/rng.js";
-import { add, lerp, scale, sub, v, type Vec2 } from "../util/vec2.js";
+import { add, scale, sub, v, type Vec2 } from "../util/vec2.js";
 import { generateObstacles } from "./obstacles.js";
 import { generatePalette } from "./palette.js";
 import { generateScenery } from "./scenery.js";
@@ -34,6 +34,9 @@ const MAX_STRAIGHT_RUN = 3;
  * Kept under half a cell so a jittered corner can never cross into a
  * neighbouring cell's territory and tangle two legs together. */
 const BEND_JITTER = 0.28;
+/** Catmull-Rom rounding: 0 = sharp corners, 1/3 = standard smooth. Kept low so
+ * routes still read as hard bends with just the tips shaved off. */
+const CORNER_ROUND = 0.18;
 const WALK_ATTEMPTS = 400;
 
 /** Eight-way movement. Orthogonals give 90-degree bends, diagonals give
@@ -238,26 +241,21 @@ function stopIndices(walkLength: number): number[] {
   return idx;
 }
 
-function sampleStraight(a: Vec2, b: Vec2): Vec2[] {
+function sampleCubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2): Vec2[] {
   const pts: Vec2[] = [];
   for (let i = 0; i <= SAMPLES_PER_SEGMENT; i++) {
     const t = i / SAMPLES_PER_SEGMENT;
-    pts.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+    pts.push(cubicAt(p0, p1, p2, p3, t));
   }
   return pts;
 }
 
-function makeStraightRoad(a: Vec2, b: Vec2, width: number): RoadSegment {
-  const d = sub(b, a);
-  return {
-    p0: a,
-    p1: add(a, scale(d, 0.33)),
-    p2: add(a, scale(d, 0.66)),
-    p3: b,
-    width,
-    isBranch: false,
-    samples: sampleStraight(a, b),
-  };
+function cubicAt(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: number): Vec2 {
+  const mt = 1 - t;
+  return v(
+    mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x,
+    mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y,
+  );
 }
 
 export function generateCampaignLevel(seed: string, index: number): Level {
@@ -297,30 +295,41 @@ export function generateCampaignLevel(seed: string, index: number): Level {
     );
   });
 
-  // Where a given walk cell ended up once its leg was jittered. Cells in the
-  // middle of a leg have to ride along with it, or the warehouses sitting on
-  // them would be left hanging off the road.
+  // Catmull-Rom tangent at each bend: interior points blend the directions of
+  // the two adjacent legs; endpoints just face the single attached leg.
+  const tangent = (i: number): Vec2 => {
+    if (i === 0) return sub(bendPos[1]!, bendPos[0]!);
+    if (i === bendPos.length - 1) return sub(bendPos[i]!, bendPos[i - 1]!);
+    return scale(sub(bendPos[i + 1]!, bendPos[i - 1]!), 0.5);
+  };
+
+  const roads: RoadSegment[] = [];
+  for (let i = 0; i < bendPos.length - 1; i++) {
+    const p0 = bendPos[i]!;
+    const p3 = bendPos[i + 1]!;
+    const p1 = add(p0, scale(tangent(i), CORNER_ROUND));
+    const p2 = sub(p3, scale(tangent(i + 1), CORNER_ROUND));
+    roads.push({
+      p0, p1, p2, p3,
+      width: randRange(rng, params.roadWidth - 4, params.roadWidth + 4),
+      isBranch: false,
+      samples: sampleCubic(p0, p1, p2, p3),
+    });
+  }
+
+  // Where a given walk cell ended up after jitter + rounding. Cells in the
+  // middle of a leg ride along the bezier curve so warehouses stay on-road.
   const posAt = (walkIndex: number): Vec2 => {
     for (let i = 0; i < bends.length - 1; i++) {
       const from = bends[i]!;
       const to = bends[i + 1]!;
       if (walkIndex >= from && walkIndex <= to) {
-        return lerp(bendPos[i]!, bendPos[i + 1]!, (walkIndex - from) / (to - from));
+        const seg = roads[i]!;
+        return cubicAt(seg.p0, seg.p1, seg.p2, seg.p3, (walkIndex - from) / (to - from));
       }
     }
     return bendPos[bendPos.length - 1]!;
   };
-
-  const roads: RoadSegment[] = [];
-  for (let i = 0; i < bendPos.length - 1; i++) {
-    roads.push(
-      makeStraightRoad(
-        bendPos[i]!,
-        bendPos[i + 1]!,
-        randRange(rng, params.roadWidth - 4, params.roadWidth + 4),
-      ),
-    );
-  }
 
   const hubs: Hub[] = path.map((_, id) => ({ id, pos: posAt(id) }));
 
