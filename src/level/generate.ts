@@ -1,4 +1,5 @@
 import { makeValueNoise2D, mulberry32, randInt, seedFromString } from "../util/rng.js";
+import { generateCampaignLevel, parseCampaignSeed } from "./campaign.js";
 import { generateObstacles } from "./obstacles.js";
 import { generatePalette } from "./palette.js";
 import { generateBranches, generateHubs, generateRoads } from "./roads.js";
@@ -21,6 +22,9 @@ export const WEEKLY_HEIGHT = WORLD_HEIGHT * WEEKLY_SCALE;
  * "2026-08-03"). Same seed always produces an identical road network,
  * warehouse placement, obstacles, and color palette. */
 export function generateLevel(seed: string): Level {
+  const campaign = parseCampaignSeed(seed);
+  if (campaign) return generateCampaignLevel(seed, campaign.index);
+
   const rng = mulberry32(seedFromString(seed));
   const noise = makeValueNoise2D(rng);
 

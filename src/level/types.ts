@@ -77,7 +77,7 @@ export interface Palette {
   house: string;
 }
 
-export type LevelKind = "daily" | "weekly";
+export type LevelKind = "daily" | "weekly" | "campaign";
 
 export interface Level {
   seed: string;
