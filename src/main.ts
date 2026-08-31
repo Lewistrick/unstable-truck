@@ -1,5 +1,6 @@
 import {
     backfillChampionTime,
+    fetchCampaignOverrides,
     fetchChampionTimes,
     fetchLeaderboard,
     fetchOptimalRoute,
@@ -7,6 +8,7 @@ import {
     fetchStats,
     fetchSyncAccount,
     logRun,
+    saveCampaignOverride,
     submitScore,
     type Difficulty,
     type LeaderboardEntry,
@@ -29,7 +31,9 @@ import {
     type Medal,
     type MedalPars,
 } from "./game/medals.js";
-import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView } from "./game/render.js";
+import { renderMinimap, renderReplayWorld, renderWorld, updateCamera, type Camera, type GhostView, type WorldHint } from "./game/render.js";
+import { startHeading } from "./game/start-heading.js";
+import { distance, sub, add, scale as scaleVec, type Vec2 } from "./util/vec2.js";
 import { MAX_REPLAY_RACERS, REPLAY_COLORS, ReplayTheater, type ReplayRacer } from "./game/replay.js";
 import { GameSession } from "./game/session.js";
 import { pullAccountBests, syncAccountState } from "./game/sync.js";
@@ -214,6 +218,15 @@ let campaignNav: { prefix: string; index: number } | null = null;
 // --- Landing / campaign screen navigation -----------------------------------
 const MONTH_ABBRS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;
 
+/** The campaign is Hard-only, like the weekly board.
+ *
+ * It's a fixed 25-map ladder whose unlock gates are stated in medals, with one
+ * leaderboard per map and a total summing all 25. An Easy board beside it would
+ * split every one of those in two and leave the total meaning two different
+ * things depending on a preference set elsewhere. So campaign maps ignore the
+ * Easy/Hard preference entirely rather than honouring it. */
+const CAMPAIGN_DIFFICULTY: Difficulty = "hard";
+
 function campaignPrefix(): string {
   const now = new Date();
   return `${now.getFullYear()}-${MONTH_ABBRS[now.getMonth()]!}-`;
@@ -224,66 +237,481 @@ function campaignMonthLabel(): string {
   return now.toLocaleString("en", { month: "long" });
 }
 
-function campaignSeedForIndex(index: number): string {
-  return `${campaignPrefix()}C${String(index).padStart(2, "0")}`;
+let homeTarget: "landing" | "campaign" = "landing";
+let campaignMonthOffset = 0;
+
+/** Admin-chosen alternate maps, keyed by the slot's *default* seed. An entry
+ * rerolls that slot's map for every player (see server/routes.ts's
+ * /api/campaign/overrides), which is why it's fetched rather than stored
+ * locally - all players must resolve a slot to the same seed. */
+const campaignOverrides = new Map<string, string>();
+
+/** The month `offset` months back, anchored to the 1st: going via setMonth on
+ * today's date would overflow (April 31 -> May 1) for offsets taken on a 29th
+ * to 31st, silently naming the wrong campaign. */
+function campaignMonthDate(offset: number): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + offset, 1);
 }
 
-let homeTarget: "landing" | "campaign" = "landing";
+function campaignPrefixForOffset(offset: number): string {
+  const d = campaignMonthDate(offset);
+  return `${d.getFullYear()}-${MONTH_ABBRS[d.getMonth()]!}-`;
+}
+
+function campaignMonthLabelForOffset(offset: number): string {
+  return campaignMonthDate(offset).toLocaleString("en", { month: "long", year: "numeric" });
+}
+
+/** The seed a campaign slot resolves to, applying any admin alternate-map
+ * choice. The default seed stays the map's identity for override lookup, so
+ * swapping the suffix back restores the original map exactly. */
+function campaignSeedFor(prefix: string, index: number): string {
+  const base = `${prefix}C${String(index).padStart(2, "0")}`;
+  const suffix = campaignOverrides.get(base);
+  return suffix ? `${base}-${suffix}` : base;
+}
+
+function campaignSeedForIndex(index: number): string {
+  return campaignSeedFor(campaignPrefix(), index);
+}
+
+/** Pulls one campaign month's alternate-map choices into campaignOverrides.
+ * Reports whether anything changed, so a caller can skip rebuilding the grid
+ * (25 level generations) when nothing did. A failed fetch changes nothing and
+ * leaves the default maps in place. */
+async function loadCampaignOverrides(offset: number): Promise<boolean> {
+  const prefix = campaignPrefixForOffset(offset);
+  const fetched = await fetchCampaignOverrides(prefix);
+  if (!fetched) return false;
+  let changed = false;
+  for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+    const base = `${prefix}C${String(i).padStart(2, "0")}`;
+    const next = fetched[String(i).padStart(2, "0")] ?? "";
+    if (next === (campaignOverrides.get(base) ?? "")) continue;
+    changed = true;
+    if (next) campaignOverrides.set(base, next);
+    else campaignOverrides.delete(base);
+  }
+  return changed;
+}
 
 function showLanding(): void {
   landingScreen.classList.remove("hidden");
   startScreen.classList.add("hidden");
   campaignScreen.classList.add("hidden");
   campaignTileLabel.textContent = `${campaignMonthLabel()} Campaign`;
+  updateLandingTiles();
+}
+
+function updateLandingTiles(): void {
+  const campaignThumb = document.getElementById("campaign-thumb")!;
+  campaignThumb.replaceChildren();
+  for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+    const seed = campaignSeedForIndex(i);
+    const dot = document.createElement("span");
+    dot.className = "campaign-progress-dot";
+    const pb = loadPersonalBest(seed, CAMPAIGN_DIFFICULTY);
+    if (pb) {
+      const pars = campaignHardPars.get(seed);
+      const medal = pars ? medalFor(pb.time, pars) : null;
+      dot.classList.add(medal ? `dot-${medal}` : "dot-done");
+    }
+    campaignThumb.appendChild(dot);
+  }
+
+  const dailyThumb = document.getElementById("daily-thumb")!;
+  dailyThumb.replaceChildren();
+  const todayPlayable = getPlayable("daily", 0, effectiveDifficulty("daily"));
+  const cv = document.createElement("canvas");
+  cv.width = 150;
+  cv.height = 95;
+  const thumbCtx = cv.getContext("2d")!;
+  renderMinimap(thumbCtx, todayPlayable.level, 0, 0, cv.width, cv.height);
+  dailyThumb.appendChild(cv);
+
+  if (todayPlayable.personalBest) {
+    const medal = medalFor(todayPlayable.personalBest.time, todayPlayable.pars);
+    if (medal) {
+      const medalSpan = document.createElement("span");
+      medalSpan.className = "tile-medal";
+      medalSpan.textContent = MEDAL_ICON[medal];
+      dailyThumb.appendChild(medalSpan);
+    }
+  }
 }
 
 function showCampaignGrid(): void {
   campaignScreen.classList.remove("hidden");
   landingScreen.classList.add("hidden");
   startScreen.classList.add("hidden");
-  campaignTitle.textContent = `${campaignMonthLabel()} Campaign`;
+  // Paint from what's already known, then re-paint if the server's alternate-map
+  // choices turn out to differ - so the grid appears instantly rather than
+  // waiting on a request that usually changes nothing.
+  renderCampaignGrid();
+  void refreshCampaignOverrides();
+}
+
+/** Reloads the viewed month's alternate-map choices and rebuilds the grid if
+ * any of them moved. */
+async function refreshCampaignOverrides(): Promise<void> {
+  const offset = campaignMonthOffset;
+  const changed = await loadCampaignOverrides(offset);
+  if (!changed || offset !== campaignMonthOffset) return;
+  campaignGridBuilt = false;
   renderCampaignGrid();
 }
 
+/** How far back anyone may browse, and how far forward. Only admins can look
+ * ahead: next month's maps are theirs to inspect and reroll before the campaign
+ * goes live, but a player seeing them early would spoil it (and let them bank
+ * times on a campaign that hasn't opened). */
+const CAMPAIGN_PAST_MONTHS = 3;
+const CAMPAIGN_FUTURE_MONTHS_ADMIN = 1;
+
+function campaignMaxFutureOffset(): number {
+  return currentUser()?.isAdmin === true ? CAMPAIGN_FUTURE_MONTHS_ADMIN : 0;
+}
+
+function navigateCampaignMonth(dir: number): void {
+  const next = Math.max(
+    -CAMPAIGN_PAST_MONTHS,
+    Math.min(campaignMaxFutureOffset(), campaignMonthOffset + dir),
+  );
+  if (next === campaignMonthOffset) return;
+  campaignMonthOffset = next;
+  campaignGridBuilt = false;
+  renderCampaignGrid();
+  void refreshCampaignOverrides();
+}
+
 let campaignGridBuilt = false;
+let campaignGridOffset = 0;
+let campaignGridCount = 0;
+let campaignCells: { cell: HTMLButtonElement; index: number; seed: string; medalEl: HTMLElement }[] = [];
+const campaignHardPars = new Map<string, MedalPars>();
+
+const MEDAL_RANK: Record<Medal, number> = { bronze: 1, silver: 2, gold: 3, champion: 4 };
+
+function ensureCampaignPars(seed: string): MedalPars {
+  let pars = campaignHardPars.get(seed);
+  if (!pars) {
+    const level = generateLevel(seed);
+    const geometric = computeMedalPars(level);
+    const optimalTime = optimalRecordings.get(seed)?.time;
+    pars = optimalTime != null ? clampParsToOptimal(geometric, optimalTime) : geometric;
+    campaignHardPars.set(seed, pars);
+  }
+  return pars;
+}
+
+function campaignMedalForIndex(index: number): Medal | null {
+  const seed = campaignSeedForIndex(index);
+  const pb = loadPersonalBest(seed, CAMPAIGN_DIFFICULTY);
+  if (!pb) return null;
+  return medalFor(pb.time, ensureCampaignPars(seed));
+}
+
+function allHaveMedal(from: number, to: number, required: Medal): boolean {
+  const requiredRank = MEDAL_RANK[required];
+  for (let i = from; i <= to; i++) {
+    const m = campaignMedalForIndex(i);
+    if (!m || MEDAL_RANK[m]! < requiredRank) return false;
+  }
+  return true;
+}
+
+/** The unlock ladder: which maps each tier opens, and what it costs. One table
+ * so the gate and the message the player reads can't drift apart. Maps 1-5 are
+ * open from the start and so aren't listed. */
+const CAMPAIGN_TIERS: ReadonlyArray<{
+  from: number; to: number; medal: Medal; reqFrom: number; reqTo: number;
+}> = [
+  { from: 6, to: 10, medal: "bronze", reqFrom: 1, reqTo: 5 },
+  { from: 11, to: 15, medal: "silver", reqFrom: 1, reqTo: 10 },
+  { from: 16, to: 20, medal: "gold", reqFrom: 11, reqTo: 15 },
+  { from: 21, to: 25, medal: "gold", reqFrom: 1, reqTo: 20 },
+];
+
+function isCampaignUnlocked(index: number): boolean {
+  const tier = CAMPAIGN_TIERS.find((t) => index >= t.from && index <= t.to);
+  return tier ? allHaveMedal(tier.reqFrom, tier.reqTo, tier.medal) : true;
+}
+
+/** The first tier still shut, or null once the whole ladder is open. */
+function nextLockedTier(): (typeof CAMPAIGN_TIERS)[number] | null {
+  return CAMPAIGN_TIERS.find((t) => !allHaveMedal(t.reqFrom, t.reqTo, t.medal)) ?? null;
+}
+
+/** How many maps the grid draws. Locked maps aren't dimmed, they're absent -
+ * the tier message below the grid stands in for them - so a new player sees
+ * five maps and one clear instruction rather than twenty greyed-out cells.
+ * A past or preview campaign ignores the ladder and shows everything. */
+function visibleCampaignCount(): number {
+  if (campaignMonthOffset !== 0) return CAMPAIGN_TOTAL;
+  const tier = nextLockedTier();
+  return tier ? tier.from - 1 : CAMPAIGN_TOTAL;
+}
+
+/** Whether a campaign slot can be entered right now.
+ *
+ * The unlock ladder only governs the live campaign. A finished month is already
+ * fully browsable in the grid, and an admin preview has no personal bests to
+ * unlock with at all - so gating either would contradict the grid and strand
+ * the player on a map with a dead Next button. The ladder itself reads the
+ * current month's bests (campaignSeedForIndex), which is only meaningful while
+ * that month is the one being played. */
+function isCampaignSlotOpen(index: number): boolean {
+  return campaignMonthOffset !== 0 || isCampaignUnlocked(index);
+}
 
 function renderCampaignGrid(): void {
-  if (campaignGridBuilt) return;
-  campaignGridBuilt = true;
+  // Rebuild when the month changes, or when clearing a tier changes how many
+  // maps are on show - otherwise newly unlocked maps wouldn't appear until the
+  // screen was left and re-entered.
+  const want = visibleCampaignCount();
+  if (!campaignGridBuilt || campaignGridOffset !== campaignMonthOffset || campaignGridCount !== want) {
+    buildCampaignCells(want);
+    campaignGridBuilt = true;
+    campaignGridOffset = campaignMonthOffset;
+    campaignGridCount = want;
+  }
+  updateCampaignGridState();
+}
+
+function buildCampaignCells(count: number): void {
   campaignGrid.replaceChildren();
-  const prefix = campaignPrefix();
-  for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
-    const seed = `${prefix}C${String(i).padStart(2, "0")}`;
-    const cell = document.createElement("button");
+  campaignCells = [];
+  const prefix = campaignPrefixForOffset(campaignMonthOffset);
+  for (let i = 1; i <= count; i++) {
+    const seed = campaignSeedFor(prefix, i);
+    const cell = document.createElement("button") as HTMLButtonElement;
     cell.className = "campaign-cell";
     cell.type = "button";
 
     const cv = document.createElement("canvas");
     cv.width = 150;
     cv.height = 95;
-    const ctx = cv.getContext("2d")!;
+    const cellCtx = cv.getContext("2d")!;
     const level = generateLevel(seed);
-    renderMinimap(ctx, level, 0, 0, cv.width, cv.height);
+    campaignHardPars.set(seed, computeMedalPars(level));
+    renderMinimap(cellCtx, level, 0, 0, cv.width, cv.height);
     cell.appendChild(cv);
 
     const label = document.createElement("span");
     label.className = "campaign-cell-label";
-    label.textContent = `C${String(i).padStart(2, "0")}`;
+    label.textContent = String(i).padStart(2, "0");
     cell.appendChild(label);
+
+    const medalEl = document.createElement("span");
+    medalEl.className = "campaign-cell-medal";
+    cell.appendChild(medalEl);
 
     cell.addEventListener("click", () => {
       homeTarget = "campaign";
       showDailyHome();
-      showOrphanSeed(seed, "daily");
+      showCampaignSeed(seed, campaignMonthOffset);
     });
     campaignGrid.appendChild(cell);
+    campaignCells.push({ cell, index: i, seed, medalEl });
   }
 }
+
+function updateCampaignGridState(): void {
+  const isCurrent = campaignMonthOffset === 0;
+  const isFuture = campaignMonthOffset > 0;
+  campaignMonthLabelEl.textContent = campaignMonthLabelForOffset(campaignMonthOffset);
+  campaignMonthPrevBtn.disabled = campaignMonthOffset <= -CAMPAIGN_PAST_MONTHS;
+  campaignMonthNextBtn.disabled = campaignMonthOffset >= campaignMaxFutureOffset();
+
+  if (isCurrent) {
+    campaignFrozenNotice.classList.add("hidden");
+  } else {
+    campaignFrozenNotice.textContent = isFuture
+      ? "Not live yet — admin preview. Times here don't count."
+      : "This campaign has ended — totals are frozen";
+    campaignFrozenNotice.classList.remove("hidden");
+  }
+
+  const user = currentUser();
+  const isAdmin = user?.isAdmin === true;
+  campaignAdminSection.classList.toggle("hidden", !isAdmin);
+  if (isAdmin) syncAltControls();
+
+  for (const { cell, index, seed, medalEl } of campaignCells) {
+    cell.classList.toggle("locked", !isCampaignSlotOpen(index));
+    const pb = loadPersonalBest(seed, CAMPAIGN_DIFFICULTY);
+    const pars = pb ? campaignHardPars.get(seed) : undefined;
+    const medal = pb && pars ? medalFor(pb.time, pars) : null;
+    medalEl.textContent = medal ? MEDAL_ICON[medal] : "";
+  }
+
+  // Counted over all 25 slots rather than over the cells on screen: the grid
+  // now draws only the unlocked ones, so summing what's visible would call a
+  // five-map run "complete" and submit a fifth of a campaign as a total.
+  const prefix = campaignPrefixForOffset(campaignMonthOffset);
+  let totalTime = 0;
+  let completed = 0;
+  for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+    const pb = loadPersonalBest(campaignSeedFor(prefix, i), CAMPAIGN_DIFFICULTY);
+    if (pb) {
+      totalTime += pb.time;
+      completed++;
+    }
+  }
+
+  const tier = isCurrent ? nextLockedTier() : null;
+  if (tier) {
+    campaignUnlockNotice.textContent =
+      `Earn a ${tier.medal} medal on maps ${tier.reqFrom}-${tier.reqTo} to unlock maps ${tier.from}-${tier.to}`;
+    campaignUnlockNotice.classList.remove("hidden");
+  } else {
+    campaignUnlockNotice.classList.add("hidden");
+  }
+
+  // One line, two jobs: the player's own total once every map is done, and
+  // otherwise what's still standing between them and being on the board. A
+  // total only means anything as a sum of all 25, so a partial one is never
+  // shown - the count is the useful number until then.
+  const allCompleted = completed === CAMPAIGN_TOTAL;
+  if (allCompleted) {
+    campaignTotalEl.textContent = `Total: ${formatTime(totalTime)}`;
+    campaignTotalEl.classList.remove("campaign-total-pending", "hidden");
+    if (isCurrent) void submitCampaignTotal(totalTime);
+  } else if (isCurrent) {
+    campaignTotalEl.textContent =
+      `Finish all ${CAMPAIGN_TOTAL} maps to record your time (${completed}/${CAMPAIGN_TOTAL})`;
+    campaignTotalEl.classList.add("campaign-total-pending");
+    campaignTotalEl.classList.remove("hidden");
+  } else {
+    // A closed or unreleased campaign already says so directly above. Urging
+    // the player to finish one whose total can never be recorded would be
+    // advice they can't act on.
+    campaignTotalEl.classList.add("hidden");
+  }
+
+  requestCampaignOptimals(prefix);
+  renderCampaignImprovements(prefix, allCompleted);
+
+  // The footer always has something to say now - the board, and either a total
+  // or the nudge toward one - so it no longer hides itself.
+  campaignFooter.classList.remove("hidden");
+  void refreshCampaignLeaderboard();
+}
+
+/** How many maps the "most room to improve" list names. */
+const CAMPAIGN_IMPROVE_COUNT = 3;
+
+/** The maps with the most room to improve, ranked by percentage over optimal.
+ * Only shown once all 25 maps are completed and at least one has a known
+ * optimal route. */
+function renderCampaignImprovements(prefix: string, show: boolean): void {
+  const rows: { index: number; seed: string; time: number; pct: number }[] = [];
+  if (show) {
+    for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+      const seed = campaignSeedFor(prefix, i);
+      const pb = loadPersonalBest(seed, CAMPAIGN_DIFFICULTY);
+      if (!pb) continue;
+      const optimal = optimalRecordings.get(seed);
+      if (!optimal) continue;
+      const pct = (pb.time / optimal.time) * 100;
+      if (pct <= 100) continue;
+      rows.push({ index: i, seed, time: pb.time, pct });
+    }
+    rows.sort((a, b) => b.pct - a.pct);
+  }
+  const visible = show && rows.length > 0;
+  campaignImproveDivider.classList.toggle("hidden", !visible);
+  campaignImprove.classList.toggle("hidden", !visible);
+  if (!visible) return;
+
+  campaignImproveList.replaceChildren();
+  for (const row of rows.slice(0, CAMPAIGN_IMPROVE_COUNT)) {
+    const li = document.createElement("li");
+    li.className = "improve-row";
+
+    const map = document.createElement("span");
+    map.className = "improve-map";
+    map.textContent = String(row.index).padStart(2, "0");
+    li.appendChild(map);
+
+    const time = document.createElement("span");
+    time.className = "improve-gap";
+    time.textContent = formatTime(row.time);
+    li.appendChild(time);
+
+    li.addEventListener("click", () => {
+      homeTarget = "campaign";
+      showDailyHome();
+      showCampaignSeed(row.seed, campaignMonthOffset);
+    });
+    campaignImproveList.appendChild(li);
+  }
+}
+
+async function submitCampaignTotal(totalTime: number): Promise<void> {
+  if (!isLoggedIn()) return;
+  const seed = `${campaignPrefix()}CTOTAL`;
+  await submitScore(seed, nickname, CAMPAIGN_DIFFICULTY, totalTime, 100, [], null, true, null);
+}
+
+async function refreshCampaignLeaderboard(): Promise<void> {
+  const seed = `${campaignPrefixForOffset(campaignMonthOffset)}CTOTAL`;
+  const data = await fetchLeaderboard(seed, CAMPAIGN_DIFFICULTY, nickname);
+  campaignLeaderboardList.replaceChildren();
+  // The board stays up even when this player has no total of their own: seeing
+  // what the times to beat are is the point of it. An unreachable server is
+  // called out separately, so nobody offline is told the board is empty.
+  campaignLeaderboard.classList.remove("hidden");
+  const entries = data ? [...data.top, ...data.context] : [];
+  if (entries.length === 0) {
+    const li = document.createElement("li");
+    li.className = "leaderboard-empty";
+    li.textContent = data ? "No times yet - be the first!" : "Leaderboard unavailable.";
+    campaignLeaderboardList.appendChild(li);
+    return;
+  }
+  for (const entry of entries) {
+    const li = document.createElement("li");
+    li.className = "leaderboard-row";
+    if (entry.nickname === nickname) li.classList.add("self");
+
+    const rank = document.createElement("span");
+    rank.className = "leaderboard-rank";
+    rank.textContent = `${entry.rank}.`;
+    li.appendChild(rank);
+
+    const name = document.createElement("span");
+    name.className = "leaderboard-nickname";
+    name.textContent = entry.nickname;
+    li.appendChild(name);
+
+    const time = document.createElement("span");
+    time.className = "leaderboard-time";
+    time.textContent = formatTime(entry.time);
+    li.appendChild(time);
+
+    campaignLeaderboardList.appendChild(li);
+  }
+}
+
+/** Monochrome glyphs rather than emoji: .back-btn sets its own `color`, which a
+ * text glyph inherits and an emoji ignores - an emoji would sit in the circle
+ * at its own colour and clash with the settings gear beside it. */
+const HOME_ICON = "⌂"; // house
+const GRID_ICON = "⊞"; // quartered square, for the campaign grid
 
 function showDailyHome(): void {
   startScreen.classList.remove("hidden");
   landingScreen.classList.add("hidden");
   campaignScreen.classList.add("hidden");
+  // This one button leads back to wherever the map was opened from, so its icon
+  // has to say which - the campaign grid, or the main menu.
+  const toCampaign = homeTarget === "campaign";
+  const label = toCampaign ? "Back to campaign" : "Main menu";
+  homeBackBtn.textContent = toCampaign ? GRID_ICON : HOME_ICON;
+  homeBackBtn.setAttribute("aria-label", label);
+  homeBackBtn.title = label;
 }
 
 // --- Easy/Hard difficulty ----------------------------------------------------
@@ -330,13 +758,30 @@ const landingScreen = document.getElementById("landing-screen")!;
 const campaignScreen = document.getElementById("campaign-screen")!;
 const campaignGrid = document.getElementById("campaign-grid")!;
 const campaignTileLabel = document.getElementById("campaign-tile-label")!;
-const campaignTitle = document.getElementById("campaign-title")!;
+const campaignMonthLabelEl = document.getElementById("campaign-month-label")!;
+const campaignFooter = document.getElementById("campaign-footer")!;
+const campaignTotalEl = document.getElementById("campaign-total")!;
+const campaignLeaderboard = document.getElementById("campaign-leaderboard")!;
+const campaignLeaderboardList = document.getElementById("campaign-leaderboard-list")!;
+const campaignImproveDivider = document.getElementById("campaign-improve-divider")!;
+const campaignImprove = document.getElementById("campaign-improve")!;
+const campaignImproveList = document.getElementById("campaign-improve-list")!;
+const campaignMonthPrevBtn = document.getElementById("campaign-month-prev") as HTMLButtonElement;
+const campaignMonthNextBtn = document.getElementById("campaign-month-next") as HTMLButtonElement;
+const campaignFrozenNotice = document.getElementById("campaign-frozen-notice")!;
+const campaignUnlockNotice = document.getElementById("campaign-unlock-notice")!;
+const campaignAdminSection = document.getElementById("campaign-admin-section")!;
+const campaignAltMapSelect = document.getElementById("campaign-alt-map") as HTMLSelectElement;
+const campaignAltSelect = document.getElementById("campaign-alt-select") as HTMLSelectElement;
+const campaignAltApplyBtn = document.getElementById("campaign-alt-apply") as HTMLButtonElement;
+const campaignAltPreview = document.getElementById("campaign-alt-preview") as HTMLCanvasElement;
+const campaignAltStatus = document.getElementById("campaign-alt-status")!;
 const startScreen = document.getElementById("start-screen")!;
+const homeBackBtn = document.getElementById("home-back-btn") as HTMLButtonElement;
 const resultsScreen = document.getElementById("results-screen")!;
 const helpScreen = document.getElementById("help-screen")!;
 const helpCloseBtn = document.getElementById("help-close-btn") as HTMLButtonElement;
 const profileScreen = document.getElementById("profile-screen")!;
-const profileBtn = document.getElementById("profile-btn") as HTMLButtonElement;
 const profileCloseBtn = document.getElementById("profile-close-btn") as HTMLButtonElement;
 const profileDismissBtn = document.getElementById("profile-dismiss-btn") as HTMLButtonElement;
 const accountLoggedOut = document.getElementById("account-logged-out")!;
@@ -415,6 +860,7 @@ const viewedDateEl = document.getElementById("viewed-date")!;
 const navPrevBtn = document.getElementById("nav-prev-btn") as HTMLButtonElement;
 const navNextBtn = document.getElementById("nav-next-btn") as HTMLButtonElement;
 const retryBtn = document.getElementById("retry-btn")!;
+const nextBtn = document.getElementById("next-btn") as HTMLButtonElement;
 const homeBtn = document.getElementById("home-btn")!;
 const resultsTitle = document.getElementById("results-title")!;
 const resultsMedal = document.getElementById("results-medal")!;
@@ -440,6 +886,7 @@ const accountCreateBtn = document.getElementById("account-create-btn") as HTMLBu
 const accountLoginBtn = document.getElementById("account-login-btn") as HTMLButtonElement;
 const accountSkipBtn = document.getElementById("account-skip-btn") as HTMLButtonElement;
 const accountSkipLink = document.getElementById("account-skip-link") as HTMLButtonElement;
+const accountSkipNote = document.getElementById("account-skip-note")!;
 const accountError = document.getElementById("account-error")!;
 const registerUsername = document.getElementById("register-username") as HTMLInputElement;
 const registerPassword = document.getElementById("register-password") as HTMLInputElement;
@@ -565,6 +1012,13 @@ async function syncAccount(): Promise<void> {
   renderProgressStrip();
   refreshViewedUi();
   renderLeaderboardList();
+  // Campaign medals, the campaign total and the landing tile's progress dots are
+  // all derived from personal bests, so a pull that lands after they were
+  // painted leaves them stale - which on a fresh device reads as "my campaign
+  // records are gone". Only the grid's per-cell state is recomputed; the cells
+  // themselves are unchanged, so this doesn't regenerate 25 levels.
+  updateLandingTiles();
+  if (!campaignScreen.classList.contains("hidden")) renderCampaignGrid();
 }
 
 /** Re-reads the personal best of every level already built this session.
@@ -601,7 +1055,7 @@ function refreshViewedUi(): void {
   // Sharing the best time is offered only for today, and only once there's a
   // best to share (never on a shared orphan map, which has no leaderboard). The
   // button lives below the leaderboard now.
-  const canShareBest = !viewed.orphan && viewedOffset === 0 && viewed.personalBest != null;
+  const canShareBest = !viewed.orphan && (viewedOffset === 0 || campaignNav !== null) && viewed.personalBest != null;
   bestShareBtn.classList.toggle("hidden", !canShareBest);
   if (canShareBest) bestShareBtn.textContent = "Share personal best";
 
@@ -626,6 +1080,14 @@ function refreshViewedUi(): void {
  * invite only once they've earned gold on Hard mode. In weekly mode the
  * toggle always shows (minus the invite) so there's a way back to daily. */
 function updateModeSwitchVisibility(): void {
+  // The Daily/Weekly board switch means nothing on a campaign map, and the gold
+  // check below would read whichever daily map was last browsed rather than this
+  // one - campaign maps aren't in the daily cache at all. Hide the lot.
+  if (campaignNav) {
+    modeSwitch.classList.add("hidden");
+    modeCta.classList.add("hidden");
+    return;
+  }
   // Check if Hard mode has a gold medal on the viewed seed (regardless of current difficulty)
   const hardPlayable = mode === "daily" ? getPlayable("daily", viewedOffset, "hard") : viewed;
   const hasGold = hardPlayable.personalBest != null && hardPlayable.personalBest.time <= hardPlayable.pars.gold;
@@ -980,12 +1442,13 @@ function renderLeaderboardList(): void {
     renderOrphanNotice();
     return;
   }
-  // The Easy/Hard split only exists in daily mode (weekly is Hard-only, so
-  // labelling it would be redundant noise).
   const diffLabel = mode === "daily" ? ` · ${viewed.difficulty === "easy" ? "Easy" : "Hard"}` : "";
+  const periodDesc = campaignNav
+    ? `Map ${campaignNav.index}`
+    : describeOffset(mode, viewedOffset);
   leaderboardHeaderEl.textContent = watchMode
     ? `Pick up to 5 racers to include in the replay`
-    : `Leaderboard (${describeOffset(mode, viewedOffset)})${diffLabel}`;
+    : `Leaderboard (${periodDesc})${diffLabel}`;
   // Champion depends on the leaderboard's #1, so refresh the track alongside.
   renderMedalTrack();
   leaderboardList.replaceChildren();
@@ -1184,7 +1647,7 @@ function paintCampaignThumb(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement
     ctx.clearRect(0, 0, cv.width, cv.height);
     return;
   }
-  const seed = `${campaignNav.prefix}C${String(index).padStart(2, "0")}`;
+  const seed = campaignSeedFor(campaignNav.prefix, index);
   renderMinimap(ctx, generateLevel(seed), 0, 0, cv.width, cv.height);
 }
 
@@ -1257,14 +1720,20 @@ function setDifficultyVisuals(): void {
  * to be confused by. */
 function updateDifficultySwitchVisibility(): void {
   const hasPlayed = loadCompletedDays().size > 0;
-  difficultySwitch.classList.toggle("hidden", mode !== "daily" || !hasPlayed);
+  // Campaign maps run on their own fixed difficulty (CAMPAIGN_DIFFICULTY), so
+  // the toggle is hidden there alongside weekly.
+  const applies = mode === "daily" && campaignNav === null;
+  difficultySwitch.classList.toggle("hidden", !applies || !hasPlayed);
 }
 
 /** Switches the Easy/Hard preference, persists it, and reloads the viewed map
  * on the new difficulty's board. No-op on weekly (the switch is hidden there,
  * but this stays a hard guard in case it's ever invoked programmatically). */
 function switchDifficulty(next: Difficulty): void {
-  if (mode !== "daily" || difficulty === next) return;
+  // Guarded as well as hidden: refreshViewedSelection() below drops campaignNav
+  // and loads the daily map for the current offset, so reaching this from a
+  // campaign map would silently navigate away from it.
+  if (mode !== "daily" || campaignNav !== null || difficulty === next) return;
   difficulty = next;
   saveDifficultyPref(next);
   setDifficultyVisuals();
@@ -1279,13 +1748,7 @@ function switchDifficulty(next: Difficulty): void {
  * ghosts, replays, and score submission are all off, with a short notice in
  * place of the leaderboard. */
 function showOrphanSeed(seed: string, genMode: Mode): void {
-  const cp = parseCampaignSeed(seed);
-  if (cp) {
-    const padded = String(cp.index).padStart(2, "0");
-    campaignNav = { prefix: seed.substring(0, seed.indexOf(`C${padded}`)), index: cp.index };
-  } else {
-    campaignNav = null;
-  }
+  campaignNav = null;
   mode = genMode;
   setModeVisuals();
   progressStrip.classList.add("hidden"); // no streak strip for a one-off map
@@ -1312,14 +1775,61 @@ function renderOrphanNotice(): void {
   leaderboardList.replaceChildren();
   const li = document.createElement("li");
   li.className = "leaderboard-empty";
-  li.textContent = "Leaderboards aren't available for this map.";
+  // campaignNav is only set alongside `orphan` for an unreleased campaign, so
+  // reaching this with one set means an admin is previewing next month.
+  li.textContent = campaignNav
+    ? "This campaign isn't live yet — times here don't count."
+    : "Leaderboards aren't available for this map.";
   leaderboardList.appendChild(li);
+}
+
+/** Shows a campaign map with a full leaderboard, ghost racing, and score
+ * submission. Unlike showOrphanSeed, a live campaign map is NOT marked orphan.
+ *
+ * A campaign whose month hasn't started is the exception: it's admin-preview
+ * only, so it's flagged orphan to keep a preview run off the board. Otherwise
+ * an admin could bank times on a campaign nobody else can reach yet. */
+function showCampaignSeed(seed: string, monthOffset: number): void {
+  const cp = parseCampaignSeed(seed);
+  if (!cp) return;
+  const padded = String(cp.index).padStart(2, "0");
+  campaignNav = { prefix: seed.substring(0, seed.indexOf(`C${padded}`)), index: cp.index };
+  campaignMonthOffset = monthOffset;
+  const preview = monthOffset > 0;
+  mode = "daily";
+  setModeVisuals();
+  progressStrip.classList.add("hidden");
+  const playable = makePlayable(seed, "daily", CAMPAIGN_DIFFICULTY);
+  viewed = preview ? { ...playable, orphan: true } : playable;
+  exitWatchMode();
+  selectedGhostEntry = null;
+  viewedChampionTime = null;
+  leaderboardTop = [];
+  leaderboardContext = [];
+  leaderboardTotal = null;
+  updateNavButtons();
+  refreshViewedUi();
+  paintViewedTerrainTags();
+  renderMinimaps();
+  if (preview) {
+    renderOrphanNotice();
+    return;
+  }
+  void refreshLeaderboard();
+  void restoreSelectedLeaderboardGhost();
 }
 
 /** Routes a `?s=` shared-link seed to its level: the matching live daily/weekly
  * period when it's still in the browsable window, otherwise a generated orphan
  * map. */
 function openSharedSeed(seed: string): void {
+  const cp = parseCampaignSeed(seed);
+  if (cp) {
+    homeTarget = "campaign";
+    showDailyHome();
+    showCampaignSeed(seed, 0);
+    return;
+  }
   const target = resolveSeedTarget(seed, MAX_PAST_DAYS, MAX_PAST_WEEKS);
   if (target.kind === "live") {
     mode = target.mode;
@@ -1338,8 +1848,8 @@ function navigateCampaign(dir: number): void {
   if (!campaignNav) return;
   const newIndex = campaignNav.index + dir;
   if (newIndex < 1 || newIndex > CAMPAIGN_TOTAL) return;
-  const newSeed = `${campaignNav.prefix}C${String(newIndex).padStart(2, "0")}`;
-  showOrphanSeed(newSeed, "daily");
+  const newSeed = campaignSeedFor(campaignNav.prefix, newIndex);
+  showCampaignSeed(newSeed, campaignMonthOffset);
 }
 
 navPrevBtn.addEventListener("click", () => {
@@ -1363,7 +1873,68 @@ document.getElementById("daily-tile")!.addEventListener("click", () => {
   refreshViewedSelection();
 });
 document.getElementById("campaign-back-btn")!.addEventListener("click", showLanding);
-document.getElementById("home-back-btn")!.addEventListener("click", () => {
+campaignMonthPrevBtn.addEventListener("click", () => navigateCampaignMonth(-1));
+campaignMonthNextBtn.addEventListener("click", () => navigateCampaignMonth(1));
+for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+  const opt = document.createElement("option");
+  opt.value = String(i);
+  opt.textContent = String(i).padStart(2, "0");
+  campaignAltMapSelect.appendChild(opt);
+}
+
+/** Draws the map the selected slot+variant would resolve to, without changing
+ * anything for anyone: this is the "what would I be shipping?" check before
+ * Apply writes the choice to the server. */
+function renderAltPreview(): void {
+  const index = Number(campaignAltMapSelect.value);
+  if (!Number.isInteger(index) || index < 1) return;
+  const suffix = campaignAltSelect.value;
+  const base = `${campaignPrefixForOffset(campaignMonthOffset)}C${String(index).padStart(2, "0")}`;
+  const seed = suffix ? `${base}-${suffix}` : base;
+  const previewCtx = campaignAltPreview.getContext("2d")!;
+  renderMinimap(previewCtx, generateLevel(seed), 0, 0, campaignAltPreview.width, campaignAltPreview.height);
+  campaignAltStatus.classList.add("hidden");
+}
+
+/** Syncs the variant dropdown to whatever the selected slot currently uses, so
+ * opening the panel shows the live choice rather than a stale one. */
+function syncAltControls(): void {
+  const index = Number(campaignAltMapSelect.value);
+  const base = `${campaignPrefixForOffset(campaignMonthOffset)}C${String(index).padStart(2, "0")}`;
+  campaignAltSelect.value = campaignOverrides.get(base) ?? "";
+  renderAltPreview();
+}
+
+campaignAltMapSelect.addEventListener("change", syncAltControls);
+campaignAltSelect.addEventListener("change", renderAltPreview);
+
+campaignAltApplyBtn.addEventListener("click", () => {
+  const index = Number(campaignAltMapSelect.value);
+  if (!Number.isInteger(index) || index < 1) return;
+  const suffix = campaignAltSelect.value;
+  const prefix = campaignPrefixForOffset(campaignMonthOffset);
+  campaignAltApplyBtn.disabled = true;
+  campaignAltStatus.textContent = "Saving...";
+  campaignAltStatus.classList.remove("hidden");
+  void saveCampaignOverride(prefix, index, suffix).then((result) => {
+    campaignAltApplyBtn.disabled = false;
+    if (!result.ok) {
+      campaignAltStatus.textContent = result.error;
+      return;
+    }
+    const base = `${prefix}C${String(index).padStart(2, "0")}`;
+    if (suffix) campaignOverrides.set(base, suffix);
+    else campaignOverrides.delete(base);
+    campaignAltStatus.textContent = suffix
+      ? `Map ${index} now uses variant ${suffix} for everyone.`
+      : `Map ${index} restored to the default.`;
+    // The slot's seed changed, so its cached level, pars and cell art are all
+    // stale - rebuild the grid from scratch.
+    campaignGridBuilt = false;
+    renderCampaignGrid();
+  });
+});
+homeBackBtn.addEventListener("click", () => {
   if (homeTarget === "campaign") showCampaignGrid();
   else showLanding();
 });
@@ -1598,6 +2169,7 @@ let optimalGhost: GhostPlayer | null = null;
 let referenceCollectTicks: number[] | null = null;
 let active: Playable = viewed;
 let countdownElapsed = 0;
+let countdownStepDuration = COUNTDOWN_STEP_DURATION;
 let lastCountdownStep = -1;
 let prevOnRoad = true;
 let prevInMud = false;
@@ -1661,6 +2233,11 @@ function applyOptimalToPars(seed: string): void {
       if (playable.seed === seed) playable.pars = parsFor(playable.level, seed, cacheDifficulty);
     }
   }
+  if (campaignHardPars.has(seed)) {
+    campaignHardPars.delete(seed);
+    ensureCampaignPars(seed);
+    updateCampaignGridState();
+  }
 }
 
 /** Fetches (or reuses a cached) optimal route for a daily seed.
@@ -1676,19 +2253,20 @@ function applyOptimalToPars(seed: string): void {
  * physics), or when already solved/in flight. */
 function requestOptimal(playable: Playable): void {
   const { seed, level } = playable;
-  if (level.kind !== "daily" || playable.orphan || playable.difficulty !== "hard") return;
+  if (level.kind === "weekly" || playable.orphan || playable.difficulty !== "hard") return;
   if (optimalRecordings.has(seed) || optimalPending.has(seed)) return;
   optimalPending.add(seed);
+
+  const isCampaign = !!parseCampaignSeed(seed);
 
   // Server precompute first - the common case is an instant cache hit.
   void fetchOptimalRoute(seed).then((remote) => {
     if (remote && Array.isArray(remote.inputLog)) {
       optimalPending.delete(seed);
       receiveOptimal(seed, { seed, time: remote.time, stability: remote.stability, inputLog: remote.inputLog });
-    } else if (optimalEnabled) {
+    } else if (!isCampaign && optimalEnabled) {
       solveOptimalLocally(playable);
     } else {
-      // No stored route and no local solve: the pars stay as the geometry says.
       optimalPending.delete(seed);
     }
   });
@@ -1717,10 +2295,29 @@ function solveOptimalLocally(playable: Playable): void {
   });
 }
 
+function requestCampaignOptimals(prefix: string): void {
+  for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+    const seed = campaignSeedFor(prefix, i);
+    if (optimalRecordings.has(seed) || optimalPending.has(seed)) continue;
+    optimalPending.add(seed);
+    void fetchOptimalRoute(seed).then((remote) => {
+      optimalPending.delete(seed);
+      if (remote && Array.isArray(remote.inputLog)) {
+        receiveOptimal(seed, { seed, time: remote.time, stability: remote.stability, inputLog: remote.inputLog });
+      }
+    });
+  }
+}
+
 /** The optimal recording for the viewed seed once solved (null otherwise, when
  * the feature is off, or on Easy - there's no Easy optimal ghost). */
 function optimalForViewed(): GhostRecording | null {
-  return optimalEnabled && viewed.difficulty === "hard" ? optimalRecordings.get(viewed.seed) ?? null : null;
+  if (viewed.difficulty !== "hard") return null;
+  const isCampaign = !!parseCampaignSeed(viewed.seed);
+  if (isCampaign) {
+    return campaignMonthOffset < 0 ? optimalRecordings.get(viewed.seed) ?? null : null;
+  }
+  return optimalEnabled ? optimalRecordings.get(viewed.seed) ?? null : null;
 }
 
 // A `?s=<seed>` deep link opens that exact map (the matching live day/week, or a
@@ -1871,6 +2468,107 @@ function bankPlayTime(): void {
   playTimeBanked = true;
 }
 
+let levelHints: readonly WorldHint[] = [];
+
+function roadNormalAt(pos: Vec2, level: Level): Vec2 {
+  let bestDist = Infinity;
+  let bestIdx = 0;
+  let bestRoad = level.roads[0]!;
+  for (const road of level.roads) {
+    for (let i = 0; i < road.samples.length; i++) {
+      const d = distance(pos, road.samples[i]!);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+        bestRoad = road;
+      }
+    }
+  }
+  const samples = bestRoad.samples;
+  const i0 = Math.max(0, bestIdx - 1);
+  const i1 = Math.min(samples.length - 1, bestIdx + 1);
+  const tangent = sub(samples[i1]!, samples[i0]!);
+  const len = Math.hypot(tangent.x, tangent.y);
+  if (len < 0.001) return { x: 0, y: -1 };
+  const nx = -tangent.y / len;
+  const ny = tangent.x / len;
+  const toPos = sub(pos, samples[bestIdx]!);
+  const side = toPos.x * nx + toPos.y * ny;
+  return side >= 0 ? { x: nx, y: ny } : { x: -nx, y: -ny };
+}
+
+function hintOverlapsObstacle(pos: Vec2, level: Level, ignore?: Vec2): boolean {
+  for (const rock of level.rocks) {
+    if (ignore && rock.pos.x === ignore.x && rock.pos.y === ignore.y) continue;
+    if (distance(pos, rock.pos) < rock.radius + 50) return true;
+  }
+  for (const mud of level.muds) {
+    if (ignore && mud.pos.x === ignore.x && mud.pos.y === ignore.y) continue;
+    if (distance(pos, mud.pos) < mud.radius + 30) return true;
+  }
+  return false;
+}
+
+function hintPos(target: Vec2, level: Level, offset: number, ignore?: Vec2): Vec2 {
+  const normal = roadNormalAt(target, level);
+  const preferred = add(target, scaleVec(normal, offset));
+  if (!hintOverlapsObstacle(preferred, level, ignore)) return preferred;
+  const flipped = add(target, scaleVec(normal, -offset));
+  if (!hintOverlapsObstacle(flipped, level, ignore)) return flipped;
+  return add(target, scaleVec(normal, offset * 1.5));
+}
+
+function controlHintPos(base: Vec2, heading: number): Vec2 {
+  const dist = 100;
+  const behind = { x: base.x - Math.cos(heading) * dist, y: base.y - Math.sin(heading) * dist };
+  if (behind.y <= base.y) return behind;
+  const perp = heading + Math.PI / 2;
+  const left = { x: base.x + Math.cos(perp) * dist, y: base.y + Math.sin(perp) * dist };
+  if (left.y <= base.y) return left;
+  const right = { x: base.x - Math.cos(perp) * dist, y: base.y - Math.sin(perp) * dist };
+  if (right.y <= base.y) return right;
+  return { x: base.x, y: base.y - dist };
+}
+
+function buildCampaign1Hints(level: Level, session: GameSession): WorldHint[] {
+  const heading = startHeading(level, session.base, session.pickups, session.destination);
+  const cp = controlHintPos(session.base.pos, heading);
+  const hints: WorldHint[] = [{
+    lines: ["hold to go right", "release to go left"],
+    ...cp,
+  }];
+  const firstPickup = session.pickups[0];
+  if (firstPickup) {
+    const p = hintPos(firstPickup.pos, level, 110);
+    hints.push({ lines: ["this is a warehouse", "visit them all"], arrowTo: firstPickup.pos, ...p });
+  }
+  {
+    const p = hintPos(session.destination.pos, level, 110);
+    hints.push({ lines: ["this is the drop-off", "finish the level here"], arrowTo: session.destination.pos, ...p });
+  }
+  if (level.muds.length > 0) {
+    let closest = level.muds[0]!;
+    let closestDist = distance(session.base.pos, closest.pos);
+    for (let i = 1; i < level.muds.length; i++) {
+      const d = distance(session.base.pos, level.muds[i]!.pos);
+      if (d < closestDist) { closest = level.muds[i]!; closestDist = d; }
+    }
+    const p = hintPos(closest.pos, level, closest.radius + 60, closest.pos);
+    hints.push({ lines: ["this is mud", "it's slippery"], arrowTo: closest.pos, ...p });
+  }
+  if (level.rocks.length > 0) {
+    let closest = level.rocks[0]!;
+    let closestDist = distance(session.base.pos, closest.pos);
+    for (let i = 1; i < level.rocks.length; i++) {
+      const d = distance(session.base.pos, level.rocks[i]!.pos);
+      if (d < closestDist) { closest = level.rocks[i]!; closestDist = d; }
+    }
+    const p = hintPos(closest.pos, level, closest.radius + 60, closest.pos);
+    hints.push({ lines: ["this is a rock", "drive around it"], arrowTo: closest.pos, ...p });
+  }
+  return hints;
+}
+
 function beginRun(playable: Playable): void {
   // Bank the outgoing run before its session is replaced - restarting mid-run
   // (Backspace, Retry, the menu's Restart) comes straight back through here.
@@ -1916,7 +2614,11 @@ function beginRun(playable: Playable): void {
   hudDelta.className = "";
   camera.x = session.truck.pos.x;
   camera.y = session.truck.pos.y;
+  levelHints = campaignNav?.index === 1 && playable.level.kind === "campaign"
+    ? buildCampaign1Hints(playable.level, session)
+    : [];
   countdownElapsed = 0;
+  countdownStepDuration = campaignNav?.index === 1 && playable.level.kind === "campaign" ? 1.2 : COUNTDOWN_STEP_DURATION;
   lastCountdownStep = -1;
   prevOnRoad = true;
   prevInMud = false;
@@ -1939,8 +2641,9 @@ function beginRun(playable: Playable): void {
 }
 
 // The finished run's leaderboard submission, held back while the player is
-// asked what name to use. Saving runs it under the chosen name; cancelling
-// drops it, keeping that run off the board entirely.
+// asked what name to use. Every exit from the prompt runs it: under the account
+// name after logging in or registering, under this device's generated nickname
+// after skipping. Only abandoning the run entirely drops it.
 let pendingScoreSubmit: (() => void) | null = null;
 
 /** Where the prompt was opened from, which decides its wording, where it
@@ -1965,13 +2668,19 @@ function openAccountPrompt(
     context === "run"
       ? storageFellBack
         ? "Log in to keep your score — progress won't survive a reload here"
-        : "Log in or create an account to register your score"
+        : "Log in or create an account to keep your progress"
       : "Log in or create an account";
-  // Backing out of a run means the score isn't registered; from settings it is
-  // an ordinary cancel, and shouldn't read as a decision about a score.
-  const skipLabel = context === "run" ? "Don't register score" : "Cancel";
+  // Skipping after a run still puts the score up, under this device's generated
+  // nickname - so the button names that nickname, and the note under it spells
+  // out what the player gives up by not registering. From settings there is no
+  // score in play and it's an ordinary cancel.
+  const skipLabel = context === "run" ? `Continue as ${nickname}` : "Cancel";
   accountSkipBtn.textContent = skipLabel;
   accountSkipLink.textContent = skipLabel;
+  accountSkipNote.textContent =
+    `Your time goes on the leaderboard as ${nickname}. The name isn't reserved, ` +
+    `and your progress stays on this device only.`;
+  accountSkipNote.classList.toggle("hidden", context !== "run");
   showAccountView(view);
   registerUsername.value = nickname;
   registerPassword.value = "";
@@ -2059,14 +2768,18 @@ function completeAccountPrompt(username: string): void {
   void syncAccount();
 }
 
-/** Abandons the prompt. After a run that means the score stays off the
- * leaderboard and the question stays away for a week rather than greeting every
- * finish; from the settings page it is just a cancel, and shouldn't buy a
- * week's silence the player never asked for. */
+/** Declines the account. After a run the score still goes up - anonymously,
+ * under this device's generated nickname, which the server accepts for any name
+ * nobody has registered - and the question stays away for a week rather than
+ * greeting every finish. From the settings page it is just a cancel: there is no
+ * score in play, and it shouldn't buy a week's silence the player never asked
+ * for. */
 function declineAccountPrompt(): void {
   if (accountPromptContext === "run") recordAccountPromptDeclined();
+  const submit = pendingScoreSubmit;
   pendingScoreSubmit = null;
   finishAccountPrompt();
+  submit?.();
 }
 
 accountCreateBtn.addEventListener("click", () => {
@@ -2222,7 +2935,8 @@ function endRun(): void {
       const submittedDifficulty = active.difficulty;
       const championCandidate = championTime(active.pars.gold, recording.time);
       const isCurrentPeriod =
-        active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
+        active.level.kind === "campaign" ? submittedSeed.startsWith(campaignPrefix())
+          : active.level.kind === "weekly" ? submittedSeed === weekSeed(0) : submittedSeed === todaysSeed;
       // Deferred rather than called: `nickname` is read when this runs, so a
       // name chosen at the prompt is the one the run is submitted under.
       submitRun = () =>
@@ -2263,32 +2977,45 @@ function endRun(): void {
   } else {
     resultsTitle.textContent = "Cargo fell off!";
     resultsTime.textContent = `Survived ${formatTime(session.elapsed)}`;
-    resultsStability.textContent = "Drive smoother and avoid mud and rocks.";
+    resultsStability.textContent =
+      session.failReason === "cargoRock" ? "Crashing that rock lost you your cargo!"
+      : session.failReason === "cargoMud" ? "You slipped in the mud and lost your cargo!"
+      : "Drive smoother and avoid mud and rocks.";
     resultsPersonalBest.textContent = "";
     resultsMedal.classList.add("hidden");
     shareBtn.classList.add("hidden");
     lastShareText = null;
   }
 
-  // A place on the leaderboard belongs to an account, so a logged-out run never
-  // goes up. `submitRun` being set already implies a successful, non-orphan run,
-  // so there is nothing to ask about otherwise.
-  if (submitRun && !isLoggedIn()) {
-    // Someone who declined recently isn't asked again for a week. Their run
-    // still counts locally - the personal best above is already saved - it just
-    // doesn't reach the board.
-    if (accountPromptRecentlyDeclined()) resultsScreen.classList.remove("hidden");
-    else openAccountPrompt(submitRun);
+  if (campaignNav && session.status === "success" && campaignNav.index < CAMPAIGN_TOTAL && isCampaignSlotOpen(campaignNav.index + 1)) {
+    nextBtn.classList.remove("hidden");
+  } else {
+    nextBtn.classList.add("hidden");
+  }
+
+  // A logged-out run still reaches the board, under this device's generated
+  // nickname - the server takes any name nobody has registered. So the prompt is
+  // about owning that name and keeping the progress, not about whether the run
+  // counts, and every path below submits.
+  //
+  // `submitRun` being set already implies a successful, non-orphan run, so there
+  // is nothing to ask about otherwise. Someone who declined recently isn't asked
+  // again for a week; their runs keep going up anonymously in the meantime.
+  if (submitRun && !isLoggedIn() && !accountPromptRecentlyDeclined()) {
+    openAccountPrompt(submitRun);
   } else {
     submitRun?.();
     resultsScreen.classList.remove("hidden");
   }
 }
 
-/** Leaves a run, countdown, or the results screen (no result is recorded if
- * mid-run) and returns to the start screen. */
-function goHome(): void {
-  if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
+/** Tears a run down and puts the start screen back up.
+ *
+ * Shared by every exit from a run so they can't drift apart: this was once
+ * duplicated into goNextCampaign, which omitted the start-screen reveal and
+ * left the player staring at an empty canvas with the loop still running.
+ * Anything that ends a run belongs here, not in one caller. */
+function leaveRunToStartScreen(): void {
   appState = "start";
   // Abandoning a run mid-flight (Escape, or the menu's Home button) is a second
   // exit path alongside endRun(), and it has to silence the run too - otherwise
@@ -2310,11 +3037,14 @@ function goHome(): void {
   // was holding, so a queued submission can never outlive its run.
   closeAccountPrompt();
   pendingScoreSubmit = null;
-  if (homeTarget === "campaign") {
-    showCampaignGrid();
-  } else {
-    startScreen.classList.remove("hidden");
-  }
+  startScreen.classList.remove("hidden");
+}
+
+/** Leaves a run, countdown, or the results screen (no result is recorded if
+ * mid-run) and returns to the start screen. */
+function goHome(): void {
+  if (appState !== "playing" && appState !== "countdown" && appState !== "ended") return;
+  leaveRunToStartScreen();
   // A just-finished first delivery flips "has played", which reveals the browse
   // arrows and the Easy/Hard switch - re-evaluate both now that we're back on
   // the menu, rather than waiting for the next navigation/mode change to do it.
@@ -2325,7 +3055,18 @@ function goHome(): void {
   void logRun(viewed.seed, nickname, "menu_shown", 0, undefined, viewed.difficulty);
 }
 
+/** Advances from the results screen to the next campaign map, landing on its
+ * start screen rather than launching straight into a run. */
+function goNextCampaign(): void {
+  if (appState !== "ended" || !campaignNav || campaignNav.index >= CAMPAIGN_TOTAL) return;
+  leaveRunToStartScreen();
+  navigateCampaign(1);
+  updateNavButtons();
+  updateDifficultySwitchVisibility();
+}
+
 retryBtn.addEventListener("click", () => beginRun(active));
+nextBtn.addEventListener("click", goNextCampaign);
 homeBtn.addEventListener("click", goHome);
 
 // --- New-player tutorial ---------------------------------------------------
@@ -2908,7 +3649,13 @@ function closeProfile(): void {
   profileOpen = false;
   profileScreen.classList.add("hidden");
 }
-profileBtn.addEventListener("click", openProfile);
+// Every menu's gear opens the same panel, wired by class rather than by id so
+// a new screen only has to drop a .settings-btn into its header row.
+// forEach rather than for-of: the project's lib config has no DOM.Iterable, so
+// a NodeList isn't iterable here.
+document.querySelectorAll<HTMLButtonElement>(".settings-btn").forEach((btn) => {
+  btn.addEventListener("click", openProfile);
+});
 profileCloseBtn.addEventListener("click", closeProfile);
 profileDismissBtn.addEventListener("click", closeProfile);
 profileScreen.addEventListener("click", (e) => {
@@ -3244,6 +3991,7 @@ function renderScene(activeSession: GameSession, frameDt: number): void {
     camera,
     canvas.clientWidth,
     canvas.clientHeight,
+    levelHints,
   );
 }
 
@@ -3279,14 +4027,14 @@ function frame(now: number): void {
     // so a press during the countdown is already reflected in input.held
     // and takes effect on the very first physics tick once play begins.
     countdownElapsed += frameDt;
-    const step = countdownLabel(countdownElapsed);
+    const step = countdownLabel(countdownElapsed, countdownStepDuration);
     if (step === null) {
       appState = "playing";
       accumulator = 0;
       countdownOverlay.classList.add("hidden");
       startWobble();
     } else {
-      const stepIdx = Math.floor(countdownElapsed / COUNTDOWN_STEP_DURATION);
+      const stepIdx = Math.floor(countdownElapsed / countdownStepDuration);
       if (stepIdx !== lastCountdownStep) {
         lastCountdownStep = stepIdx;
         playCountdownTone(step === "GO");
@@ -3407,4 +4155,11 @@ function frame(now: number): void {
 
   requestAnimationFrame(frame);
 }
+updateLandingTiles();
+// The landing tile's campaign dots are keyed to each slot's resolved seed, so
+// pull this month's alternate-map choices and repaint if any of them differ
+// from the defaults just drawn.
+void loadCampaignOverrides(0).then((changed) => {
+  if (changed) updateLandingTiles();
+});
 requestAnimationFrame(frame);

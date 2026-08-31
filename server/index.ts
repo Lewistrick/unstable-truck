@@ -1,7 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDatabaseHealth, ensureSchema, pruneExpiredSessions, pruneOldRunLogs, syncAdmins } from "./db.js";
+import { checkDatabaseHealth, ensureSchema, pruneExpiredSessions, pruneOldCampaignScores, pruneOldRunLogs, syncAdmins } from "./db.js";
 import { startPrecomputeSchedule } from "./optimal.js";
 import { cors } from "./cors.js";
 import { scoresRouter } from "./routes.js";
@@ -93,6 +93,11 @@ function pruneStaleRows(): void {
       if (removed > 0) console.log(`Pruned ${removed} expired session(s)`);
     })
     .catch((err) => console.error("Session prune failed:", (err as Error).message));
+  pruneOldCampaignScores()
+    .then((removed) => {
+      if (removed > 0) console.log(`Pruned ${removed} old campaign score/champion row(s)`);
+    })
+    .catch((err) => console.error("Campaign score prune failed:", (err as Error).message));
 }
 pruneStaleRows();
 setInterval(pruneStaleRows, PRUNE_INTERVAL_MS).unref();

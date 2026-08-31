@@ -68,20 +68,32 @@
 
     <div id="landing-screen" class="screen">
       <div class="panel">
-        <span class="wordmark">Unstable Truck</span>
+        <div id="landing-header">
+          <button class="btn-secondary settings-btn" type="button" aria-label="Settings"
+            title="Settings">&#9881;</button>
+          <span class="wordmark">Unstable Truck</span>
+        </div>
         <div id="landing-tiles">
           <button id="campaign-tile" class="landing-tile" type="button">
+            <div class="tile-thumb" id="campaign-thumb"></div>
             <span class="tile-label" id="campaign-tile-label">Campaign</span>
             <span class="tile-desc">25 maps · increasing difficulty</span>
           </button>
           <button id="daily-tile" class="landing-tile" type="button">
+            <div class="tile-thumb" id="daily-thumb"></div>
             <span class="tile-label">Daily Map</span>
             <span class="tile-desc">New map every day · leaderboards</span>
           </button>
-        </div>
-        <div id="landing-actions">
-          <button id="landing-tutorial-btn" class="btn-secondary" type="button">Tutorial</button>
-          <button id="landing-howto-btn" class="btn-secondary" type="button">How To</button>
+          <button id="landing-tutorial-btn" class="landing-tile" type="button">
+            <div class="tile-thumb tile-thumb-placeholder" aria-hidden="true">&#128664;</div>
+            <span class="tile-label">Tutorial</span>
+            <span class="tile-desc">Learn to drive · guided practice</span>
+          </button>
+          <button id="landing-howto-btn" class="landing-tile" type="button">
+            <div class="tile-thumb tile-thumb-placeholder" aria-hidden="true">?</div>
+            <span class="tile-label">How To</span>
+            <span class="tile-desc">Rules, medals and terrain</span>
+          </button>
         </div>
       </div>
     </div>
@@ -89,19 +101,66 @@
     <div id="campaign-screen" class="screen hidden">
       <div class="panel campaign-panel">
         <div class="screen-header">
-          <button id="campaign-back-btn" class="back-btn" type="button" aria-label="Back">&#8249;</button>
+          <button id="campaign-back-btn" class="back-btn" type="button" aria-label="Main menu"
+            title="Main menu">&#8962;</button>
           <span class="screen-title" id="campaign-title">Campaign</span>
+          <button class="btn-secondary settings-btn" type="button" aria-label="Settings"
+            title="Settings">&#9881;</button>
+        </div>
+        <div id="campaign-month-nav">
+          <button id="campaign-month-prev" class="nav-arrow" type="button" aria-label="Previous month">&#8249;</button>
+          <span id="campaign-month-label" aria-live="polite"></span>
+          <button id="campaign-month-next" class="nav-arrow" type="button" aria-label="Next month" disabled>&#8250;</button>
         </div>
         <div id="campaign-grid"></div>
+        <p id="campaign-unlock-notice" class="muted hidden"></p>
+        <div id="campaign-footer" class="hidden">
+          <p id="campaign-frozen-notice" class="muted hidden"></p>
+          <p id="campaign-total"></p>
+          <div id="campaign-leaderboard" class="hidden">
+            <div class="leaderboard-header">Campaign Leaderboard
+              <span class="leaderboard-header-note">(total campaign time)</span>
+            </div>
+            <ol id="campaign-leaderboard-list"></ol>
+          </div>
+          <hr id="campaign-improve-divider" class="hidden" />
+          <div id="campaign-improve" class="hidden">
+            <div class="leaderboard-header">Most room to improve</div>
+            <ol id="campaign-improve-list"></ol>
+          </div>
+        </div>
+        <div id="campaign-admin-section" class="hidden">
+          <div class="section-header">Admin &middot; alternate map</div>
+          <div class="campaign-admin-row">
+            <label class="campaign-admin-label">
+              Map
+              <select id="campaign-alt-map" class="campaign-admin-select"></select>
+            </label>
+            <label class="campaign-admin-label">
+              Variant
+              <select id="campaign-alt-select" class="campaign-admin-select">
+                <option value="">Default</option>
+                <option value="b">b</option>
+                <option value="c">c</option>
+                <option value="d">d</option>
+                <option value="e">e</option>
+              </select>
+            </label>
+          </div>
+          <canvas id="campaign-alt-preview" width="300" height="190"></canvas>
+          <button id="campaign-alt-apply" type="button">Apply for everyone</button>
+          <p id="campaign-alt-status" class="muted hidden"></p>
+        </div>
       </div>
     </div>
 
     <div id="start-screen" class="screen hidden">
       <div class="panel">
         <div id="home-header">
-          <button id="home-back-btn" class="back-btn" type="button" aria-label="Back">&#8249;</button>
-          <button id="profile-btn" class="btn-secondary" type="button" aria-label="Profile"
-            title="Profile">&#9881;</button>
+          <button id="home-back-btn" class="back-btn" type="button" aria-label="Main menu"
+            title="Main menu">&#8962;</button>
+          <button class="btn-secondary settings-btn" type="button" aria-label="Settings"
+            title="Settings">&#9881;</button>
           <span class="wordmark">Unstable Truck</span>
         </div>
 
@@ -374,11 +433,16 @@
         <p id="results-personal-best" class="muted"></p>
         <p id="results-stability"></p>
         <div id="results-actions">
-          <button id="retry-btn">Retry</button>
-          <button id="share-btn" class="btn-secondary hidden">Share</button>
-          <button id="home-btn" class="btn-secondary">Home</button>
+          <div class="results-row">
+            <button id="retry-btn">Retry</button>
+            <button id="next-btn" class="hidden">Next</button>
+          </div>
+          <div class="results-row">
+            <button id="share-btn" class="btn-secondary hidden">Share</button>
+            <button id="home-btn" class="btn-secondary">Back</button>
+          </div>
         </div>
-        <p class="muted" id="retry-hint">Enter to retry &middot; Esc for home</p>
+        <p class="muted" id="retry-hint">Enter to retry &middot; Esc to go back</p>
       </div>
     </div>
 
@@ -389,7 +453,8 @@
         <div id="account-choice" class="account-view">
           <button id="account-create-btn" type="button">Create account</button>
           <button id="account-login-btn" class="btn-secondary" type="button">Log in</button>
-          <button id="account-skip-btn" class="btn-secondary" type="button">Don't register score</button>
+          <button id="account-skip-btn" class="btn-secondary" type="button">Continue anonymously</button>
+          <p id="account-skip-note" class="muted account-skip-note hidden"></p>
         </div>
 
         <form id="account-register-form" class="account-view hidden">
@@ -431,8 +496,8 @@
         </form>
 
         <p id="account-error" class="account-error hidden" role="alert"></p>
-        <button id="account-skip-link" class="btn-secondary account-skip-link hidden" type="button">Don't register
-          score</button>
+        <button id="account-skip-link" class="btn-secondary account-skip-link hidden" type="button">Continue
+          anonymously</button>
       </div>
     </div>
   </div>

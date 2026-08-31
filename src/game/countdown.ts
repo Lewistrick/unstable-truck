@@ -10,7 +10,7 @@ export const COUNTDOWN_DURATION = COUNTDOWN_STEPS.length * COUNTDOWN_STEP_DURATI
 
 /** The step to show `elapsed` seconds into the count-in, or null once it's
  * over (the caller's cue to hand control to the player). */
-export function countdownLabel(elapsed: number): string | null {
-  const step = Math.floor(elapsed / COUNTDOWN_STEP_DURATION);
+export function countdownLabel(elapsed: number, stepDuration = COUNTDOWN_STEP_DURATION): string | null {
+  const step = Math.floor(elapsed / stepDuration);
   return step < COUNTDOWN_STEPS.length ? COUNTDOWN_STEPS[step]! : null;
 }

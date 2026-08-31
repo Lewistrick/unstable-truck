@@ -7,6 +7,95 @@ import { mulberry32, randRange, seedFromString, type Rng } from "../util/rng.js"
 import { distance, type Vec2 } from "../util/vec2.js";
 import { drawProp } from "./props/index.js";
 
+export interface WorldHint {
+  lines: string[];
+  x: number;
+  y: number;
+  /** When set, an arrow is drawn from the hint toward this point. */
+  arrowTo?: { x: number; y: number };
+}
+
+function drawWorldHints(ctx: CanvasRenderingContext2D, hints: readonly WorldHint[]): void {
+  const font = "600 14px system-ui, sans-serif";
+  const lineH = 18;
+  const padX = 10;
+  const padY = 6;
+  ctx.save();
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  for (const hint of hints) {
+    const textH = hint.lines.length * lineH;
+    let maxW = 0;
+    for (const line of hint.lines) {
+      const w = ctx.measureText(line).width;
+      if (w > maxW) maxW = w;
+    }
+    const boxW = maxW + padX * 2;
+    const boxH = textH + padY * 2;
+    const bx = hint.x - boxW / 2;
+    const by = hint.y - boxH / 2;
+
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, 6);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    const top = hint.y - ((hint.lines.length - 1) * lineH) / 2;
+    for (let i = 0; i < hint.lines.length; i++) {
+      ctx.fillText(hint.lines[i]!, hint.x, top + i * lineH);
+    }
+
+    if (hint.arrowTo) {
+      const dx = hint.arrowTo.x - hint.x;
+      const dy = hint.arrowTo.y - hint.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) {
+        const nx = dx / len;
+        const ny = dy / len;
+        const startDist = Math.hypot(
+          Math.abs(nx) * boxW / 2 + Math.abs(ny) * padX,
+          Math.abs(ny) * boxH / 2 + Math.abs(nx) * padY,
+        );
+        const sx = hint.x + nx * (startDist + 2);
+        const sy = hint.y + ny * (startDist + 2);
+        const headLen = 6;
+        const ex = hint.arrowTo.x - nx * 4;
+        const ey = hint.arrowTo.y - ny * 4;
+
+        const headPath = new Path2D();
+        headPath.moveTo(ex, ey);
+        headPath.lineTo(ex - nx * headLen - ny * headLen * 0.5, ey - ny * headLen + nx * headLen * 0.5);
+        headPath.lineTo(ex - nx * headLen + ny * headLen * 0.5, ey - ny * headLen - nx * headLen * 0.5);
+        headPath.closePath();
+
+        ctx.strokeStyle = "rgba(0,0,0,0.4)";
+        ctx.lineWidth = 4;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        ctx.stroke(headPath);
+
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.fill(headPath);
+      }
+    }
+  }
+  ctx.restore();
+}
+
 function strokeRoad(ctx: CanvasRenderingContext2D, level: Level): void {
   for (const road of level.roads) {
     ctx.beginPath();
@@ -1046,9 +1135,12 @@ export function renderWorld(
   camera: Camera,
   canvasW: number,
   canvasH: number,
+  worldHints?: readonly WorldHint[],
 ): void {
   const zoom = viewZoom(canvasW, canvasH);
   paintWorld(ctx, level, visited, camera, zoom, canvasW, canvasH);
+
+  if (worldHints && worldHints.length > 0) drawWorldHints(ctx, worldHints);
 
   for (const ghost of ghosts) {
     ctx.save();

@@ -12,12 +12,13 @@ import {
 } from "../physics/cargo.js";
 import { BASE_MAX_SPEED, createTruck, EASY_MAX_SPEED, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
 import { distance } from "../util/vec2.js";
+import { startHeading } from "./start-heading.js";
 import type { Difficulty } from "./api.js";
 
 export type GameStatus = "playing" | "success" | "fail";
 
 /** Why a run ended in failure, so the results screen can tailor its message. */
-export type FailReason = "cargo" | "outOfBounds";
+export type FailReason = "cargo" | "cargoRock" | "cargoMud" | "outOfBounds";
 
 /** Per-run options. `practice` makes the run unfailable (used by the new-player
  * tutorial): cargo falling off and driving out of bounds are ignored, so a
@@ -128,14 +129,10 @@ export class GameSession {
     this.destination = findWarehouse(level, "destination");
     this.pickups = level.warehouses.filter((w) => w.kind === "pickup");
 
-    let firstTarget: Warehouse = this.destination;
-    for (const wh of this.pickups) {
-      if (firstTarget === this.destination || distance(this.base.pos, wh.pos) < distance(this.base.pos, firstTarget.pos)) {
-        firstTarget = wh;
-      }
-    }
-    const heading = Math.atan2(firstTarget.pos.y - this.base.pos.y, firstTarget.pos.x - this.base.pos.x);
-    this.truck = createTruck(this.base.pos, heading);
+    // Shared with the solver's createSimState (see start-heading.ts). These two
+    // must agree exactly: a route searched from a different start angle doesn't
+    // just drive a slower line, it fails the map outright.
+    this.truck = createTruck(this.base.pos, startHeading(level, this.base, this.pickups, this.destination));
   }
 
   /** True once at least one pickup has been visited and a cargo box is loaded/trailing. */
@@ -224,7 +221,7 @@ export class GameSession {
 
     if (!this.practice && this.difficulty !== "easy" && this.cargoBoxes.some((box) => box.stability <= 0)) {
       this.status = "fail";
-      this.failReason = "cargo";
+      this.failReason = this.rockHitThisTick ? "cargoRock" : this.lastTerrain.inMud ? "cargoMud" : "cargo";
       return;
     }
     if (this.allPickedUp && truckTouchesWarehouse(this.truck, this.destination)) {

@@ -225,7 +225,20 @@ body {
   width: 100%;
 }
 
-#profile-btn {
+/* The landing screen gets the same title-with-settings row as the start screen,
+   so Settings is reachable without first entering a map. */
+#landing-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Every menu carries the same settings gear, pinned to the right of that
+   screen's header row. Any header that is `position: relative` and holds a
+   .settings-btn gets it for free - that's all a new menu has to do. */
+.settings-btn {
   position: absolute;
   right: 0;
   top: 50%;
@@ -247,9 +260,11 @@ body {
 
 /* --- Landing screen ---------------------------------------------------- */
 
+/* Two columns rather than one row: with four tiles a single row leaves each one
+   too narrow to read on a phone, and the thumbs collapse to slivers. */
 #landing-tiles {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
   width: 100%;
 }
@@ -259,8 +274,8 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  width: 100%;
-  padding: 18px 16px;
+  min-width: 0;
+  padding: 10px;
   background: #2c3542;
   border: 1px solid #3a4554;
   border-radius: 10px;
@@ -287,14 +302,75 @@ body {
   color: #9aa4b2;
 }
 
-#landing-actions {
-  display: flex;
-  gap: 8px;
+.tile-thumb {
   width: 100%;
+  aspect-ratio: 3 / 2;
+  background: #1a2030;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
 }
 
-#landing-actions .btn-secondary {
-  flex: 1 1 0;
+#campaign-thumb {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  padding: 8px;
+  align-content: center;
+}
+
+#daily-thumb canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+}
+
+.tile-medal {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.campaign-progress-dot {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #2c3542;
+}
+
+.campaign-progress-dot.dot-done {
+  background: #5a6a7a;
+}
+
+.campaign-progress-dot.dot-bronze {
+  background: #c17a3f;
+}
+
+.campaign-progress-dot.dot-silver {
+  background: #c3ccd6;
+}
+
+.campaign-progress-dot.dot-gold {
+  background: #f2c14e;
+}
+
+.campaign-progress-dot.dot-champion {
+  background: #e7a7a0;
+}
+
+/* Placeholder art for tiles that don't have a generated thumbnail of their own
+   (Tutorial, How To): a single oversized glyph centred on the thumb's ground.
+   Swap the glyph for an <img>/<canvas> when real art lands - the tile layout
+   doesn't care which it is. */
+.tile-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  line-height: 1;
+  color: #5a6a7a;
 }
 
 /* --- Campaign grid screen ---------------------------------------------- */
@@ -379,7 +455,239 @@ body {
   font-weight: 600;
 }
 
-#profile-btn {
+.campaign-cell-medal {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.campaign-cell.locked {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.campaign-cell.locked canvas {
+  filter: brightness(0.4) grayscale(0.8);
+}
+
+#campaign-footer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+#campaign-footer.hidden {
+  display: none;
+}
+
+#campaign-total {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The same line carrying the "finish all 25" nudge instead of a total: an
+   instruction, not a stat, so it steps back to match the other muted notices. */
+#campaign-total.campaign-total-pending {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #9aa4b2;
+}
+
+#campaign-leaderboard {
+  width: 100%;
+}
+
+#campaign-leaderboard.hidden {
+  display: none;
+}
+
+#campaign-leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* Divider above the improvements section, showing only when it's visible. */
+#campaign-improve-divider {
+  width: 100%;
+  height: 1px;
+  border: none;
+  background: #2c3542;
+  margin: 10px 0 0;
+}
+
+#campaign-improve-divider.hidden {
+  display: none;
+}
+
+/* Sits directly under the campaign leaderboard and borrows its header and row
+   metrics, so the two read as one stack rather than two unrelated widgets. */
+#campaign-improve {
+  width: 100%;
+}
+
+#campaign-improve.hidden {
+  display: none;
+}
+
+#campaign-improve-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+}
+
+.improve-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.improve-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.improve-map {
+  width: 1.6em;
+  color: #9aa4b2;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.improve-gap {
+  flex: 1;
+  text-align: left;
+  color: #c3cad4;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The number the list is ranked by, in the gold the target it's measured
+   against is named for. */
+.improve-pct {
+  color: #ffd873;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#campaign-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+#campaign-month-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+#campaign-frozen-notice {
+  font-size: 0.8rem;
+  text-align: center;
+  opacity: 0.6;
+}
+
+/* Stands in for the locked maps rather than sitting beside them, so it gets a
+   little more room than the other muted notices. */
+#campaign-unlock-notice {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  text-align: center;
+  color: #9aa4b2;
+  background: #232a34;
+  border: 1px dashed #3a4554;
+  border-radius: 8px;
+}
+
+#campaign-unlock-notice.hidden {
+  display: none;
+}
+
+#campaign-frozen-notice.hidden {
+  display: none;
+}
+
+#campaign-admin-section {
+  width: 100%;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #2c3542;
+}
+
+#campaign-admin-section.hidden {
+  display: none;
+}
+
+.campaign-admin-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.campaign-admin-label {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #9aa4b2;
+}
+
+.campaign-admin-label .campaign-admin-select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+#campaign-alt-preview {
+  width: 100%;
+  aspect-ratio: 300 / 190;
+  margin: 10px 0;
+  background: #1a2030;
+  border-radius: 4px;
+}
+
+#campaign-alt-status {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+#campaign-alt-status.hidden {
+  display: none;
+}
+
+.campaign-admin-select {
+  padding: 4px 8px;
+  background: #1a2030;
+  color: #e8ecf1;
+  border: 1px solid #2c3542;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.settings-btn {
   flex: none;
   width: 30px;
   height: 30px;
@@ -1096,6 +1404,19 @@ select.account-input {
   text-align: left;
 }
 
+/* Spells out what skipping the account actually does, tucked up against the
+   button it explains rather than floating a full gap below it. */
+.account-skip-note {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+  margin: -4px 0 0;
+}
+
+.account-skip-note.hidden {
+  display: none;
+}
+
 .account-actions {
   display: flex;
   gap: 8px;
@@ -1138,7 +1459,15 @@ select.account-input {
   text-transform: uppercase;
   color: #9aa4b2;
   margin-bottom: 6px;
-  text-align: left;
+  text-align: center;
+}
+
+/* Parenthetical gloss in a header that's otherwise uppercased - kept in
+   sentence case so it reads as an aside rather than more heading. */
+.leaderboard-header-note {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
 }
 
 #leaderboard-list {
@@ -1391,9 +1720,40 @@ button:active {
   transform: scale(0.97);
 }
 
+/* Buttons centred with a transform have to restate it in :active, or the press
+   scale REPLACES the centering and drops them half their own height. That isn't
+   just cosmetic: the button slides out from under the cursor between mousedown
+   and mouseup, the two land on different elements, and the browser never fires
+   a click at all - a dead button that still looks like it depressed. */
+.back-btn:active,
+.settings-btn:active {
+  transform: translateY(-50%) scale(0.97);
+}
+
+/* Two rows so four buttons still fit a narrow phone: the run-forward actions
+   (Retry / Next) on top, the secondary ones (Share / Back) below. Each row's
+   buttons split the width evenly, so a row holding a single visible button
+   simply spans the full width. */
 #results-actions {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.results-row {
+  display: flex;
   gap: 10px;
+  width: 100%;
+}
+
+.results-row > button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.results-row:not(:has(> button:not(.hidden))) {
+  display: none;
 }
 
 .btn-secondary {

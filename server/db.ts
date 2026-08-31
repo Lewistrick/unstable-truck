@@ -208,6 +208,45 @@ export async function ensureSchema(): Promise<void> {
   );
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)`);
+  // Admin-chosen alternate maps. One row per replaced campaign slot: the slot's
+  // seed becomes `<prefix>C<idx>-<suffix>`, which rerolls the map without
+  // changing its position in the campaign. Absent row = the default map.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS campaign_overrides (
+       prefix     TEXT NOT NULL,
+       idx        SMALLINT NOT NULL,
+       suffix     TEXT NOT NULL,
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+       PRIMARY KEY (prefix, idx)
+     )`,
+  );
+}
+
+/** The alternate-map suffixes chosen for one campaign month, as a
+ * { "07": "b" } map keyed by zero-padded slot. */
+export async function getCampaignOverrides(prefix: string): Promise<Record<string, string>> {
+  const result = await pool.query<{ idx: number; suffix: string }>(
+    `SELECT idx, suffix FROM campaign_overrides WHERE prefix = $1`,
+    [prefix],
+  );
+  const out: Record<string, string> = {};
+  for (const row of result.rows) out[String(row.idx).padStart(2, "0")] = row.suffix;
+  return out;
+}
+
+/** Sets (or, with an empty suffix, clears) the alternate map for one slot. */
+export async function setCampaignOverride(prefix: string, idx: number, suffix: string): Promise<void> {
+  if (suffix === "") {
+    await pool.query(`DELETE FROM campaign_overrides WHERE prefix = $1 AND idx = $2`, [prefix, idx]);
+    return;
+  }
+  await pool.query(
+    `INSERT INTO campaign_overrides (prefix, idx, suffix)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (prefix, idx) DO UPDATE
+       SET suffix = EXCLUDED.suffix, updated_at = now()`,
+    [prefix, idx, suffix],
+  );
 }
 
 /** Every kind of event written to run_logs. Kept in sync with the client's own
@@ -263,6 +302,49 @@ export async function logRun(params: {
  * the number that matters most - and makes the ?src= attribution on
  * game_started useless for anyone who comes back more than a week later. */
 const RUN_LOG_RETENTION_DAYS = 90;
+
+const CAMPAIGN_RETENTION_MONTHS = 4;
+/** Months ahead of the current one that are also kept. Admins prepare the next
+ * campaign before it goes live (alternate-map overrides especially), and those
+ * rows must survive the nightly sweep that runs between now and the 1st -
+ * without this, next month's prepared campaign is deleted before it starts. */
+const CAMPAIGN_FUTURE_MONTHS = 1;
+
+/** Builds the set of campaign seed prefixes to keep: the current month, the 3
+ * before it, and the months admins may already be preparing ahead. Any score,
+ * champion or override row for a campaign outside that window is deleted. */
+function retainedCampaignPrefixes(): string[] {
+  const prefixes: string[] = [];
+  const MONTH_ABBRS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const now = new Date();
+  for (let i = -CAMPAIGN_FUTURE_MONTHS; i < CAMPAIGN_RETENTION_MONTHS; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    prefixes.push(`${d.getFullYear()}-${MONTH_ABBRS[d.getMonth()]!}-`);
+  }
+  return prefixes;
+}
+
+export async function pruneOldCampaignScores(): Promise<number> {
+  const kept = retainedCampaignPrefixes();
+  const result = await pool.query(
+    `DELETE FROM scores
+     WHERE seed ~ '^\\d{4}-[a-z]{3}-C(\\d{2}|TOTAL)'
+       AND NOT (${kept.map((_, i) => `seed LIKE $${i + 1} || '%'`).join(" OR ")})`,
+    kept,
+  );
+  const champResult = await pool.query(
+    `DELETE FROM champions
+     WHERE seed ~ '^\\d{4}-[a-z]{3}-C(\\d{2}|TOTAL)'
+       AND NOT (${kept.map((_, i) => `seed LIKE $${i + 1} || '%'`).join(" OR ")})`,
+    kept,
+  );
+  const overrideResult = await pool.query(
+    `DELETE FROM campaign_overrides
+     WHERE NOT (${kept.map((_, i) => `prefix = $${i + 1}`).join(" OR ")})`,
+    kept,
+  );
+  return (result.rowCount ?? 0) + (champResult.rowCount ?? 0) + (overrideResult.rowCount ?? 0);
+}
 
 export async function pruneOldRunLogs(): Promise<number> {
   // Interpolated rather than bound: a bound parameter would have to be cast

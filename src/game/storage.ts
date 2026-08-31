@@ -41,9 +41,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // year so a personal-best ghost is still available for any browsable past week.
 const DAILY_MAX_AGE_MS = 30 * DAY_MS;
 const WEEKLY_MAX_AGE_MS = 53 * 7 * DAY_MS;
+// Campaign bests have to outlive the daily window: a campaign stays browsable
+// for the current month plus three previous ones (the server keeps its scores
+// on the same schedule), so expiring them at 30 days would strip the medals off
+// a grid the player can still open and empty their campaign total.
+const CAMPAIGN_MAX_AGE_MS = 150 * DAY_MS;
 
-/** Weekly seeds look like "2026-W31"; daily seeds like "2026-08-03". */
+/** Campaign seeds look like "2026-aug-C07"; weekly "2026-W31"; daily
+ * "2026-08-03". */
 function maxAgeForSeed(seed: string): number {
+  if (/^\d{4}-[a-z]{3}-C/.test(seed)) return CAMPAIGN_MAX_AGE_MS;
   return seed.includes("-W") ? WEEKLY_MAX_AGE_MS : DAILY_MAX_AGE_MS;
 }
 
@@ -414,9 +421,10 @@ export function loadAuthToken(): string | null {
 // --- Account prompt cooldown -----------------------------------------------
 
 const ACCOUNT_DECLINED_KEY = "unstable-truck:account-declined";
-/** How long "Don't register score" keeps the prompt away. Long enough not to
- * nag someone who has already said no, short enough that a player who gets
- * hooked in week two is asked again. */
+/** How long declining the account prompt keeps it away. Long enough not to nag
+ * someone who has already said no, short enough that a player who gets hooked in
+ * week two is asked again. Their runs still reach the leaderboard meanwhile,
+ * under the device's generated nickname. */
 const ACCOUNT_PROMPT_COOLDOWN_MS = 7 * DAY_MS;
 
 export function recordAccountPromptDeclined(): void {

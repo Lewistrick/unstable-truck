@@ -75,11 +75,46 @@ interface CampaignParams {
   roadWidth: number;
   rocks: number;
   muds: number;
+  /** Lets the route run back alongside itself, which the no-touch rule in
+   * generateWalk otherwise forbids. Off everywhere but the finale - see
+   * FINALE_PARAMS for why that map wants it. */
+  allowSelfTouch?: boolean;
+  /** Share of obstacles placed on the road corridor rather than scattered. */
+  roadsideObstacles?: number;
 }
+
+/** The last map breaks the ramp on purpose.
+ *
+ * Roughly twice the area and twice the delivery stops of map 24, obstacles
+ * concentrated on the racing line instead of scattered across ground nobody
+ * drives, and the self-touch rule lifted so the route can double back beside
+ * itself. That last one is the interesting part: everywhere else it's a defect
+ * (a road running parallel to itself one cell over lets players ignore the
+ * road and cut the gap), but on a competitive finale that cut IS the content -
+ * it's a real shortcut with a real cost in grass, and choosing when to take it
+ * is what separates two players who both drive cleanly.
+ *
+ * Coverage is asked to be looser than map 24's rather than tighter: a 36-cell
+ * walk on a 14x10 grid is a much harder search than an 18-cell one on 10x7, and
+ * demanding a wide span as well makes failed attempts (which degrade to a
+ * shorter route, costing stops) far more likely. */
+const FINALE_PARAMS: CampaignParams = {
+  cols: 14,
+  rows: 10,
+  walkLength: 36,
+  cellSize: 300,
+  minCoverage: 0.7,
+  roadWidth: 38,
+  rocks: 52,
+  muds: 22,
+  allowSelfTouch: true,
+  roadsideObstacles: 0.65,
+};
 
 /** Difficulty ramp across the 25 campaign slots. The grid drives map size,
  * route length and shape variety together, so one knob moves all three. */
 function campaignParams(index: number): CampaignParams {
+  if (index === CAMPAIGN_TOTAL) return FINALE_PARAMS;
   const t = (index - 1) / (CAMPAIGN_TOTAL - 1);
   return {
     cols: Math.round(mix(6, 10, t)),
@@ -133,7 +168,13 @@ function generateWalk(
   rows: number,
   target: number,
   minCoverage: number,
+  allowSelfTouch = false,
 ): Cell[] {
+  // How many already-visited neighbours a candidate cell may have. One is the
+  // cell we came from, so 1 forbids the route ever coming alongside itself;
+  // 2 lets it run back beside an earlier leg exactly once, which is what opens
+  // a shortcut without letting the walk collapse into a solid block.
+  const maxTouching = allowSelfTouch ? 2 : 1;
   let best: Cell[] = [];
   let bestCoverage = -1;
 
@@ -181,7 +222,7 @@ function generateWalk(
           if (tc < 0 || tc >= cols || tr < 0 || tr >= rows) continue;
           if (seen.has(tr * cols + tc)) touching++;
         }
-        if (touching > 1) continue;
+        if (touching > maxTouching) continue;
 
         const straight = dir !== null && step.c === dir.c && step.r === dir.r;
         if (straight && straightRun >= MAX_STRAIGHT_RUN) continue;
@@ -266,7 +307,9 @@ export function generateCampaignLevel(seed: string, index: number): Level {
   const width = Math.round((cols - 1) * cellSize + MARGIN * 2);
   const height = Math.round((rows - 1) * cellSize + MARGIN * 2);
 
-  const path = generateWalk(rng, cols, rows, params.walkLength, params.minCoverage);
+  const path = generateWalk(
+    rng, cols, rows, params.walkLength, params.minCoverage, params.allowSelfTouch,
+  );
 
   // Only the bends matter to the road's shape: a run of steps in one direction
   // is a single straight leg, so collapse it to its endpoints.
@@ -346,10 +389,27 @@ export function generateCampaignLevel(seed: string, index: number): Level {
     };
   });
 
-  const { rocks, muds } = generateObstacles(rng, noise, width, height, warehouses, {
-    rocks: params.rocks,
-    muds: params.muds,
-  });
+  // Bias obstacles onto the racing line when the map asks for it. Rocks are
+  // offset at least past the road's half-width so they bite into a lane and
+  // leave a gap, rather than sitting dead centre on a 38-wide road and walling
+  // it off; mud is allowed to straddle the centreline, since it's passable and
+  // the cost of ploughing through it is the point.
+  const half = params.roadWidth / 2;
+  const roadside = params.roadsideObstacles
+    ? {
+        points: roads.flatMap((seg) => seg.samples),
+        fraction: params.roadsideObstacles,
+        rockOffset: { min: half * 1.1, max: half * 3.8 },
+        mudOffset: { min: 0, max: half * 3 },
+      }
+    : undefined;
+
+  const { rocks, muds } = generateObstacles(
+    rng, noise, width, height, warehouses,
+    { rocks: params.rocks, muds: params.muds },
+    [],
+    roadside,
+  );
 
   const theme = pickTheme(seed);
   const palette = generatePalette(rng, theme);

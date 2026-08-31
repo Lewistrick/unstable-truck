@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
-import { getOptimalRoute, getSolvedSeeds, saveOptimalRoute } from "./db.js";
+import { getCampaignOverrides, getOptimalRoute, getSolvedSeeds, saveOptimalRoute } from "./db.js";
 
 /** Server-side precompute of the daily "Optimal" solver routes.
  *
@@ -30,6 +30,10 @@ const FUTURE_DAYS = 2;
 const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const DAILY_SEED_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const CAMPAIGN_SEED_PATTERN = /^\d{4}-[a-z]{3}-C\d{2}(?:-[a-z]{1,8})?$/;
+const CAMPAIGN_PAST_MONTHS = 3;
+const CAMPAIGN_TOTAL = 25;
+const CAMPAIGN_BUDGET_MS = 60000;
 
 interface SolveReply {
   ok: boolean;
@@ -44,7 +48,7 @@ interface SolveReply {
 }
 
 let worker: Worker | null = null;
-const queue: string[] = [];
+const queue: { seed: string; campaign: boolean }[] = [];
 const queued = new Set<string>();
 let draining = false;
 
@@ -69,7 +73,7 @@ function getWorker(): Worker | null {
 
 /** Solves one seed on the worker thread. Serialized by the drain loop, so a
  * single in-flight solve means replies can be matched to `seed` directly. */
-function solveOnWorker(seed: string): Promise<SolveReply | null> {
+function solveOnWorker(seed: string, campaign = false): Promise<SolveReply | null> {
   const w = getWorker();
   if (!w) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -90,7 +94,7 @@ function solveOnWorker(seed: string): Promise<SolveReply | null> {
     w.on("message", onMessage);
     w.on("error", onError);
     w.on("exit", onError);
-    w.postMessage({ seed, distBase: DIST_BASE, timeBudgetMs: PRECOMPUTE_BUDGET_MS });
+    w.postMessage({ seed, distBase: DIST_BASE, timeBudgetMs: campaign ? CAMPAIGN_BUDGET_MS : PRECOMPUTE_BUDGET_MS, campaign });
   });
 }
 
@@ -100,11 +104,12 @@ async function drain(): Promise<void> {
   draining = true;
   try {
     while (queue.length > 0) {
-      const seed = queue.shift()!;
+      const entry = queue.shift()!;
+      const { seed, campaign } = entry;
       queued.delete(seed);
       // Re-check in case it was stored since being enqueued.
       if (await getOptimalRoute(seed)) continue;
-      const reply = await solveOnWorker(seed);
+      const reply = await solveOnWorker(seed, campaign);
       if (reply?.ok && reply.inputLog) {
         await saveOptimalRoute({
           seed,
@@ -127,11 +132,12 @@ async function drain(): Promise<void> {
   }
 }
 
-/** Queues a daily seed for solving if it isn't already stored or pending. */
-function enqueue(seed: string): void {
-  if (!DAILY_SEED_PATTERN.test(seed) || queued.has(seed)) return;
+/** Queues a seed for solving if it isn't already stored or pending. */
+function enqueue(seed: string, campaign = false): void {
+  if (!DAILY_SEED_PATTERN.test(seed) && !CAMPAIGN_SEED_PATTERN.test(seed)) return;
+  if (queued.has(seed)) return;
   queued.add(seed);
-  queue.push(seed);
+  queue.push({ seed, campaign });
   void drain();
 }
 
@@ -139,10 +145,11 @@ function enqueue(seed: string): void {
  * otherwise kicks off a background solve and returns null (the caller can serve
  * a "not ready yet" and the client falls back to its own local solve once). */
 export async function ensureOptimalRoute(seed: string): Promise<Awaited<ReturnType<typeof getOptimalRoute>>> {
-  if (!DAILY_SEED_PATTERN.test(seed)) return null;
+  const campaign = CAMPAIGN_SEED_PATTERN.test(seed);
+  if (!DAILY_SEED_PATTERN.test(seed) && !campaign) return null;
   const existing = await getOptimalRoute(seed);
   if (existing) return existing;
-  enqueue(seed);
+  enqueue(seed, campaign);
   return null;
 }
 
@@ -185,8 +192,53 @@ export async function precomputeWindow(): Promise<void> {
   }
 }
 
+const MONTH_ABBRS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;
+
+function campaignPrefixForOffset(offset: number): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  return `${d.getFullYear()}-${MONTH_ABBRS[d.getMonth()]!}-`;
+}
+
+function campaignSeedFor(prefix: string, index: number, overrides: Record<string, string>): string {
+  const slot = String(index).padStart(2, "0");
+  const base = `${prefix}C${slot}`;
+  const suffix = overrides[slot];
+  return suffix ? `${base}-${suffix}` : base;
+}
+
+export async function precomputeCampaignWindow(): Promise<void> {
+  try {
+    const seeds: string[] = [];
+    for (let offset = 0; offset >= -CAMPAIGN_PAST_MONTHS; offset--) {
+      const prefix = campaignPrefixForOffset(offset);
+      const overrides = await getCampaignOverrides(prefix);
+      for (let i = 1; i <= CAMPAIGN_TOTAL; i++) {
+        seeds.push(campaignSeedFor(prefix, i, overrides));
+      }
+    }
+    const solved = await getSolvedSeeds(seeds);
+    let queuedCount = 0;
+    for (const seed of seeds) {
+      if (!solved.has(seed)) {
+        enqueue(seed, true);
+        queuedCount++;
+      }
+    }
+    if (queuedCount > 0) {
+      console.log(`Optimal precompute: queued ${queuedCount} unsolved campaign map(s)`);
+    }
+  } catch (err) {
+    console.error("Campaign optimal precompute sweep failed:", (err as Error).message);
+  }
+}
+
 /** Runs the sweep now and every 24h so each new day gets solved automatically. */
 export function startPrecomputeSchedule(): void {
   void precomputeWindow();
-  setInterval(() => void precomputeWindow(), SWEEP_INTERVAL_MS).unref();
+  void precomputeCampaignWindow();
+  setInterval(() => {
+    void precomputeWindow();
+    void precomputeCampaignWindow();
+  }, SWEEP_INTERVAL_MS).unref();
 }

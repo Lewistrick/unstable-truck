@@ -12,6 +12,7 @@ import {
   type CargoState,
 } from "../physics/cargo.js";
 import { createTruck, resolveRockCollision, updateTruck, type TruckState } from "../physics/truck.js";
+import { startHeading } from "./start-heading.js";
 import { distance } from "../util/vec2.js";
 import {
   OUT_OF_BOUNDS_TICKS,
@@ -48,10 +49,12 @@ export interface SimContext {
   index: LevelIndex;
 }
 
-/** Reproduces {@link GameSession}'s constructor: base at the start, heading
- * toward the nearest pickup (or the destination if there are none). Kept in
- * lockstep with session.ts - the solver-check test drives both from identical
- * inputs and asserts they never diverge. */
+/** Reproduces {@link GameSession}'s constructor. The start heading is no longer
+ * reproduced but shared outright (see start-heading.ts): this copy of it went
+ * stale the first time the rule changed, and the solver spent a release
+ * searching routes from an angle the player never starts at. Kept in lockstep
+ * with session.ts - the solver-check test drives both from identical inputs and
+ * asserts they never diverge. */
 export function createSimContext(level: Level): SimContext {
   const base = mustFind(level, "base");
   const destination = mustFind(level, "destination");
@@ -61,18 +64,8 @@ export function createSimContext(level: Level): SimContext {
 
 export function createSimState(ctx: SimContext): SimState {
   const base = mustFind(ctx.level, "base");
-  let firstTarget: Warehouse = ctx.destination;
-  for (const wh of ctx.pickups) {
-    if (
-      firstTarget === ctx.destination ||
-      distance(base.pos, wh.pos) < distance(base.pos, firstTarget.pos)
-    ) {
-      firstTarget = wh;
-    }
-  }
-  const heading = Math.atan2(firstTarget.pos.y - base.pos.y, firstTarget.pos.x - base.pos.x);
   return {
-    truck: createTruck(base.pos, heading),
+    truck: createTruck(base.pos, startHeading(ctx.level, base, ctx.pickups, ctx.destination)),
     cargoBoxes: [],
     visitedMask: 0,
     visitedCount: 0,
@@ -80,6 +73,19 @@ export function createSimState(ctx: SimContext): SimState {
     tick: 0,
     status: "playing",
   };
+}
+
+/** Initialises a SimState from an arbitrary snapshot instead of from the base
+ * warehouse. Used by the segmented campaign solver to carry forward the truck
+ * and cargo between segments. */
+export function createSimStateFrom(prior: SimState): SimState {
+  const s = cloneSimState(prior);
+  s.visitedMask = 0;
+  s.visitedCount = 0;
+  s.boundaryTicks = 0;
+  s.tick = 0;
+  s.status = "playing";
+  return s;
 }
 
 function mustFind(level: Level, kind: Warehouse["kind"]): Warehouse {

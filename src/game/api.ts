@@ -89,6 +89,40 @@ export async function submitScore(
   }
 }
 
+/** The admin-chosen alternate maps for a campaign month, as a { "07": "b" }
+ * map of zero-padded slot to seed suffix. Null when unreachable, which the
+ * caller treats as "no overrides known" and falls back to the default maps. */
+export async function fetchCampaignOverrides(prefix: string): Promise<Record<string, string> | null> {
+  try {
+    const res = await fetch(apiUrl(`api/campaign/overrides?prefix=${encodeURIComponent(prefix)}`));
+    if (!res.ok) return null;
+    return ((await res.json()) as { overrides: Record<string, string> }).overrides;
+  } catch {
+    return null;
+  }
+}
+
+/** Replaces one campaign slot's map for every player (admin only). An empty
+ * suffix restores the default map. */
+export async function saveCampaignOverride(
+  prefix: string,
+  index: number,
+  suffix: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(apiUrl("api/campaign/overrides"), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ prefix, index, suffix }),
+    });
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: data.error ?? `failed (${res.status})` };
+  } catch {
+    return { ok: false, error: "server unreachable" };
+  }
+}
+
 /** Top 10 for a (seed, difficulty), plus rank-context around `nickname` if
  * they're not already in the top 10. Returns null if the server is
  * unreachable. */

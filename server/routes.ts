@@ -5,6 +5,7 @@ import {
   EASY_CODE,
   getAccount,
   isUsernameTaken,
+  getCampaignOverrides,
   getChampionTime,
   getChampionTimes,
   getOptimalRoute,
@@ -15,6 +16,7 @@ import {
   listRuns,
   logRun,
   lowerChampionTime,
+  setCampaignOverride,
   updateAccount,
   upsertScoreIfBetter,
   type DifficultyCode,
@@ -51,7 +53,11 @@ function tooManyRequests(res: Response, retryAfterSeconds: number): void {
 // (YYYY-Www, e.g. 2026-W31). Both are stored in the same scores table.
 const DAILY_SEED_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const WEEKLY_SEED_PATTERN = /^\d{4}-W\d{2}$/;
-const isValidSeed = (seed: string): boolean => DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed);
+const CAMPAIGN_SEED_PATTERN = /^\d{4}-[a-z]{3}-C\d{2}(?:-[a-z]{1,8})?$/;
+const CAMPAIGN_TOTAL_PATTERN = /^\d{4}-[a-z]{3}-CTOTAL$/;
+const isValidSeed = (seed: string): boolean =>
+  DAILY_SEED_PATTERN.test(seed) || WEEKLY_SEED_PATTERN.test(seed) ||
+  CAMPAIGN_SEED_PATTERN.test(seed) || CAMPAIGN_TOTAL_PATTERN.test(seed);
 const MAX_NICKNAME_LENGTH = 16;
 const TOP_N = 10;
 
@@ -191,18 +197,20 @@ scoresRouter.post("/api/scores/:seed", async (req: Request<{ seed: string }>, re
       return;
     }
 
-    const replayDifficulty = score.difficulty === EASY_CODE ? "easy" : "hard";
-    try {
-      const replay = await validateReplay(seed, replayDifficulty, score.inputLog, score.time);
-      if (!replay.valid) {
-        console.warn(`Replay rejected for ${seed} by ${score.nickname}: ${replay.reason}`);
-        res.status(422).json({ error: replay.reason });
+    if (!CAMPAIGN_TOTAL_PATTERN.test(seed)) {
+      const replayDifficulty = score.difficulty === EASY_CODE ? "easy" : "hard";
+      try {
+        const replay = await validateReplay(seed, replayDifficulty, score.inputLog, score.time);
+        if (!replay.valid) {
+          console.warn(`Replay rejected for ${seed} by ${score.nickname}: ${replay.reason}`);
+          res.status(422).json({ error: replay.reason });
+          return;
+        }
+      } catch (err) {
+        console.error(`Replay validation error for ${seed}:`, (err as Error).message);
+        res.status(503).json({ saved: false, error: "validation unavailable" });
         return;
       }
-    } catch (err) {
-      console.error(`Replay validation error for ${seed}:`, (err as Error).message);
-      res.status(503).json({ saved: false, error: "validation unavailable" });
-      return;
     }
 
     const saved = await upsertScoreIfBetter({ seed, ...score });
@@ -375,8 +383,8 @@ scoresRouter.get("/api/scores/:seed", async (req: Request<{ seed: string }>, res
  * usually a cache hit. Daily maps only - the solver targets the daily format. */
 scoresRouter.get("/api/optimal/:seed", async (req: Request<{ seed: string }>, res) => {
   const { seed } = req.params;
-  if (!DAILY_SEED_PATTERN.test(seed)) {
-    res.status(400).json({ error: "optimal routes are only computed for daily (YYYY-MM-DD) seeds" });
+  if (!DAILY_SEED_PATTERN.test(seed) && !CAMPAIGN_SEED_PATTERN.test(seed)) {
+    res.status(400).json({ error: "optimal routes are only computed for daily or campaign seeds" });
     return;
   }
   try {
@@ -408,6 +416,61 @@ scoresRouter.get("/api/scores/:seed/:nickname", async (req: Request<{ seed: stri
   }
   res.json(row);
 });
+
+// --- Campaign alternate maps ----------------------------------------------
+
+const CAMPAIGN_PREFIX_PATTERN = /^\d{4}-[a-z]{3}-$/;
+const CAMPAIGN_SUFFIX_PATTERN = /^[a-z]{1,8}$/;
+const CAMPAIGN_SLOTS = 25;
+
+/** The admin-chosen alternate maps for one campaign month. Public: every
+ * client has to resolve the same seeds the admin picked, or players would be
+ * racing different maps against a shared leaderboard. */
+scoresRouter.get("/api/campaign/overrides", async (req: Request, res) => {
+  const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
+  if (!CAMPAIGN_PREFIX_PATTERN.test(prefix)) {
+    res.status(400).json({ error: "prefix must be YYYY-mon-" });
+    return;
+  }
+  try {
+    res.json({ prefix, overrides: await getCampaignOverrides(prefix) });
+  } catch (err) {
+    console.error(`campaign override lookup failed for ${prefix}:`, (err as Error).message);
+    res.status(503).json({ error: "storage unavailable" });
+  }
+});
+
+/** Replaces one campaign slot's map with an alternate reroll (or, with an empty
+ * suffix, restores the default). Admins only - this changes which map every
+ * player races for that slot. */
+scoresRouter.put(
+  "/api/campaign/overrides",
+  requireAdmin(async (req, res) => {
+    const b = typeof req.body === "object" && req.body !== null ? (req.body as Record<string, unknown>) : {};
+    const prefix = typeof b.prefix === "string" ? b.prefix : "";
+    const index = typeof b.index === "number" && Number.isInteger(b.index) ? b.index : 0;
+    const suffix = typeof b.suffix === "string" ? b.suffix : "";
+    if (!CAMPAIGN_PREFIX_PATTERN.test(prefix)) {
+      res.status(400).json({ error: "prefix must be YYYY-mon-" });
+      return;
+    }
+    if (index < 1 || index > CAMPAIGN_SLOTS) {
+      res.status(400).json({ error: `index must be 1-${CAMPAIGN_SLOTS}` });
+      return;
+    }
+    if (suffix !== "" && !CAMPAIGN_SUFFIX_PATTERN.test(suffix)) {
+      res.status(400).json({ error: "suffix must be 1-8 lowercase letters, or empty to reset" });
+      return;
+    }
+    try {
+      await setCampaignOverride(prefix, index, suffix);
+      res.json({ saved: true, prefix, index, suffix });
+    } catch (err) {
+      console.error(`campaign override write failed for ${prefix}${index}:`, (err as Error).message);
+      res.status(503).json({ error: "storage unavailable" });
+    }
+  }),
+);
 
 /** Aggregate statistics for a player on one difficulty. */
 scoresRouter.get("/api/stats/:nickname", async (req: Request<{ nickname: string }>, res) => {

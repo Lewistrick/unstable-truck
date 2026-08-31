@@ -6,10 +6,12 @@ import {
   cloneSimState,
   createSimContext,
   createSimState,
+  createSimStateFrom,
   stepSim,
   type SimContext,
   type SimState,
 } from "./sim.js";
+import { LevelIndex } from "../level/level-index.js";
 
 /** The route a solve found: a toggle-tick input log (the same format
  * `GameSession.inputLog` / a `GhostRecording` use), the finish time in seconds,
@@ -252,8 +254,9 @@ function greedyRoute(
   ctx: SimContext,
   order: number[],
   maxTicks: number,
+  initial?: SimState,
 ): { held: boolean[]; ticks: number; success: boolean } {
-  const s = createSimState(ctx);
+  const s = initial ? cloneSimState(initial) : createSimState(ctx);
   const held: boolean[] = [];
   while (s.status === "playing" && s.tick < maxTicks) {
     const target = nextObjective(ctx, order, s);
@@ -294,6 +297,7 @@ function astarRoute(
   weight: number,
   incumbentTicks: number,
   deadline: number,
+  initial?: SimState,
 ): AstarResult {
   const { grid, headBuckets, speedBuckets, angvBuckets, maxEdge } = params;
   const cols = Math.max(1, Math.ceil(ctx.level.width / grid));
@@ -386,7 +390,7 @@ function astarRoute(
     return held;
   }
 
-  const start = createSimState(ctx);
+  const start = initial ? cloneSimState(initial) : createSimState(ctx);
   const startId = addNode(start, 0, weight * heuristic(start), -1, 0, 0);
   bestG.set(keyOf(start), 0);
   heap.push(startId);
@@ -489,6 +493,161 @@ export function toggleTicks(held: boolean[]): number[] {
 
 function clampi(x: number, lo: number, hi: number): number {
   return x < lo ? lo : x > hi ? hi : x;
+}
+
+// --- Segmented campaign solver ---------------------------------------------
+
+/** A SimContext whose spatial index covers the full level (all roads, rocks,
+ * mud) but whose pickups and destination target a single segment. */
+function makeSegmentContext(
+  level: Level,
+  pickups: Warehouse[],
+  destination: Warehouse,
+  index: LevelIndex,
+): SimContext {
+  return { level, pickups, destination, index };
+}
+
+const SEGMENT_BUDGET_MS = 5000;
+const SEGMENT_MAX_TICKS = 2400;
+
+/** Solves a campaign level by breaking it into overlapping 3-warehouse
+ * segments. See the plan file for the algorithm description.
+ *
+ * Campaign warehouses are ordered along a single linear road, so the visit
+ * order is known up front and each segment is a small 2-warehouse problem
+ * (target + lookahead). This is much cheaper than solving all 10-19
+ * warehouses at once, and the lookahead ensures smooth transitions. */
+export function solveCampaign(level: Level, options: SolveOptions = {}): SolveResult {
+  const startedAt = Date.now();
+  const overallBudgetMs = Math.min(options.timeBudgetMs ?? 300000, 600000);
+  const overallDeadline = startedAt + overallBudgetMs;
+  const params = { ...DEFAULT_PARAMS, ...options.params };
+  const index = new LevelIndex(level);
+
+  const base = level.warehouses.find((w) => w.kind === "base");
+  const dest = level.warehouses.find((w) => w.kind === "destination");
+  if (!base || !dest) {
+    return { seed: level.seed, inputLog: [], time: 0, ticks: 0, stability: 0,
+      success: false, method: "none", expanded: 0, elapsedMs: 0 };
+  }
+
+  const pickups = level.warehouses.filter((w) => w.kind === "pickup");
+  const ordered: Warehouse[] = [base, ...pickups, dest];
+
+  const allHeld: boolean[] = [];
+  let state: SimState | null = null;
+  let totalExpanded = 0;
+  let anyFailed = false;
+
+  for (let seg = 0; seg < ordered.length - 1; seg++) {
+    if (Date.now() >= overallDeadline) { anyFailed = true; break; }
+
+    const isLast = seg === ordered.length - 2;
+    const target = ordered[seg + 1]!;
+    const lookahead = isLast ? null : ordered[seg + 2]!;
+
+    const segPickups = [target];
+    const segDest = lookahead ?? target;
+    const segCtx = makeSegmentContext(level, isLast ? [] : segPickups, segDest, index);
+
+    // For the last segment there are no pickups — just drive to the
+    // destination. For all others the target warehouse is the one pickup and
+    // the lookahead is the destination.
+    const order = isLast ? [] : [0];
+
+    const segBudget = Math.min(SEGMENT_BUDGET_MS, overallDeadline - Date.now());
+    const segDeadline = Date.now() + segBudget;
+
+    const initial: SimState | undefined = state ? createSimStateFrom(state) : undefined;
+
+    // Anytime weight ladder, same as the main solver.
+    let segHeld: boolean[] | null = null;
+    let segBound = Infinity;
+    for (const weight of WEIGHT_LADDER) {
+      if (Date.now() >= segDeadline) break;
+      const pass = astarRoute(segCtx, params, order, SEGMENT_MAX_TICKS, weight, segBound, segDeadline, initial);
+      totalExpanded += pass.expanded;
+      if (pass.held) {
+        segHeld = pass.held;
+        segBound = pass.ticks;
+      }
+      if (weight === 1) break;
+    }
+
+    if (!segHeld) {
+      const greedy = greedyRoute(segCtx, order, SEGMENT_MAX_TICKS, initial);
+      if (greedy.success) segHeld = greedy.held;
+    }
+
+    if (!segHeld) { anyFailed = true; break; }
+
+    if (isLast) {
+      // Last segment: keep the whole route (target is the destination).
+      for (const h of segHeld) allHeld.push(h);
+    } else {
+      // Replay the segment to find the tick the target pickup is collected,
+      // then split: keep held[0..splitTick], save the state for the next
+      // segment.
+      const replayCtx = makeSegmentContext(level, segPickups, segDest, index);
+      const rs: SimState = initial ? cloneSimState(initial) : createSimState(replayCtx);
+      let splitTick = -1;
+      for (let t = 0; t < segHeld.length && rs.status === "playing"; t++) {
+        stepSim(replayCtx, rs, segHeld[t]!, FIXED_DT);
+        if (splitTick < 0 && rs.visitedCount >= 1) {
+          splitTick = t + 1;
+        }
+      }
+      if (splitTick < 0) { anyFailed = true; break; }
+
+      for (let t = 0; t < splitTick; t++) allHeld.push(segHeld[t]!);
+
+      // Re-simulate to the split tick to get the exact state (the loop above
+      // may have continued past it).
+      const stateCtx = makeSegmentContext(level, segPickups, segDest, index);
+      const ss: SimState = initial ? cloneSimState(initial) : createSimState(stateCtx);
+      for (let t = 0; t < splitTick && ss.status === "playing"; t++) {
+        stepSim(stateCtx, ss, segHeld[t]!, FIXED_DT);
+      }
+      state = ss;
+    }
+  }
+
+  if (anyFailed || allHeld.length === 0) {
+    // Segmented approach failed — fall back to full-level solve.
+    const fallback = solve(level, {
+      timeBudgetMs: Math.min(30000, Math.max(5000, overallDeadline - Date.now())),
+      maxTicks: options.maxTicks,
+    });
+    fallback.elapsedMs = Date.now() - startedAt;
+    return fallback;
+  }
+
+  // Verify: replay the stitched held[] through the full level to make sure
+  // the complete route succeeds with accumulated cargo.
+  const fullCtx = createSimContext(level);
+  const verified = simulateHeld(fullCtx, allHeld, allHeld.length + 1);
+
+  if (!verified.success) {
+    const fallback = solve(level, {
+      timeBudgetMs: Math.min(30000, Math.max(5000, overallDeadline - Date.now())),
+      maxTicks: options.maxTicks,
+    });
+    fallback.elapsedMs = Date.now() - startedAt;
+    return fallback;
+  }
+
+  return {
+    seed: level.seed,
+    inputLog: toggleTicks(allHeld.slice(0, verified.ticks)),
+    time: verified.ticks * FIXED_DT,
+    ticks: verified.ticks,
+    stability: verified.stability,
+    success: true,
+    method: "astar",
+    expanded: totalExpanded,
+    elapsedMs: Date.now() - startedAt,
+  };
 }
 
 /** A tiny binary min-heap over integer node ids, ordered by a caller-supplied

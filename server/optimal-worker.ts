@@ -15,6 +15,7 @@ interface SolveRequest {
   /** file:// URL of the client dist/ directory (with trailing slash). */
   distBase: string;
   timeBudgetMs: number;
+  campaign?: boolean;
 }
 
 interface SolveReply {
@@ -30,22 +31,26 @@ interface SolveReply {
 }
 
 // Cache the dynamically-imported modules across requests (the worker is reused).
-let mods: { generateLevel: (seed: string) => unknown; solve: (level: unknown, opts: unknown) => any } | null = null;
+let mods: {
+  generateLevel: (seed: string) => unknown;
+  solve: (level: unknown, opts: unknown) => any;
+  solveCampaign: (level: unknown, opts: unknown) => any;
+} | null = null;
 
 async function loadModules(distBase: string): Promise<NonNullable<typeof mods>> {
   if (mods) return mods;
   const generateMod = await import(new URL("level/generate.js", distBase).href);
   const solverMod = await import(new URL("game/solver.js", distBase).href);
-  mods = { generateLevel: generateMod.generateLevel, solve: solverMod.solve };
+  mods = { generateLevel: generateMod.generateLevel, solve: solverMod.solve, solveCampaign: solverMod.solveCampaign };
   return mods;
 }
 
 parentPort?.on("message", async (req: SolveRequest) => {
-  const { seed, distBase, timeBudgetMs } = req;
+  const { seed, distBase, timeBudgetMs, campaign } = req;
   try {
-    const { generateLevel, solve } = await loadModules(distBase);
+    const { generateLevel, solve, solveCampaign } = await loadModules(distBase);
     const level = generateLevel(seed);
-    const result = solve(level, { timeBudgetMs });
+    const result = campaign ? solveCampaign(level, { timeBudgetMs }) : solve(level, { timeBudgetMs });
     const reply: SolveReply = result.success
       ? {
           ok: true,
